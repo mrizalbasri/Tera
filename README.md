@@ -1,6 +1,6 @@
 # Expense Agent
 
-Expense Agent is a prototype AI agent for processing employee expense reimbursement claims. The business requirements are documented in [`BRD_Expense_Reimbursement_Agent.md`](BRD_Expense_Reimbursement_Agent.md).
+Expense Agent is a prototype AI agent for processing employee expense reimbursement claims. The business requirements are documented in [`docs/BRD_Expense_Reimbursement_Agent.md`](docs/BRD_Expense_Reimbursement_Agent.md).
 
 This repository uses:
 

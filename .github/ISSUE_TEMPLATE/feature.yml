@@ -1,0 +1,19 @@
+name: Feature
+description: Propose a focused product or engineering change.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and outcome
+      description: What problem does this solve and what should improve?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is included and excluded?
+    validations:
+      required: true

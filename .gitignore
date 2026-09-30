@@ -1,0 +1,43 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.svelte-kit/
+build/
+dist/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+service-account*.json
+
+# Local data and databases
+*.db
+*.sqlite
+*.sqlite3
+data/local/
+
+# Editors and operating-system files
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.obsidian/workspace.json
+.obsidian/cache/
+.obsidian/metadata.json
+.DS_Store
+Thumbs.db
+
+# Test and coverage output
+.coverage
+htmlcov/
+coverage/

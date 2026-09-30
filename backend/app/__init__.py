@@ -1,0 +1,1 @@
+"""Expense Agent backend application."""

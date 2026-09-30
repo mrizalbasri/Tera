@@ -46,6 +46,10 @@ The web interface is available at the URL printed by SvelteKit.
 
 Open the `docs/` directory as an Obsidian vault. Start at [`docs/README.md`](docs/README.md). Documents use Obsidian wikilinks and Mermaid diagrams so the relationships can be explored in Graph View.
 
+## Team contribution rule
+
+Every commit must use [Conventional Commits](https://www.conventionalcommits.org/). Read [`CONTRIBUTING.md`](CONTRIBUTING.md) before creating a branch or commit.
+
 ## Data safety
 
 Do not commit real receipts, personal information, API keys, or other secrets. Use synthetic or properly anonymized data only. Environment files are ignored; commit only `.env.example` files with placeholder values.

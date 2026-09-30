@@ -37,11 +37,11 @@ Tera/
 │  ├─ schemas/
 │  └─ samples/             # synthetic or anonymized data only
 ├─ docs/
+│  ├─ BRD_Expense_Reimbursement_Agent.md
 │  ├─ README.md
 │  ├─ architecture/
 │  ├─ decisions/
 │  └─ policies/
-├─ BRD_Expense_Reimbursement_Agent.md
 ├─ README.md
 ├─ CONTRIBUTING.md
 ├─ .gitignore
@@ -51,7 +51,7 @@ Tera/
    └─ CODEOWNERS
 ```
 
-The root `README.md` is the GitHub onboarding page. `docs/README.md` is the documentation-vault index for Obsidian. They serve different audiences and both remain in the repository.
+The root `README.md` is the GitHub onboarding page. `docs/README.md` is the documentation-vault index for Obsidian, and `docs/BRD_Expense_Reimbursement_Agent.md` is the canonical business requirements document.
 
 ## Dependency and Environment Policy
 
@@ -127,4 +127,3 @@ The following are intentionally deferred:
 - External LLM integration.
 - Accounting, WhatsApp, email, or multi-level approval integrations.
 - CI checks that depend on final framework tooling.
-

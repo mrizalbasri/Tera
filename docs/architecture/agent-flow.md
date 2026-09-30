@@ -20,4 +20,4 @@ The flow is a target architecture, not a claim that all steps are already implem
 Related documents:
 
 - [[overview|Architecture overview]]
-- [[../../BRD_Expense_Reimbursement_Agent|Business requirements]]
+- [[../BRD_Expense_Reimbursement_Agent|Business requirements]]

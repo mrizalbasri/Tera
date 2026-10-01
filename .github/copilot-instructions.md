@@ -68,6 +68,7 @@ The frontend is a SvelteKit app using TypeScript and Vite. The main app structur
 ## Repo-specific conventions
 
 - Commit messages must follow Conventional Commits (`feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`, `chore`, `perf`, `revert`).
+- Never add a `Co-authored-by: Copilot` trailer or any Copilot attribution to commit messages unless explicitly requested by the user.
 - Keep `main` stable and work from focused branches like `feat/<short-description>` or `fix/<short-description>`.
 - Open a PR for each change and include motivation, validation, and any security/data impact.
 - Do not commit secrets, API keys, receipts, or personal data. Use the synthetic data model and placeholder values only.

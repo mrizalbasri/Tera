@@ -3,6 +3,7 @@ from threading import RLock
 from uuid import UUID
 
 from app.schemas.core import Claim, Receipt
+from app.schemas.core import ExtractionAttempt, ExtractionResult
 
 
 class InMemoryClaimStore:
@@ -12,6 +13,9 @@ class InMemoryClaimStore:
         self._idempotency: dict[str, UUID] = {}
         self._content_hashes: dict[str, UUID] = {}
         self._content: dict[str, bytes] = {}
+        self._extractions: dict[UUID, list[ExtractionResult]] = {}
+        self._attempts: dict[UUID, list[ExtractionAttempt]] = {}
+        self._processing_results: dict[UUID, dict[str, object]] = {}
         self._lock = RLock()
 
     def get(self, claim_id: UUID) -> Claim | None:
@@ -56,3 +60,37 @@ class InMemoryClaimStore:
     def get_content(self, storage_reference: str) -> bytes | None:
         with self._lock:
             return self._content.get(storage_reference)
+
+    def save_extraction(self, result: ExtractionResult) -> ExtractionResult:
+        with self._lock:
+            self._extractions.setdefault(result.receipt_id, []).append(result)
+        return result
+
+    def list_extractions(self, claim_id: UUID) -> Sequence[ExtractionResult]:
+        with self._lock:
+            receipt_ids = {
+                receipt.id for receipt in self._receipts.get(claim_id, ())
+            }
+            return tuple(
+                result
+                for receipt_id in receipt_ids
+                for result in self._extractions.get(receipt_id, ())
+            )
+
+    def save_attempt(self, claim_id: UUID, attempt: ExtractionAttempt) -> None:
+        with self._lock:
+            self._attempts.setdefault(claim_id, []).append(attempt)
+
+    def list_attempts(self, claim_id: UUID) -> Sequence[ExtractionAttempt]:
+        with self._lock:
+            return tuple(self._attempts.get(claim_id, ()))
+
+    def get_processing_result(self, claim_id: UUID) -> dict[str, object] | None:
+        with self._lock:
+            return self._processing_results.get(claim_id)
+
+    def save_processing_result(
+        self, claim_id: UUID, result: dict[str, object]
+    ) -> None:
+        with self._lock:
+            self._processing_results[claim_id] = result

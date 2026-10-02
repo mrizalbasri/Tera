@@ -6,7 +6,13 @@ from pydantic import BaseModel
 from app.config import Settings, get_settings
 from app.errors import NotFoundError
 from app.repositories.memory import InMemoryClaimStore
-from app.schemas.core import Claim, Receipt
+from app.schemas.core import (
+    Claim,
+    ExtractionAttempt,
+    ExtractionResult,
+    Receipt,
+)
+from app.services.extraction import ExtractionService
 from app.services.intake import IntakeService, parse_declared_amount
 
 router = APIRouter(prefix="/claims", tags=["claims"])
@@ -27,10 +33,25 @@ class ClaimListResponse(BaseModel):
 class ClaimDetailResponse(BaseModel):
     claim: Claim
     receipts: list[Receipt]
+    extractions: list[ExtractionResult] = []
+    attempts: list[ExtractionAttempt] = []
+
+
+class ProcessClaimResponse(BaseModel):
+    claim: Claim
+    extractions: list[ExtractionResult]
+    attempts: list[ExtractionAttempt]
+    clarification: object | None = None
 
 
 def get_intake_service(settings: Settings = Depends(get_settings)) -> IntakeService:
     return IntakeService(store, settings)
+
+
+def get_extraction_service(
+    settings: Settings = Depends(get_settings),
+) -> ExtractionService:
+    return ExtractionService(store, settings)
 
 
 @router.post("", response_model=ClaimResponse, status_code=201)
@@ -72,4 +93,15 @@ def get_claim(claim_id: UUID) -> ClaimDetailResponse:
     return ClaimDetailResponse(
         claim=claim,
         receipts=list(store.list_receipts(claim_id)),
+        extractions=list(store.list_extractions(claim_id)),
+        attempts=list(store.list_attempts(claim_id)),
     )
+
+
+@router.post("/{claim_id}/process", response_model=ProcessClaimResponse)
+def process_claim(
+    claim_id: UUID,
+    service: ExtractionService = Depends(get_extraction_service),
+) -> ProcessClaimResponse:
+    result = service.process_claim(claim_id)
+    return ProcessClaimResponse(**result)

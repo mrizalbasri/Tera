@@ -48,6 +48,48 @@ class Receipt(SchemaBase):
     created_at: datetime
 
 
+class ExtractedLineItem(SchemaBase):
+    description: str = Field(min_length=1, max_length=255)
+    quantity: Decimal = Field(gt=0)
+    unit_price: Decimal = Field(gt=0)
+    total: Decimal = Field(gt=0)
+
+
+class FieldConfidence(SchemaBase):
+    value: object
+    confidence: Decimal = Field(ge=0, le=1)
+
+
+class ExtractionResult(SchemaBase):
+    id: UUID
+    receipt_id: UUID
+    vendor: FieldConfidence
+    receipt_date: FieldConfidence
+    total: FieldConfidence
+    currency: FieldConfidence
+    category: FieldConfidence
+    line_items: list[ExtractedLineItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    provider: str = Field(min_length=1, max_length=100)
+    created_at: datetime
+
+
+class ExtractionAttempt(SchemaBase):
+    attempt: int = Field(ge=1)
+    preprocessing: list[str] = Field(default_factory=list)
+    confidence: dict[str, Decimal]
+    extraction_id: UUID | None = None
+    error_code: str | None = None
+    message: str | None = None
+    created_at: datetime
+
+
+class ClarificationRequest(SchemaBase):
+    code: str = Field(min_length=1, max_length=100)
+    message: str = Field(min_length=1, max_length=2000)
+    fields: list[str] = Field(min_length=1)
+
+
 class ProcessingRun(SchemaBase):
     id: UUID
     claim_id: UUID

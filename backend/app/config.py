@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     auto_approve_min_confidence: float = 0.8
     escalation_amount_threshold: int = 500_000
     max_processing_retries: int = 2
+    extraction_confidence_threshold: float = 0.8
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

@@ -1,7 +1,10 @@
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
+from app.errors import ApplicationError
 
 settings = get_settings()
 
@@ -18,6 +21,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(ApplicationError)
+async def application_error_handler(
+    _request: Request, exc: ApplicationError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": exc.code,
+            "message": exc.message,
+            "details": exc.details,
+        },
+    )
 
 
 @app.get("/health")

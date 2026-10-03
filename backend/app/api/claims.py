@@ -3,20 +3,33 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
 from pydantic import BaseModel
 
+from app.api.deps import (
+    get_claim_repository,
+    get_extraction_attempt_repository,
+    get_extraction_repository,
+    get_extraction_service,
+    get_intake_service,
+    get_receipt_repository,
+)
 from app.config import Settings, get_settings
 from app.errors import NotFoundError
-from app.repositories.memory import InMemoryClaimStore
+from app.repositories.protocols import (
+    ClaimRepository,
+    ExtractionAttemptRepository,
+    ExtractionRepository,
+    ReceiptRepository,
+)
 from app.schemas.core import (
     Claim,
+    ClarificationRequest,
     ExtractionAttempt,
     ExtractionResult,
     Receipt,
 )
 from app.services.extraction import ExtractionService
-from app.services.intake import IntakeService, parse_declared_amount
+from app.services.intake import IntakeService, ReceiptUpload, parse_declared_amount
 
 router = APIRouter(prefix="/claims", tags=["claims"])
-store = InMemoryClaimStore()
 
 
 class ClaimResponse(BaseModel):
@@ -41,17 +54,7 @@ class ProcessClaimResponse(BaseModel):
     claim: Claim
     extractions: list[ExtractionResult]
     attempts: list[ExtractionAttempt]
-    clarification: object | None = None
-
-
-def get_intake_service(settings: Settings = Depends(get_settings)) -> IntakeService:
-    return IntakeService(store, settings)
-
-
-def get_extraction_service(
-    settings: Settings = Depends(get_settings),
-) -> ExtractionService:
-    return ExtractionService(store, settings)
+    clarification: ClarificationRequest | None = None
 
 
 @router.post("", response_model=ClaimResponse, status_code=201)
@@ -61,40 +64,53 @@ async def create_claim(
     declared_amount: str | None = Form(None),
     files: list[UploadFile] = File(...),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    settings: Settings = Depends(get_settings),
     service: IntakeService = Depends(get_intake_service),
 ) -> ClaimResponse:
-    claim, receipts, replay = await service.create_claim(
+    uploads = [
+        ReceiptUpload(
+            filename=upload.filename,
+            media_type=upload.content_type,
+            content=await upload.read(settings.max_receipt_size_bytes + 1),
+        )
+        for upload in files
+    ]
+    claim, receipts, replay = service.create_claim(
         employee_id=employee_id,
         currency=currency,
         declared_amount=parse_declared_amount(declared_amount),
-        files=files,
+        files=uploads,
         idempotency_key=idempotency_key,
     )
-    return ClaimResponse(
-        claim=claim,
-        receipts=receipts,
-        idempotent_replay=replay,
-    )
+    return ClaimResponse(claim=claim, receipts=receipts, idempotent_replay=replay)
 
 
 @router.get("", response_model=ClaimListResponse)
 def list_claims(
     employee_id: str | None = Query(None),
+    claims: ClaimRepository = Depends(get_claim_repository),
 ) -> ClaimListResponse:
-    items = list(store.list(employee_id=employee_id))
+    items = list(claims.list(employee_id=employee_id))
     return ClaimListResponse(items=items, total=len(items))
 
 
 @router.get("/{claim_id}", response_model=ClaimDetailResponse)
-def get_claim(claim_id: UUID) -> ClaimDetailResponse:
-    claim = store.get(claim_id)
+def get_claim(
+    claim_id: UUID,
+    claims: ClaimRepository = Depends(get_claim_repository),
+    receipts: ReceiptRepository = Depends(get_receipt_repository),
+    extractions: ExtractionRepository = Depends(get_extraction_repository),
+    attempts: ExtractionAttemptRepository = Depends(get_extraction_attempt_repository),
+) -> ClaimDetailResponse:
+    claim = claims.get(claim_id)
     if claim is None:
         raise NotFoundError("Claim", str(claim_id))
+    receipt_ids = [receipt.id for receipt in receipts.list_for_claim(claim_id)]
     return ClaimDetailResponse(
         claim=claim,
-        receipts=list(store.list_receipts(claim_id)),
-        extractions=list(store.list_extractions(claim_id)),
-        attempts=list(store.list_attempts(claim_id)),
+        receipts=list(receipts.list_for_claim(claim_id)),
+        extractions=list(extractions.list_for_receipts(receipt_ids)),
+        attempts=list(attempts.list_for_claim(claim_id)),
     )
 
 
@@ -103,5 +119,10 @@ def process_claim(
     claim_id: UUID,
     service: ExtractionService = Depends(get_extraction_service),
 ) -> ProcessClaimResponse:
-    result = service.process_claim(claim_id)
-    return ProcessClaimResponse(**result)
+    outcome = service.process_claim(claim_id)
+    return ProcessClaimResponse(
+        claim=outcome.claim,
+        extractions=outcome.extractions,
+        attempts=outcome.attempts,
+        clarification=outcome.clarification,
+    )

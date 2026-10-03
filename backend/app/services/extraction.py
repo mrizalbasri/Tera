@@ -13,6 +13,7 @@ from app.domain.enums import (
     ClarificationStatus,
     DecisionOutcome,
     ProcessingRunStatus,
+    ReviewStatus,
 )
 from app.domain.transitions import apply_transition
 from app.errors import ApplicationError, ErrorCode, NotFoundError
@@ -33,6 +34,7 @@ from app.repositories.protocols import (
     ProcessingRunRepository,
     ReceiptExtractor,
     ReceiptRepository,
+    ReviewRepository,
     SignalRepository,
     ValidationFindingRepository,
 )
@@ -46,6 +48,7 @@ from app.schemas.core import (
     PolicyEvaluation,
     ProcessingOutcome,
     ProcessingRun,
+    Review,
     Signal,
     ValidationFinding,
 )
@@ -92,6 +95,7 @@ class ExtractionService:
         signals: SignalRepository,
         decisions: DecisionRepository,
         history: ClaimHistoryRepository,
+        reviews: ReviewRepository,
         audit: AuditRepository,
         duplicate_detector: DuplicateDetector,
         anomaly_scorer: AnomalyScorer,
@@ -114,6 +118,7 @@ class ExtractionService:
         self._signals = signals
         self._decisions = decisions
         self._history = history
+        self._reviews = reviews
         self._audit = audit
         self._duplicate_detector = duplicate_detector
         self._anomaly_scorer = anomaly_scorer
@@ -124,16 +129,21 @@ class ExtractionService:
         self._decider = decider
         self._settings = settings
 
-    def process_claim(self, claim_id: UUID) -> ProcessingOutcome:
+    def process_claim(self, claim_id: UUID, *, resume: bool = False) -> ProcessingOutcome:
         claim = self._claims.get(claim_id)
         if claim is None:
             raise NotFoundError("Claim", str(claim_id))
 
         latest_run = self._runs.latest_for_claim(claim_id)
-        if latest_run is not None and latest_run.status in (
-            ProcessingRunStatus.SUCCEEDED,
-            ProcessingRunStatus.NEEDS_CLARIFICATION,
-            ProcessingRunStatus.ESCALATED,
+        if (
+            not resume
+            and latest_run is not None
+            and latest_run.status
+            in (
+                ProcessingRunStatus.SUCCEEDED,
+                ProcessingRunStatus.NEEDS_CLARIFICATION,
+                ProcessingRunStatus.ESCALATED,
+            )
         ):
             # Repetition without new input replays the recorded run instead of
             # creating a conflicting one (M6 reliability rule).
@@ -148,11 +158,15 @@ class ExtractionService:
         current_status = ClaimStatus(claim.status)
         if current_status is ClaimStatus.RECEIVED:
             claim = self._transition_claim(claim, ClaimStatus.PROCESSING)
-        elif not (
-            current_status is ClaimStatus.PROCESSING
-            and latest_run is not None
-            and latest_run.status == ProcessingRunStatus.FAILED
+        elif current_status is ClaimStatus.PROCESSING and (
+            resume
+            or (
+                latest_run is not None
+                and latest_run.status == ProcessingRunStatus.FAILED
+            )
         ):
+            pass
+        else:
             raise ApplicationError(
                 ErrorCode.INVALID_CLAIM,
                 "Claim cannot be processed in its current state.",
@@ -250,7 +264,12 @@ class ExtractionService:
                     for result in attempt_results
                 ]
                 findings = self._validate_extraction(claim, saved)
-                evaluations = self._evaluate_policy(claim, saved, run, attempts)
+                participants, participants_answered = self._answered_participants(
+                    claim.id
+                )
+                evaluations = self._evaluate_policy(
+                    claim, saved, run, attempts, participants
+                )
                 total = max(
                     (
                         _as_decimal(result.total.value) or Decimal("0")
@@ -270,6 +289,7 @@ class ExtractionService:
                         evaluations[0].policy_version if evaluations else None
                     ),
                     processing_run_id=run.id,
+                    participants_answered=participants_answered,
                 )
                 self._decisions.save(decision)
                 claim = self._transition_claim(
@@ -283,6 +303,8 @@ class ExtractionService:
                     clarification = self._record_data_clarification(
                         claim, decision, run
                     )
+                elif decision.outcome == DecisionOutcome.ESCALATED:
+                    self._open_review(claim, run)
                 self._complete_run(
                     run,
                     _DECISION_RUN_STATUS[decision.outcome],
@@ -323,6 +345,7 @@ class ExtractionService:
         saved: list[ExtractionResult],
         run: ProcessingRun,
         attempts: list[ExtractionAttempt],
+        participants: int = 1,
     ) -> list[PolicyEvaluation]:
         evaluations: list[PolicyEvaluation] = []
         for result in saved:
@@ -350,10 +373,47 @@ class ExtractionService:
                 extraction=result,
                 policy=policy,
                 processing_run_id=run.id,
+                participants=participants,
             ):
                 self._evaluations.save(evaluation)
                 evaluations.append(evaluation)
         return evaluations
+
+    def _answered_participants(self, claim_id: UUID) -> tuple[int, bool]:
+        """Participant count from the latest answered clarification, if any."""
+        for clarification in reversed(self._clarifications.list_for_claim(claim_id)):
+            if (
+                clarification.status == ClarificationStatus.ANSWERED
+                and "participant_count" in clarification.fields
+                and clarification.answer
+            ):
+                try:
+                    return max(int(str(clarification.answer).strip()), 1), True
+                except ValueError:
+                    continue
+        return 1, False
+
+    def _open_review(self, claim: Claim, run: ProcessingRun) -> None:
+        review = Review(
+            id=uuid4(),
+            claim_id=claim.id,
+            status=ReviewStatus.OPEN,
+            reviewer_reference=None,
+            action=None,
+            reason=None,
+            created_at=datetime.now(UTC),
+            decided_at=None,
+        )
+        self._reviews.save(review)
+        record_audit_event(
+            self._audit,
+            aggregate_type="claim",
+            aggregate_id=claim.id,
+            event_type="review.opened",
+            actor_type=ActorType.AGENT,
+            safe_payload={"run_id": str(run.id)},
+            processing_run_id=run.id,
+        )
 
     def _detect_signals(
         self,
@@ -380,12 +440,18 @@ class ExtractionService:
     def _record_data_clarification(
         self, claim: Claim, decision: Decision, run: ProcessingRun
     ) -> ClarificationRequest:
+        if "participant_count_required" in decision.reason_codes:
+            code = "participant_count_required"
+            fields = ["participant_count"]
+        else:
+            code = "invalid_claim_data"
+            fields = list(decision.reason_codes)
         clarification = Clarification(
             id=uuid4(),
             claim_id=claim.id,
             processing_run_id=run.id,
-            code="invalid_claim_data",
-            fields=list(decision.reason_codes),
+            code=code,
+            fields=fields,
             question=decision.explanation,
             answer=None,
             status=ClarificationStatus.OPEN,

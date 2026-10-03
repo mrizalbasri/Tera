@@ -1,10 +1,12 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.deps import (
     get_claim_repository,
+    get_clarification_repository,
+    get_clarification_service,
     get_decision_repository,
     get_extraction_attempt_repository,
     get_extraction_repository,
@@ -29,6 +31,7 @@ from app.repositories.protocols import (
 )
 from app.schemas.core import (
     Claim,
+    Clarification,
     ClarificationRequest,
     Decision,
     ExtractionAttempt,
@@ -38,6 +41,7 @@ from app.schemas.core import (
     Signal,
     ValidationFinding,
 )
+from app.services.clarification import ClarificationService
 from app.services.extraction import ExtractionService
 from app.services.intake import IntakeService, ReceiptUpload, parse_declared_amount
 
@@ -74,6 +78,16 @@ class ProcessClaimResponse(BaseModel):
     validation_findings: list[ValidationFinding] = []
     policy_evaluations: list[PolicyEvaluation] = []
     decision: Decision | None = None
+
+
+class ClarificationListResponse(BaseModel):
+    items: list[Clarification]
+    total: int
+
+
+class AnswerRequest(BaseModel):
+    answer: str = Field(min_length=1, max_length=2000)
+    answered_by: str = Field(min_length=1, max_length=100)
 
 
 @router.post("", response_model=ClaimResponse, status_code=201)
@@ -147,6 +161,43 @@ def process_claim(
     service: ExtractionService = Depends(get_extraction_service),
 ) -> ProcessClaimResponse:
     outcome = service.process_claim(claim_id)
+    return ProcessClaimResponse(
+        claim=outcome.claim,
+        extractions=outcome.extractions,
+        attempts=outcome.attempts,
+        clarification=outcome.clarification,
+        validation_findings=outcome.validation_findings,
+        policy_evaluations=outcome.policy_evaluations,
+        decision=outcome.decision,
+    )
+
+
+@router.get("/{claim_id}/clarifications", response_model=ClarificationListResponse)
+def list_clarifications(
+    claim_id: UUID,
+    service: ClarificationService = Depends(get_clarification_service),
+) -> ClarificationListResponse:
+    items = service.list_for_claim(claim_id)
+    return ClarificationListResponse(items=items, total=len(items))
+
+
+@router.post(
+    "/{claim_id}/clarifications/{clarification_id}/answer",
+    response_model=ProcessClaimResponse,
+)
+def answer_clarification(
+    claim_id: UUID,
+    clarification_id: UUID,
+    request: AnswerRequest,
+    service: ClarificationService = Depends(get_clarification_service),
+) -> ProcessClaimResponse:
+    service.answer(
+        claim_id,
+        clarification_id,
+        answer=request.answer,
+        answered_by=request.answered_by,
+    )
+    outcome = service.resume(claim_id)
     return ProcessClaimResponse(
         claim=outcome.claim,
         extractions=outcome.extractions,

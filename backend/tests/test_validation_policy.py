@@ -241,7 +241,7 @@ def test_pipeline_records_validation_and_policy_results() -> None:
     assert finding["reason_code"] == "total_line_item_mismatch"
 
 
-def test_over_limit_meal_claim_is_flagged_by_policy() -> None:
+def test_over_limit_meal_claim_requests_participant_count() -> None:
     claim_id = _create_claim(
         b"%PDF-1.7\nCATEGORY:MEALS over-limit\n%%EOF", declared="240000"
     )
@@ -250,9 +250,10 @@ def test_over_limit_meal_claim_is_flagged_by_policy() -> None:
 
     meal = _finding(payload["policy_evaluations"], "meal_daily_limit")
     assert meal["passed"] is False
-    assert meal["reason_code"] == "policy_limit_exceeded"
-    assert payload["claim"]["status"] == "rejected"
-    assert payload["decision"]["outcome"] == "rejected"
+    assert meal["clarifiable"] is True
+    assert payload["claim"]["status"] == "needs_clarification"
+    assert payload["decision"]["outcome"] == "needs_clarification"
+    assert payload["clarification"]["code"] == "participant_count_required"
 
 
 def test_alcohol_receipt_fails_policy_in_pipeline() -> None:

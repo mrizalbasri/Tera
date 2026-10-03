@@ -30,12 +30,16 @@ from app.repositories.protocols import (
     ReceiptQualityChecker,
     ReceiptRepository,
     ReceiptExtractor,
+    ReviewRepository,
     SignalRepository,
     ValidationFindingRepository,
+    ConversationContextRepository,
 )
+from app.services.clarification import ClarificationService
 from app.services.decision import DecisionEngine
 from app.services.extraction import ExtractionService
 from app.services.intake import IntakeService
+from app.services.review import ReviewService
 from app.services.validation import ValidationService
 
 
@@ -99,6 +103,10 @@ def get_claim_history_repository() -> ClaimHistoryRepository:
     return _repositories().history
 
 
+def get_review_repository() -> ReviewRepository:
+    return _repositories().reviews
+
+
 def get_file_storage() -> FileStorage:
     return _file_storage()
 
@@ -143,6 +151,7 @@ def get_decision_engine(
     return DecisionEngine(settings)
 
 
+
 def get_intake_service(
     settings: Settings = Depends(get_settings),
     claims: ClaimRepository = Depends(get_claim_repository),
@@ -168,6 +177,7 @@ def get_extraction_service(
     signals: SignalRepository = Depends(get_signal_repository),
     decisions: DecisionRepository = Depends(get_decision_repository),
     history: ClaimHistoryRepository = Depends(get_claim_history_repository),
+    reviews: ReviewRepository = Depends(get_review_repository),
     audit: AuditRepository = Depends(get_audit_repository),
     duplicate_detector: DuplicateDetector = Depends(get_duplicate_detector),
     anomaly_scorer: AnomalyScorer = Depends(get_anomaly_scorer),
@@ -190,6 +200,7 @@ def get_extraction_service(
         signals,
         decisions,
         history,
+        reviews,
         audit,
         duplicate_detector,
         anomaly_scorer,
@@ -200,3 +211,36 @@ def get_extraction_service(
         decider,
         settings,
     )
+def get_conversation_context_repository() -> ConversationContextRepository:
+    return _repositories().context
+
+
+def get_clarification_service(
+    claims: ClaimRepository = Depends(get_claim_repository),
+    clarifications: ClarificationRepository = Depends(get_clarification_repository),
+    context: ConversationContextRepository = Depends(
+        get_conversation_context_repository
+    ),
+    audit: AuditRepository = Depends(get_audit_repository),
+    extraction_service: ExtractionService = Depends(get_extraction_service),
+) -> ClarificationService:
+    return ClarificationService(
+        claims,
+        clarifications,
+        context,
+        audit,
+        process_resume=lambda claim_id: extraction_service.process_claim(
+            claim_id, resume=True
+        ),
+    )
+
+
+def get_review_service(
+    claims: ClaimRepository = Depends(get_claim_repository),
+    decisions: DecisionRepository = Depends(get_decision_repository),
+    reviews: ReviewRepository = Depends(get_review_repository),
+    signals: SignalRepository = Depends(get_signal_repository),
+    audit: AuditRepository = Depends(get_audit_repository),
+) -> ReviewService:
+    return ReviewService(claims, decisions, reviews, signals, audit)
+

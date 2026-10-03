@@ -1,11 +1,19 @@
-from fastapi import FastAPI
-from fastapi import Request
+import logging
+from uuid import uuid4
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.claims import router as claims_router
 from app.config import get_settings
 from app.errors import ApplicationError
-from app.api.claims import router as claims_router
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("expense_agent")
 
 settings = get_settings()
 
@@ -23,6 +31,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid4())
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    logger.info(
+        "http request method=%s path=%s status=%s request_id=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        request_id,
+    )
+    return response
 
 
 @app.exception_handler(ApplicationError)

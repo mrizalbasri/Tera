@@ -8,6 +8,7 @@ from app.schemas.core import (
     AuditEvent,
     Claim,
     Clarification,
+    ConversationEntry,
     Decision,
     ExtractionAttempt,
     ExtractionResult,
@@ -128,6 +129,7 @@ class PolicyEvaluator(Protocol):
         extraction: ExtractionResult,
         policy: Policy,
         processing_run_id: UUID,
+        participants: int = 1,
     ) -> Sequence[PolicyEvaluation]: ...
 
 
@@ -153,6 +155,12 @@ class ClaimHistoryRepository(Protocol):
     def list_for_employee(
         self, employee_id: str, *, exclude_claim_id: UUID | None = None
     ) -> Sequence[Claim]: ...
+
+
+class ConversationContextRepository(Protocol):
+    def append(self, entry: ConversationEntry) -> ConversationEntry: ...
+
+    def list_for_claim(self, claim_id: UUID) -> Sequence[ConversationEntry]: ...
 
 
 class DuplicateDetector(Protocol):

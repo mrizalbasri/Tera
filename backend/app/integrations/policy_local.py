@@ -98,11 +98,11 @@ class LocalPolicyEvaluator:
         extraction: ExtractionResult,
         policy: Policy,
         processing_run_id: UUID,
+        participants: int = 1,
     ) -> list[PolicyEvaluation]:
         evaluations: list[PolicyEvaluation] = []
         total = self._decimal(extraction.total.value)
-        # Participant count arrives via clarification in M5; one person until then.
-        participants = 1
+        participants = max(participants, 1)
         for rule in policy.rules:
             if rule.rule_type in ("max_amount_per_person", "max_amount"):
                 limit = rule.limit
@@ -117,13 +117,20 @@ class LocalPolicyEvaluator:
                         processing_run_id=processing_run_id,
                         rule_id=rule.rule_id,
                         passed=passed,
+                        clarifiable=(
+                            rule.rule_type == "max_amount_per_person" and not passed
+                        ),
                         actual_value=total,
                         limit=limit,
                         reason_code=None if passed else "policy_limit_exceeded",
                         explanation=(
-                            f"Receipt total {total} is within the {rule.rule_id} limit."
+                            f"Receipt total {total} is within the {rule.rule_id} "
+                            f"limit for {participants} participant(s)."
                             if passed
-                            else f"Receipt total {total} exceeds the {rule.rule_id} limit of {limit}."
+                            else (
+                                f"Receipt total {total} exceeds the {rule.rule_id} "
+                                f"limit of {limit} for {participants} participant(s)."
+                            )
                         ),
                     )
                 )
@@ -189,6 +196,7 @@ class LocalPolicyEvaluator:
         limit: object,
         reason_code: str | None,
         explanation: str,
+        clarifiable: bool = False,
     ) -> PolicyEvaluation:
         return PolicyEvaluation(
             claim_id=claim.id,
@@ -198,6 +206,7 @@ class LocalPolicyEvaluator:
             rule_id=rule_id,
             passed=passed,
             severity=Severity.INFO if passed else Severity.BLOCKING,
+            clarifiable=clarifiable,
             actual_value=actual_value,
             limit=limit,
             reason_code=reason_code,

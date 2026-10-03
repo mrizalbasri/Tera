@@ -165,6 +165,15 @@ class Signal(SchemaBase):
     created_at: datetime
 
 
+class ConversationEntry(SchemaBase):
+    """One bounded, safe conversation-context entry for a claim."""
+
+    claim_id: UUID
+    role: str = Field(min_length=1, max_length=20)
+    content: str = Field(min_length=1, max_length=2000)
+    created_at: datetime
+
+
 class AuditEvent(SchemaBase):
     id: UUID
     aggregate_type: str = Field(min_length=1, max_length=100)
@@ -235,6 +244,7 @@ class PolicyEvaluation(SchemaBase):
     rule_id: str = Field(min_length=1, max_length=100)
     passed: bool
     severity: Severity
+    clarifiable: bool = False
     actual_value: object | None = None
     limit: object | None = None
     reason_code: str | None = Field(default=None, max_length=100)

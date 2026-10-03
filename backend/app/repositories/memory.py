@@ -1,3 +1,4 @@
+from collections import deque
 from collections.abc import Sequence
 from threading import RLock
 from uuid import UUID
@@ -6,6 +7,7 @@ from app.schemas.core import (
     AuditEvent,
     Claim,
     Clarification,
+    ConversationEntry,
     ExtractionAttempt,
     ExtractionResult,
     PolicyEvaluation,
@@ -286,6 +288,29 @@ class InMemoryClaimHistoryRepository:
         )
 
 
+class InMemoryConversationContextRepository:
+    """Bounded per-claim conversation memory (FR-15)."""
+
+    MAX_ENTRIES = 20
+
+    def __init__(self) -> None:
+        self._context: dict[UUID, deque[ConversationEntry]] = {}
+        self._lock = RLock()
+
+    def append(self, entry: ConversationEntry) -> ConversationEntry:
+        with self._lock:
+            entries = self._context.setdefault(
+                entry.claim_id,
+                deque(maxlen=self.MAX_ENTRIES),
+            )
+            entries.append(entry)
+        return entry
+
+    def list_for_claim(self, claim_id: UUID) -> Sequence[ConversationEntry]:
+        with self._lock:
+            return tuple(self._context.get(claim_id, ()))
+
+
 class InMemoryRepositories:
     """Bundle of in-memory fakes used by the memory storage backend and tests."""
 
@@ -302,6 +327,7 @@ class InMemoryRepositories:
         self.findings = InMemoryValidationFindingRepository()
         self.evaluations = InMemoryPolicyEvaluationRepository()
         self.signals = InMemorySignalRepository()
+        self.context = InMemoryConversationContextRepository()
 
     @property
     def history(self) -> InMemoryClaimHistoryRepository:

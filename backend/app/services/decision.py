@@ -42,6 +42,7 @@ class DecisionEngine:
         signals: list[Signal],
         policy_version: int | None,
         processing_run_id: UUID,
+        participants_answered: bool = False,
     ) -> Decision:
         blocking_findings = [
             finding
@@ -55,6 +56,12 @@ class DecisionEngine:
             evaluation
             for evaluation in evaluations
             if not evaluation.passed and evaluation.severity == Severity.BLOCKING
+        ]
+        blocking_violations = [
+            evaluation for evaluation in policy_violations if not evaluation.clarifiable
+        ]
+        clarifiable_violations = [
+            evaluation for evaluation in policy_violations if evaluation.clarifiable
         ]
         anomaly = next(
             (signal for signal in signals if signal.signal_type == SignalType.ANOMALY),
@@ -77,16 +84,35 @@ class DecisionEngine:
             outcome = DecisionOutcome.REJECTED
             reason_codes = ["duplicate_receipt"]
             explanation = "; ".join(signal.explanation for signal in duplicate_signals)
-        elif policy_violations:
+        elif blocking_violations:
             outcome = DecisionOutcome.REJECTED
             reason_codes = [
                 evaluation.reason_code or evaluation.rule_id
-                for evaluation in policy_violations
+                for evaluation in blocking_violations
             ]
             explanation = (
                 "Claim rejected by policy: "
                 + "; ".join(
-                    evaluation.explanation for evaluation in policy_violations
+                    evaluation.explanation for evaluation in blocking_violations
+                )
+            )
+        elif clarifiable_violations and not participants_answered:
+            outcome = DecisionOutcome.NEEDS_CLARIFICATION
+            reason_codes = ["participant_count_required"]
+            explanation = (
+                "This receipt appears to be shared. How many people is it for? "
+                "The per-person limit is applied per participant."
+            )
+        elif clarifiable_violations:
+            outcome = DecisionOutcome.REJECTED
+            reason_codes = [
+                evaluation.reason_code or evaluation.rule_id
+                for evaluation in clarifiable_violations
+            ]
+            explanation = (
+                "Claim still exceeds the per-person limit after clarification: "
+                + "; ".join(
+                    evaluation.explanation for evaluation in clarifiable_violations
                 )
             )
         else:

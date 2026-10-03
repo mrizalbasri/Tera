@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from datetime import date
+from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
@@ -15,6 +16,7 @@ from app.schemas.core import (
     ProcessingRun,
     Receipt,
     Review,
+    Signal,
     ValidationFinding,
 )
 
@@ -141,12 +143,37 @@ class PolicyEvaluationRepository(Protocol):
     def save(self, evaluation: PolicyEvaluation) -> PolicyEvaluation: ...
 
 
+class SignalRepository(Protocol):
+    def list_for_claim(self, claim_id: UUID) -> Sequence[Signal]: ...
+
+    def save(self, signal: Signal) -> Signal: ...
+
+
+class ClaimHistoryRepository(Protocol):
+    def list_for_employee(
+        self, employee_id: str, *, exclude_claim_id: UUID | None = None
+    ) -> Sequence[Claim]: ...
+
+
 class DuplicateDetector(Protocol):
-    def find_matches(self, claim: Claim) -> Sequence[UUID]: ...
+    def find_matches(
+        self,
+        *,
+        claim: Claim,
+        receipts: Sequence[Receipt],
+        processing_run_id: UUID,
+    ) -> Sequence[Signal]: ...
 
 
 class AnomalyScorer(Protocol):
-    def score(self, claim: Claim) -> float: ...
+    def score(
+        self,
+        *,
+        claim: Claim,
+        total: Decimal,
+        history: Sequence[Claim],
+        processing_run_id: UUID,
+    ) -> Signal: ...
 
 
 class SensitiveDataMasker(Protocol):

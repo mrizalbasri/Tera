@@ -9,9 +9,11 @@ from app.domain.enums import (
     ClaimStatus,
     ClarificationStatus,
     DecisionOutcome,
+    DuplicateMatchType,
     ProcessingRunStatus,
     ReviewStatus,
     Severity,
+    SignalType,
 )
 
 
@@ -113,6 +115,8 @@ class Decision(SchemaBase):
     explanation: str = Field(min_length=1, max_length=2000)
     confidence: Decimal | None = Field(default=None, ge=0, le=1)
     anomaly_score: Decimal | None = Field(default=None, ge=0, le=1)
+    source_signal_ids: list[UUID] = Field(default_factory=list)
+    policy_version: int | None = None
     created_by: ActorType
     created_at: datetime
 
@@ -141,6 +145,26 @@ class Review(SchemaBase):
     decided_at: datetime | None = None
 
 
+class Signal(SchemaBase):
+    """Structured duplicate/anomaly evidence feeding the decision engine."""
+
+    id: UUID
+    claim_id: UUID
+    processing_run_id: UUID
+    signal_type: SignalType
+    severity: Severity
+    confidence: Decimal | None = Field(default=None, ge=0, le=1)
+    match_type: DuplicateMatchType | None = None
+    matched_claim_ids: list[UUID] = Field(default_factory=list)
+    compared_fields: list[str] = Field(default_factory=list)
+    score: Decimal | None = Field(default=None, ge=0, le=1)
+    triggered_rules: list[str] = Field(default_factory=list)
+    evidence: dict[str, object] = Field(default_factory=dict)
+    detector_version: str = Field(min_length=1, max_length=100)
+    explanation: str = Field(min_length=1, max_length=2000)
+    created_at: datetime
+
+
 class AuditEvent(SchemaBase):
     id: UUID
     aggregate_type: str = Field(min_length=1, max_length=100)
@@ -165,6 +189,7 @@ class ProcessingOutcome(SchemaBase):
     clarification: ClarificationRequest | None = None
     validation_findings: list["ValidationFinding"] = Field(default_factory=list)
     policy_evaluations: list["PolicyEvaluation"] = Field(default_factory=list)
+    decision: "Decision | None" = None
 
 
 class ValidationFinding(SchemaBase):

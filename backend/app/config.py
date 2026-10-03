@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     max_processing_retries: int = 2
     extraction_confidence_threshold: float = 0.8
     max_claim_age_days: int = 14
+    anomaly_escalation_threshold: float = 0.7
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

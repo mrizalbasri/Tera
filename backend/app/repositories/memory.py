@@ -12,6 +12,7 @@ from app.schemas.core import (
     ProcessingRun,
     Receipt,
     Review,
+    Signal,
     ValidationFinding,
 )
 
@@ -254,6 +255,37 @@ class InMemoryPolicyEvaluationRepository:
             return tuple(self._evaluations.get(claim_id, ()))
 
 
+class InMemorySignalRepository:
+    def __init__(self) -> None:
+        self._signals: dict[UUID, list[Signal]] = {}
+        self._lock = RLock()
+
+    def save(self, signal: Signal) -> Signal:
+        with self._lock:
+            self._signals.setdefault(signal.claim_id, []).append(signal)
+        return signal
+
+    def list_for_claim(self, claim_id: UUID) -> Sequence[Signal]:
+        with self._lock:
+            return tuple(self._signals.get(claim_id, ()))
+
+
+class InMemoryClaimHistoryRepository:
+    """Employee-scoped claim history view over the claim repository."""
+
+    def __init__(self, claims: InMemoryClaimRepository) -> None:
+        self._claims = claims
+
+    def list_for_employee(
+        self, employee_id: str, *, exclude_claim_id: UUID | None = None
+    ) -> Sequence[Claim]:
+        return tuple(
+            claim
+            for claim in self._claims.list(employee_id=employee_id)
+            if claim.id != exclude_claim_id
+        )
+
+
 class InMemoryRepositories:
     """Bundle of in-memory fakes used by the memory storage backend and tests."""
 
@@ -269,6 +301,11 @@ class InMemoryRepositories:
         self.audit = InMemoryAuditRepository()
         self.findings = InMemoryValidationFindingRepository()
         self.evaluations = InMemoryPolicyEvaluationRepository()
+        self.signals = InMemorySignalRepository()
+
+    @property
+    def history(self) -> InMemoryClaimHistoryRepository:
+        return InMemoryClaimHistoryRepository(self.claims)
 
 
 class InMemoryClaimStore:

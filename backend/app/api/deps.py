@@ -6,6 +6,7 @@ from fastapi import Depends
 
 from app.config import Settings, get_settings
 from app.integrations.mock import MockReceiptExtractor
+from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
 from app.integrations.quality import FileQualityChecker
 from app.integrations.storage import InMemoryFileStorage
 from app.repositories.memory import InMemoryRepositories
@@ -16,13 +17,18 @@ from app.repositories.protocols import (
     ExtractionAttemptRepository,
     ExtractionRepository,
     FileStorage,
+    PolicyEvaluationRepository,
+    PolicyEvaluator,
+    PolicyRetriever,
     ProcessingRunRepository,
     ReceiptQualityChecker,
     ReceiptRepository,
     ReceiptExtractor,
+    ValidationFindingRepository,
 )
 from app.services.extraction import ExtractionService
 from app.services.intake import IntakeService
+from app.services.validation import ValidationService
 
 
 @lru_cache
@@ -65,6 +71,14 @@ def get_audit_repository() -> AuditRepository:
     return _repositories().audit
 
 
+def get_validation_finding_repository() -> ValidationFindingRepository:
+    return _repositories().findings
+
+
+def get_policy_evaluation_repository() -> PolicyEvaluationRepository:
+    return _repositories().evaluations
+
+
 def get_file_storage() -> FileStorage:
     return _file_storage()
 
@@ -75,6 +89,20 @@ def get_quality_checker() -> ReceiptQualityChecker:
 
 def get_receipt_extractor() -> ReceiptExtractor:
     return MockReceiptExtractor()
+
+
+def get_validation_service(
+    settings: Settings = Depends(get_settings),
+) -> ValidationService:
+    return ValidationService(settings)
+
+
+def get_policy_retriever() -> PolicyRetriever:
+    return LocalPolicyRetriever()
+
+
+def get_policy_evaluator() -> PolicyEvaluator:
+    return LocalPolicyEvaluator()
 
 
 def get_intake_service(
@@ -97,8 +125,13 @@ def get_extraction_service(
     extractions: ExtractionRepository = Depends(get_extraction_repository),
     attempts: ExtractionAttemptRepository = Depends(get_extraction_attempt_repository),
     clarifications: ClarificationRepository = Depends(get_clarification_repository),
+    findings: ValidationFindingRepository = Depends(get_validation_finding_repository),
+    evaluations: PolicyEvaluationRepository = Depends(get_policy_evaluation_repository),
     audit: AuditRepository = Depends(get_audit_repository),
     extractor: ReceiptExtractor = Depends(get_receipt_extractor),
+    validation: ValidationService = Depends(get_validation_service),
+    policy_retriever: PolicyRetriever = Depends(get_policy_retriever),
+    policy_evaluator: PolicyEvaluator = Depends(get_policy_evaluator),
 ) -> ExtractionService:
     return ExtractionService(
         claims,
@@ -108,7 +141,12 @@ def get_extraction_service(
         extractions,
         attempts,
         clarifications,
+        findings,
+        evaluations,
         audit,
         extractor,
+        validation,
+        policy_retriever,
+        policy_evaluator,
         settings,
     )

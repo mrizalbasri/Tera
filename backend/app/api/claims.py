@@ -9,7 +9,9 @@ from app.api.deps import (
     get_extraction_repository,
     get_extraction_service,
     get_intake_service,
+    get_policy_evaluation_repository,
     get_receipt_repository,
+    get_validation_finding_repository,
 )
 from app.config import Settings, get_settings
 from app.errors import NotFoundError
@@ -17,14 +19,18 @@ from app.repositories.protocols import (
     ClaimRepository,
     ExtractionAttemptRepository,
     ExtractionRepository,
+    PolicyEvaluationRepository,
     ReceiptRepository,
+    ValidationFindingRepository,
 )
 from app.schemas.core import (
     Claim,
     ClarificationRequest,
     ExtractionAttempt,
     ExtractionResult,
+    PolicyEvaluation,
     Receipt,
+    ValidationFinding,
 )
 from app.services.extraction import ExtractionService
 from app.services.intake import IntakeService, ReceiptUpload, parse_declared_amount
@@ -48,6 +54,8 @@ class ClaimDetailResponse(BaseModel):
     receipts: list[Receipt]
     extractions: list[ExtractionResult] = []
     attempts: list[ExtractionAttempt] = []
+    validation_findings: list[ValidationFinding] = []
+    policy_evaluations: list[PolicyEvaluation] = []
 
 
 class ProcessClaimResponse(BaseModel):
@@ -55,6 +63,8 @@ class ProcessClaimResponse(BaseModel):
     extractions: list[ExtractionResult]
     attempts: list[ExtractionAttempt]
     clarification: ClarificationRequest | None = None
+    validation_findings: list[ValidationFinding] = []
+    policy_evaluations: list[PolicyEvaluation] = []
 
 
 @router.post("", response_model=ClaimResponse, status_code=201)
@@ -101,6 +111,8 @@ def get_claim(
     receipts: ReceiptRepository = Depends(get_receipt_repository),
     extractions: ExtractionRepository = Depends(get_extraction_repository),
     attempts: ExtractionAttemptRepository = Depends(get_extraction_attempt_repository),
+    findings: ValidationFindingRepository = Depends(get_validation_finding_repository),
+    evaluations: PolicyEvaluationRepository = Depends(get_policy_evaluation_repository),
 ) -> ClaimDetailResponse:
     claim = claims.get(claim_id)
     if claim is None:
@@ -111,6 +123,8 @@ def get_claim(
         receipts=list(receipts.list_for_claim(claim_id)),
         extractions=list(extractions.list_for_receipts(receipt_ids)),
         attempts=list(attempts.list_for_claim(claim_id)),
+        validation_findings=list(findings.list_for_claim(claim_id)),
+        policy_evaluations=list(evaluations.list_for_claim(claim_id)),
     )
 
 
@@ -125,4 +139,6 @@ def process_claim(
         extractions=outcome.extractions,
         attempts=outcome.attempts,
         clarification=outcome.clarification,
+        validation_findings=outcome.validation_findings,
+        policy_evaluations=outcome.policy_evaluations,
     )

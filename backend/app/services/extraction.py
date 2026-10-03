@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -17,9 +17,13 @@ from app.repositories.protocols import (
     ExtractionAttemptRepository,
     ExtractionRepository,
     FileStorage,
+    PolicyEvaluationRepository,
+    PolicyEvaluator,
+    PolicyRetriever,
     ProcessingRunRepository,
     ReceiptExtractor,
     ReceiptRepository,
+    ValidationFindingRepository,
 )
 from app.schemas.core import (
     Clarification,
@@ -27,9 +31,12 @@ from app.schemas.core import (
     Claim,
     ExtractionAttempt,
     ExtractionResult,
+    PolicyEvaluation,
     ProcessingOutcome,
     ProcessingRun,
+    ValidationFinding,
 )
+from app.services.validation import SUPPORTED_CATEGORIES, ValidationService
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +60,13 @@ class ExtractionService:
         extractions: ExtractionRepository,
         attempts: ExtractionAttemptRepository,
         clarifications: ClarificationRepository,
+        findings: ValidationFindingRepository,
+        evaluations: PolicyEvaluationRepository,
         audit: AuditRepository,
         extractor: ReceiptExtractor,
+        validation: ValidationService,
+        policy_retriever: PolicyRetriever,
+        policy_evaluator: PolicyEvaluator,
         settings: Settings,
     ) -> None:
         self._claims = claims
@@ -64,8 +76,13 @@ class ExtractionService:
         self._extractions = extractions
         self._attempts = attempts
         self._clarifications = clarifications
+        self._findings = findings
+        self._evaluations = evaluations
         self._audit = audit
         self._extractor = extractor
+        self._validation = validation
+        self._policy_retriever = policy_retriever
+        self._policy_evaluator = policy_evaluator
         self._settings = settings
 
     def process_claim(self, claim_id: UUID) -> ProcessingOutcome:
@@ -192,6 +209,8 @@ class ExtractionService:
                     )
                     for result in attempt_results
                 ]
+                findings = self._validate_extraction(claim, saved)
+                evaluations = self._evaluate_policy(claim, saved, run, attempts)
                 self._complete_run(
                     run, ProcessingRunStatus.SUCCEEDED, attempts, error_code=None
                 )
@@ -200,9 +219,65 @@ class ExtractionService:
                     extractions=saved,
                     attempts=attempts,
                     clarification=None,
+                    validation_findings=findings,
+                    policy_evaluations=evaluations,
                 )
 
         return self._request_clarification(claim, run, attempts, confidence)
+
+    def _validate_extraction(
+        self, claim: Claim, saved: list[ExtractionResult]
+    ) -> list[ValidationFinding]:
+        findings: list[ValidationFinding] = []
+        for result in saved:
+            findings.extend(
+                self._validation.validate(
+                    claim=claim,
+                    extraction=result,
+                    processing_run_id=result.processing_run_id or claim.id,
+                )
+            )
+        for finding in findings:
+            self._findings.save(finding)
+        return findings
+
+    def _evaluate_policy(
+        self,
+        claim: Claim,
+        saved: list[ExtractionResult],
+        run: ProcessingRun,
+        attempts: list[ExtractionAttempt],
+    ) -> list[PolicyEvaluation]:
+        evaluations: list[PolicyEvaluation] = []
+        for result in saved:
+            category = str(result.category.value or "")
+            if category not in SUPPORTED_CATEGORIES:
+                # Validation already flags the unknown category as blocking;
+                # there is no policy to retrieve for it.
+                continue
+            try:
+                policy = self._policy_retriever.retrieve(
+                    category=category,
+                    effective_date=_as_date(result.receipt_date.value),
+                )
+            except ApplicationError:
+                return self._fail_run(
+                    run,
+                    ErrorCode.POLICY_UNAVAILABLE,
+                    "Policy retrieval failed; the claim cannot be approved "
+                    "automatically.",
+                    503,
+                    attempts,
+                )
+            for evaluation in self._policy_evaluator.evaluate(
+                claim=claim,
+                extraction=result,
+                policy=policy,
+                processing_run_id=run.id,
+            ):
+                self._evaluations.save(evaluation)
+                evaluations.append(evaluation)
+        return evaluations
 
     def _request_clarification(
         self,
@@ -351,12 +426,32 @@ class ExtractionService:
                     message=stored.question,
                     fields=stored.fields,
                 )
+        findings = [
+            finding
+            for finding in self._findings.list_for_claim(claim_id)
+            if finding.processing_run_id == run.id
+        ]
+        evaluations = [
+            evaluation
+            for evaluation in self._evaluations.list_for_claim(claim_id)
+            if evaluation.processing_run_id == run.id
+        ]
         return ProcessingOutcome(
             claim=self._claims.get(claim_id),
             extractions=extractions,
             attempts=attempts,
             clarification=clarification,
+            validation_findings=findings,
+            policy_evaluations=evaluations,
         )
+
+
+def _as_date(value: object) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value))
 
 
 def _min_confidence_map(results: list[ExtractionResult]) -> dict[str, Decimal]:

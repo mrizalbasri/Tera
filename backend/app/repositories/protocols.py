@@ -120,7 +120,12 @@ class PolicyRetriever(Protocol):
 
 class PolicyEvaluator(Protocol):
     def evaluate(
-        self, *, claim: Claim, extraction: ExtractionResult, policy: Policy
+        self,
+        *,
+        claim: Claim,
+        extraction: ExtractionResult,
+        policy: Policy,
+        processing_run_id: UUID,
     ) -> Sequence[PolicyEvaluation]: ...
 
 

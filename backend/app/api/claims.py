@@ -5,31 +5,37 @@ from pydantic import BaseModel
 
 from app.api.deps import (
     get_claim_repository,
+    get_decision_repository,
     get_extraction_attempt_repository,
     get_extraction_repository,
     get_extraction_service,
     get_intake_service,
     get_policy_evaluation_repository,
     get_receipt_repository,
+    get_signal_repository,
     get_validation_finding_repository,
 )
 from app.config import Settings, get_settings
 from app.errors import NotFoundError
 from app.repositories.protocols import (
     ClaimRepository,
+    DecisionRepository,
     ExtractionAttemptRepository,
     ExtractionRepository,
     PolicyEvaluationRepository,
     ReceiptRepository,
+    SignalRepository,
     ValidationFindingRepository,
 )
 from app.schemas.core import (
     Claim,
     ClarificationRequest,
+    Decision,
     ExtractionAttempt,
     ExtractionResult,
     PolicyEvaluation,
     Receipt,
+    Signal,
     ValidationFinding,
 )
 from app.services.extraction import ExtractionService
@@ -56,6 +62,8 @@ class ClaimDetailResponse(BaseModel):
     attempts: list[ExtractionAttempt] = []
     validation_findings: list[ValidationFinding] = []
     policy_evaluations: list[PolicyEvaluation] = []
+    signals: list[Signal] = []
+    decisions: list[Decision] = []
 
 
 class ProcessClaimResponse(BaseModel):
@@ -65,6 +73,7 @@ class ProcessClaimResponse(BaseModel):
     clarification: ClarificationRequest | None = None
     validation_findings: list[ValidationFinding] = []
     policy_evaluations: list[PolicyEvaluation] = []
+    decision: Decision | None = None
 
 
 @router.post("", response_model=ClaimResponse, status_code=201)
@@ -113,6 +122,8 @@ def get_claim(
     attempts: ExtractionAttemptRepository = Depends(get_extraction_attempt_repository),
     findings: ValidationFindingRepository = Depends(get_validation_finding_repository),
     evaluations: PolicyEvaluationRepository = Depends(get_policy_evaluation_repository),
+    signals: SignalRepository = Depends(get_signal_repository),
+    decisions: DecisionRepository = Depends(get_decision_repository),
 ) -> ClaimDetailResponse:
     claim = claims.get(claim_id)
     if claim is None:
@@ -125,6 +136,8 @@ def get_claim(
         attempts=list(attempts.list_for_claim(claim_id)),
         validation_findings=list(findings.list_for_claim(claim_id)),
         policy_evaluations=list(evaluations.list_for_claim(claim_id)),
+        signals=list(signals.list_for_claim(claim_id)),
+        decisions=list(decisions.list_for_claim(claim_id)),
     )
 
 
@@ -141,4 +154,5 @@ def process_claim(
         clarification=outcome.clarification,
         validation_findings=outcome.validation_findings,
         policy_evaluations=outcome.policy_evaluations,
+        decision=outcome.decision,
     )

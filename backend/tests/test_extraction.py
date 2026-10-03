@@ -28,7 +28,8 @@ def test_process_claim_returns_typed_extraction() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["claim"]["status"] == "processing"
+    assert payload["claim"]["status"] == "approved"
+    assert payload["decision"]["outcome"] == "approved"
     assert payload["extractions"][0]["vendor"]["value"] == "Synthetic Vendor"
     assert payload["extractions"][0]["total"]["value"] == "60000"
     assert payload["attempts"][0]["attempt"] == 1
@@ -69,7 +70,7 @@ def test_retry_with_preprocessing_can_recover_extraction() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["claim"]["status"] == "processing"
+    assert payload["claim"]["status"] == "approved"
     assert len(payload["attempts"]) == 2
     assert payload["attempts"][0]["preprocessing"] == []
     assert payload["attempts"][1]["preprocessing"] == ["normalize_document"]

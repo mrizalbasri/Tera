@@ -251,7 +251,8 @@ def test_over_limit_meal_claim_is_flagged_by_policy() -> None:
     meal = _finding(payload["policy_evaluations"], "meal_daily_limit")
     assert meal["passed"] is False
     assert meal["reason_code"] == "policy_limit_exceeded"
-    assert payload["claim"]["status"] == "processing"
+    assert payload["claim"]["status"] == "rejected"
+    assert payload["decision"]["outcome"] == "rejected"
 
 
 def test_alcohol_receipt_fails_policy_in_pipeline() -> None:

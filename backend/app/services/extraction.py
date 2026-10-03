@@ -7,13 +7,23 @@ from pydantic import ValidationError
 
 from app.audit.events import record_audit_event
 from app.config import Settings
-from app.domain.enums import ActorType, ClaimStatus, ClarificationStatus, ProcessingRunStatus
+from app.domain.enums import (
+    ActorType,
+    ClaimStatus,
+    ClarificationStatus,
+    DecisionOutcome,
+    ProcessingRunStatus,
+)
 from app.domain.transitions import apply_transition
 from app.errors import ApplicationError, ErrorCode, NotFoundError
 from app.repositories.protocols import (
+    AnomalyScorer,
     AuditRepository,
+    ClaimHistoryRepository,
     ClaimRepository,
     ClarificationRepository,
+    DecisionRepository,
+    DuplicateDetector,
     ExtractionAttemptRepository,
     ExtractionRepository,
     FileStorage,
@@ -23,20 +33,37 @@ from app.repositories.protocols import (
     ProcessingRunRepository,
     ReceiptExtractor,
     ReceiptRepository,
+    SignalRepository,
     ValidationFindingRepository,
 )
 from app.schemas.core import (
     Clarification,
     ClarificationRequest,
     Claim,
+    Decision,
     ExtractionAttempt,
     ExtractionResult,
     PolicyEvaluation,
     ProcessingOutcome,
     ProcessingRun,
+    Signal,
     ValidationFinding,
 )
+from app.services.decision import DecisionEngine
 from app.services.validation import SUPPORTED_CATEGORIES, ValidationService
+
+_DECISION_CLAIM_STATUS = {
+    DecisionOutcome.APPROVED: ClaimStatus.APPROVED,
+    DecisionOutcome.REJECTED: ClaimStatus.REJECTED,
+    DecisionOutcome.ESCALATED: ClaimStatus.ESCALATED,
+    DecisionOutcome.NEEDS_CLARIFICATION: ClaimStatus.NEEDS_CLARIFICATION,
+}
+_DECISION_RUN_STATUS = {
+    DecisionOutcome.APPROVED: ProcessingRunStatus.SUCCEEDED,
+    DecisionOutcome.REJECTED: ProcessingRunStatus.SUCCEEDED,
+    DecisionOutcome.ESCALATED: ProcessingRunStatus.ESCALATED,
+    DecisionOutcome.NEEDS_CLARIFICATION: ProcessingRunStatus.NEEDS_CLARIFICATION,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +89,17 @@ class ExtractionService:
         clarifications: ClarificationRepository,
         findings: ValidationFindingRepository,
         evaluations: PolicyEvaluationRepository,
+        signals: SignalRepository,
+        decisions: DecisionRepository,
+        history: ClaimHistoryRepository,
         audit: AuditRepository,
+        duplicate_detector: DuplicateDetector,
+        anomaly_scorer: AnomalyScorer,
         extractor: ReceiptExtractor,
         validation: ValidationService,
         policy_retriever: PolicyRetriever,
         policy_evaluator: PolicyEvaluator,
+        decider: DecisionEngine,
         settings: Settings,
     ) -> None:
         self._claims = claims
@@ -78,11 +111,17 @@ class ExtractionService:
         self._clarifications = clarifications
         self._findings = findings
         self._evaluations = evaluations
+        self._signals = signals
+        self._decisions = decisions
+        self._history = history
         self._audit = audit
+        self._duplicate_detector = duplicate_detector
+        self._anomaly_scorer = anomaly_scorer
         self._extractor = extractor
         self._validation = validation
         self._policy_retriever = policy_retriever
         self._policy_evaluator = policy_evaluator
+        self._decider = decider
         self._settings = settings
 
     def process_claim(self, claim_id: UUID) -> ProcessingOutcome:
@@ -94,6 +133,7 @@ class ExtractionService:
         if latest_run is not None and latest_run.status in (
             ProcessingRunStatus.SUCCEEDED,
             ProcessingRunStatus.NEEDS_CLARIFICATION,
+            ProcessingRunStatus.ESCALATED,
         ):
             # Repetition without new input replays the recorded run instead of
             # creating a conflicting one (M6 reliability rule).
@@ -211,16 +251,52 @@ class ExtractionService:
                 ]
                 findings = self._validate_extraction(claim, saved)
                 evaluations = self._evaluate_policy(claim, saved, run, attempts)
+                total = max(
+                    (
+                        _as_decimal(result.total.value) or Decimal("0")
+                        for result in saved
+                    ),
+                    default=Decimal("0"),
+                )
+                signals = self._detect_signals(claim, receipts, total, run)
+                decision = self._decider.decide(
+                    claim=claim,
+                    total=total,
+                    confidence=min(confidence.values()) if confidence else None,
+                    findings=findings,
+                    evaluations=evaluations,
+                    signals=signals,
+                    policy_version=(
+                        evaluations[0].policy_version if evaluations else None
+                    ),
+                    processing_run_id=run.id,
+                )
+                self._decisions.save(decision)
+                claim = self._transition_claim(
+                    claim, _DECISION_CLAIM_STATUS[decision.outcome]
+                )
+                claim = self._claims.save(
+                    claim.model_copy(update={"current_decision_id": decision.id})
+                )
+                clarification = None
+                if decision.outcome == DecisionOutcome.NEEDS_CLARIFICATION:
+                    clarification = self._record_data_clarification(
+                        claim, decision, run
+                    )
                 self._complete_run(
-                    run, ProcessingRunStatus.SUCCEEDED, attempts, error_code=None
+                    run,
+                    _DECISION_RUN_STATUS[decision.outcome],
+                    attempts,
+                    error_code=None,
                 )
                 return ProcessingOutcome(
-                    claim=self._claims.get(claim.id) or claim,
+                    claim=claim,
                     extractions=saved,
                     attempts=attempts,
-                    clarification=None,
+                    clarification=clarification,
                     validation_findings=findings,
                     policy_evaluations=evaluations,
+                    decision=decision,
                 )
 
         return self._request_clarification(claim, run, attempts, confidence)
@@ -278,6 +354,50 @@ class ExtractionService:
                 self._evaluations.save(evaluation)
                 evaluations.append(evaluation)
         return evaluations
+
+    def _detect_signals(
+        self,
+        claim: Claim,
+        receipts: list,
+        total: Decimal,
+        run: ProcessingRun,
+    ) -> list[Signal]:
+        signals: list[Signal] = self._duplicate_detector.find_matches(
+            claim=claim, receipts=receipts, processing_run_id=run.id
+        )
+        for signal in signals:
+            self._signals.save(signal)
+        history = self._history.list_for_employee(
+            claim.employee_id, exclude_claim_id=claim.id
+        )
+        anomaly = self._anomaly_scorer.score(
+            claim=claim, total=total, history=history, processing_run_id=run.id
+        )
+        self._signals.save(anomaly)
+        signals.append(anomaly)
+        return signals
+
+    def _record_data_clarification(
+        self, claim: Claim, decision: Decision, run: ProcessingRun
+    ) -> ClarificationRequest:
+        clarification = Clarification(
+            id=uuid4(),
+            claim_id=claim.id,
+            processing_run_id=run.id,
+            code="invalid_claim_data",
+            fields=list(decision.reason_codes),
+            question=decision.explanation,
+            answer=None,
+            status=ClarificationStatus.OPEN,
+            created_at=datetime.now(UTC),
+            answered_at=None,
+        )
+        self._clarifications.save(clarification)
+        return ClarificationRequest(
+            code=clarification.code,
+            message=clarification.question,
+            fields=clarification.fields,
+        )
 
     def _request_clarification(
         self,
@@ -436,6 +556,11 @@ class ExtractionService:
             for evaluation in self._evaluations.list_for_claim(claim_id)
             if evaluation.processing_run_id == run.id
         ]
+        decisions = [
+            item
+            for item in self._decisions.list_for_claim(claim_id)
+            if item.processing_run_id == run.id
+        ]
         return ProcessingOutcome(
             claim=self._claims.get(claim_id),
             extractions=extractions,
@@ -443,7 +568,14 @@ class ExtractionService:
             clarification=clarification,
             validation_findings=findings,
             policy_evaluations=evaluations,
+            decision=decisions[-1] if decisions else None,
         )
+
+
+def _as_decimal(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
 def _as_date(value: object) -> date:

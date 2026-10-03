@@ -5,15 +5,21 @@ from functools import lru_cache
 from fastapi import Depends
 
 from app.config import Settings, get_settings
+from app.integrations.anomaly import RuleBasedAnomalyScorer
+from app.integrations.duplicate import AttributeDuplicateDetector
 from app.integrations.mock import MockReceiptExtractor
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
 from app.integrations.quality import FileQualityChecker
 from app.integrations.storage import InMemoryFileStorage
 from app.repositories.memory import InMemoryRepositories
 from app.repositories.protocols import (
+    AnomalyScorer,
     AuditRepository,
+    ClaimHistoryRepository,
     ClaimRepository,
     ClarificationRepository,
+    DecisionRepository,
+    DuplicateDetector,
     ExtractionAttemptRepository,
     ExtractionRepository,
     FileStorage,
@@ -24,8 +30,10 @@ from app.repositories.protocols import (
     ReceiptQualityChecker,
     ReceiptRepository,
     ReceiptExtractor,
+    SignalRepository,
     ValidationFindingRepository,
 )
+from app.services.decision import DecisionEngine
 from app.services.extraction import ExtractionService
 from app.services.intake import IntakeService
 from app.services.validation import ValidationService
@@ -79,6 +87,18 @@ def get_policy_evaluation_repository() -> PolicyEvaluationRepository:
     return _repositories().evaluations
 
 
+def get_signal_repository() -> SignalRepository:
+    return _repositories().signals
+
+
+def get_decision_repository() -> DecisionRepository:
+    return _repositories().decisions
+
+
+def get_claim_history_repository() -> ClaimHistoryRepository:
+    return _repositories().history
+
+
 def get_file_storage() -> FileStorage:
     return _file_storage()
 
@@ -105,6 +125,24 @@ def get_policy_evaluator() -> PolicyEvaluator:
     return LocalPolicyEvaluator()
 
 
+def get_duplicate_detector(
+    claims: ClaimRepository = Depends(get_claim_repository),
+    receipts: ReceiptRepository = Depends(get_receipt_repository),
+    extractions: ExtractionRepository = Depends(get_extraction_repository),
+) -> DuplicateDetector:
+    return AttributeDuplicateDetector(claims, receipts, extractions)
+
+
+def get_anomaly_scorer() -> AnomalyScorer:
+    return RuleBasedAnomalyScorer()
+
+
+def get_decision_engine(
+    settings: Settings = Depends(get_settings),
+) -> DecisionEngine:
+    return DecisionEngine(settings)
+
+
 def get_intake_service(
     settings: Settings = Depends(get_settings),
     claims: ClaimRepository = Depends(get_claim_repository),
@@ -127,11 +165,17 @@ def get_extraction_service(
     clarifications: ClarificationRepository = Depends(get_clarification_repository),
     findings: ValidationFindingRepository = Depends(get_validation_finding_repository),
     evaluations: PolicyEvaluationRepository = Depends(get_policy_evaluation_repository),
+    signals: SignalRepository = Depends(get_signal_repository),
+    decisions: DecisionRepository = Depends(get_decision_repository),
+    history: ClaimHistoryRepository = Depends(get_claim_history_repository),
     audit: AuditRepository = Depends(get_audit_repository),
+    duplicate_detector: DuplicateDetector = Depends(get_duplicate_detector),
+    anomaly_scorer: AnomalyScorer = Depends(get_anomaly_scorer),
     extractor: ReceiptExtractor = Depends(get_receipt_extractor),
     validation: ValidationService = Depends(get_validation_service),
     policy_retriever: PolicyRetriever = Depends(get_policy_retriever),
     policy_evaluator: PolicyEvaluator = Depends(get_policy_evaluator),
+    decider: DecisionEngine = Depends(get_decision_engine),
 ) -> ExtractionService:
     return ExtractionService(
         claims,
@@ -143,10 +187,16 @@ def get_extraction_service(
         clarifications,
         findings,
         evaluations,
+        signals,
+        decisions,
+        history,
         audit,
+        duplicate_detector,
+        anomaly_scorer,
         extractor,
         validation,
         policy_retriever,
         policy_evaluator,
+        decider,
         settings,
     )

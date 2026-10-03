@@ -1,8 +1,19 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api import deps
 from app.config import Settings, get_settings
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def isolated_stores():
+    """Give every test a fresh in-memory backend so tests stay order-independent."""
+    deps._repositories.cache_clear()
+    deps._file_storage.cache_clear()
+    yield
+    deps._repositories.cache_clear()
+    deps._file_storage.cache_clear()
 
 
 @pytest.fixture

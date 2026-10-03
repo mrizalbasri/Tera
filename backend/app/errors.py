@@ -15,6 +15,7 @@ class ErrorCode(StrEnum):
     MALFORMED_EXTRACTION = "malformed_extraction"
     RECEIPT_CONTENT_UNAVAILABLE = "receipt_content_unavailable"
     EXTRACTION_CONFIDENCE_LOW = "extraction_confidence_low"
+    POLICY_UNAVAILABLE = "policy_unavailable"
     NOT_FOUND = "not_found"
     INVALID_STATE_TRANSITION = "invalid_state_transition"
 

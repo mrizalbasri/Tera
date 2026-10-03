@@ -42,3 +42,9 @@ class ActorType(StrEnum):
     AGENT = "agent"
     EMPLOYEE = "employee"
     REVIEWER = "reviewer"
+
+
+class Severity(StrEnum):
+    INFO = "info"
+    WARNING = "warning"
+    BLOCKING = "blocking"

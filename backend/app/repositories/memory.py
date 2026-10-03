@@ -8,9 +8,11 @@ from app.schemas.core import (
     Clarification,
     ExtractionAttempt,
     ExtractionResult,
+    PolicyEvaluation,
     ProcessingRun,
     Receipt,
     Review,
+    ValidationFinding,
 )
 
 
@@ -222,6 +224,36 @@ class InMemoryAuditRepository:
             )
 
 
+class InMemoryValidationFindingRepository:
+    def __init__(self) -> None:
+        self._findings: dict[UUID, list[ValidationFinding]] = {}
+        self._lock = RLock()
+
+    def save(self, finding: ValidationFinding) -> ValidationFinding:
+        with self._lock:
+            self._findings.setdefault(finding.claim_id, []).append(finding)
+        return finding
+
+    def list_for_claim(self, claim_id: UUID) -> Sequence[ValidationFinding]:
+        with self._lock:
+            return tuple(self._findings.get(claim_id, ()))
+
+
+class InMemoryPolicyEvaluationRepository:
+    def __init__(self) -> None:
+        self._evaluations: dict[UUID, list[PolicyEvaluation]] = {}
+        self._lock = RLock()
+
+    def save(self, evaluation: PolicyEvaluation) -> PolicyEvaluation:
+        with self._lock:
+            self._evaluations.setdefault(evaluation.claim_id, []).append(evaluation)
+        return evaluation
+
+    def list_for_claim(self, claim_id: UUID) -> Sequence[PolicyEvaluation]:
+        with self._lock:
+            return tuple(self._evaluations.get(claim_id, ()))
+
+
 class InMemoryRepositories:
     """Bundle of in-memory fakes used by the memory storage backend and tests."""
 
@@ -235,6 +267,8 @@ class InMemoryRepositories:
         self.clarifications = InMemoryClarificationRepository()
         self.reviews = InMemoryReviewRepository()
         self.audit = InMemoryAuditRepository()
+        self.findings = InMemoryValidationFindingRepository()
+        self.evaluations = InMemoryPolicyEvaluationRepository()
 
 
 class InMemoryClaimStore:

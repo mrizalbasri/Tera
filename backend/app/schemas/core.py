@@ -11,6 +11,7 @@ from app.domain.enums import (
     DecisionOutcome,
     ProcessingRunStatus,
     ReviewStatus,
+    Severity,
 )
 
 
@@ -162,3 +163,54 @@ class ProcessingOutcome(SchemaBase):
     extractions: list[ExtractionResult] = Field(default_factory=list)
     attempts: list[ExtractionAttempt] = Field(default_factory=list)
     clarification: ClarificationRequest | None = None
+    validation_findings: list["ValidationFinding"] = Field(default_factory=list)
+    policy_evaluations: list["PolicyEvaluation"] = Field(default_factory=list)
+
+
+class ValidationFinding(SchemaBase):
+    """Deterministic rule check result attached to a processing run."""
+
+    claim_id: UUID
+    processing_run_id: UUID
+    extraction_id: UUID | None = None
+    rule_id: str = Field(min_length=1, max_length=100)
+    passed: bool
+    severity: Severity
+    actual: object | None = None
+    expected: str | None = None
+    reason_code: str | None = Field(default=None, max_length=100)
+    explanation: str = Field(min_length=1, max_length=2000)
+
+
+class PolicyRule(SchemaBase):
+    rule_id: str = Field(min_length=1, max_length=100)
+    rule_type: str = Field(min_length=1, max_length=100)
+    limit: Decimal | None = None
+    currency: str = "IDR"
+    per_person: bool = False
+    prohibited_terms: list[str] = Field(default_factory=list)
+
+
+class Policy(SchemaBase):
+    policy_id: str = Field(min_length=1, max_length=100)
+    version: int = Field(ge=1)
+    category: str = Field(min_length=1, max_length=100)
+    effective_from: date
+    effective_to: date | None = None
+    rules: list[PolicyRule] = Field(default_factory=list)
+
+
+class PolicyEvaluation(SchemaBase):
+    """Rule-level policy result; the policy version travels with every result."""
+
+    claim_id: UUID
+    processing_run_id: UUID
+    policy_id: str = Field(min_length=1, max_length=100)
+    policy_version: int = Field(ge=1)
+    rule_id: str = Field(min_length=1, max_length=100)
+    passed: bool
+    severity: Severity
+    actual_value: object | None = None
+    limit: object | None = None
+    reason_code: str | None = Field(default=None, max_length=100)
+    explanation: str = Field(min_length=1, max_length=2000)

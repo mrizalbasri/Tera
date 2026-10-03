@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from datetime import date
 from typing import Protocol
 from uuid import UUID
 
@@ -9,9 +10,12 @@ from app.schemas.core import (
     Decision,
     ExtractionAttempt,
     ExtractionResult,
+    Policy,
+    PolicyEvaluation,
     ProcessingRun,
     Receipt,
     Review,
+    ValidationFinding,
 )
 
 
@@ -111,7 +115,25 @@ class ReceiptExtractor(Protocol):
 
 
 class PolicyRetriever(Protocol):
-    def retrieve(self, *, category: str, effective_date: object) -> object: ...
+    def retrieve(self, *, category: str, effective_date: date) -> Policy: ...
+
+
+class PolicyEvaluator(Protocol):
+    def evaluate(
+        self, *, claim: Claim, extraction: ExtractionResult, policy: Policy
+    ) -> Sequence[PolicyEvaluation]: ...
+
+
+class ValidationFindingRepository(Protocol):
+    def list_for_claim(self, claim_id: UUID) -> Sequence[ValidationFinding]: ...
+
+    def save(self, finding: ValidationFinding) -> ValidationFinding: ...
+
+
+class PolicyEvaluationRepository(Protocol):
+    def list_for_claim(self, claim_id: UUID) -> Sequence[PolicyEvaluation]: ...
+
+    def save(self, evaluation: PolicyEvaluation) -> PolicyEvaluation: ...
 
 
 class DuplicateDetector(Protocol):

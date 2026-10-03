@@ -63,6 +63,7 @@ class FieldConfidence(SchemaBase):
 class ExtractionResult(SchemaBase):
     id: UUID
     receipt_id: UUID
+    processing_run_id: UUID | None = None
     vendor: FieldConfidence
     receipt_date: FieldConfidence
     total: FieldConfidence
@@ -76,6 +77,7 @@ class ExtractionResult(SchemaBase):
 
 class ExtractionAttempt(SchemaBase):
     attempt: int = Field(ge=1)
+    processing_run_id: UUID | None = None
     preprocessing: list[str] = Field(default_factory=list)
     confidence: dict[str, Decimal]
     extraction_id: UUID | None = None
@@ -117,6 +119,9 @@ class Decision(SchemaBase):
 class Clarification(SchemaBase):
     id: UUID
     claim_id: UUID
+    processing_run_id: UUID | None = None
+    code: str = Field(min_length=1, max_length=100)
+    fields: list[str] = Field(default_factory=list)
     question: str = Field(min_length=1, max_length=2000)
     answer: str | None = Field(default=None, max_length=2000)
     status: ClarificationStatus
@@ -148,3 +153,12 @@ class AuditEvent(SchemaBase):
     duration_ms: int | None = Field(default=None, ge=0)
     retry_count: int = Field(default=0, ge=0)
     error_code: str | None = Field(default=None, max_length=100)
+
+
+class ProcessingOutcome(SchemaBase):
+    """Internal result of one processing run, reused for idempotent replays."""
+
+    claim: Claim
+    extractions: list[ExtractionResult] = Field(default_factory=list)
+    attempts: list[ExtractionAttempt] = Field(default_factory=list)
+    clarification: ClarificationRequest | None = None

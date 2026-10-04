@@ -42,7 +42,7 @@ class DecisionEngine:
         signals: list[Signal],
         policy_version: int | None,
         processing_run_id: UUID,
-        participants_answered: bool = False,
+        answered_codes: set[str] | None = None,
     ) -> Decision:
         blocking_findings = [
             finding
@@ -96,25 +96,34 @@ class DecisionEngine:
                     evaluation.explanation for evaluation in blocking_violations
                 )
             )
-        elif clarifiable_violations and not participants_answered:
-            outcome = DecisionOutcome.NEEDS_CLARIFICATION
-            reason_codes = ["participant_count_required"]
-            explanation = (
-                "This receipt appears to be shared. How many people is it for? "
-                "The per-person limit is applied per participant."
-            )
         elif clarifiable_violations:
-            outcome = DecisionOutcome.REJECTED
-            reason_codes = [
-                evaluation.reason_code or evaluation.rule_id
+            answered = answered_codes or set()
+            pending = [
+                evaluation
                 for evaluation in clarifiable_violations
+                if self._clarification_code(evaluation) not in answered
             ]
-            explanation = (
-                "Claim still exceeds the per-person limit after clarification: "
-                + "; ".join(
-                    evaluation.explanation for evaluation in clarifiable_violations
+            if pending:
+                outcome = DecisionOutcome.NEEDS_CLARIFICATION
+                reason_codes = [
+                    self._clarification_code(evaluation) for evaluation in pending
+                ]
+                explanation = (
+                    pending[0].explanation + " Please answer the clarification."
                 )
-            )
+            else:
+                outcome = DecisionOutcome.REJECTED
+                reason_codes = [
+                    evaluation.reason_code or evaluation.rule_id
+                    for evaluation in clarifiable_violations
+                ]
+                explanation = (
+                    "Claim still fails policy after clarification: "
+                    + "; ".join(
+                        evaluation.explanation
+                        for evaluation in clarifiable_violations
+                    )
+                )
         else:
             escalation_reasons = self._escalation_reasons(
                 total, confidence, anomaly_score
@@ -149,6 +158,12 @@ class DecisionEngine:
             created_by=ActorType.AGENT,
             created_at=datetime.now(UTC),
         )
+
+    def _clarification_code(self, evaluation: PolicyEvaluation) -> str:
+        """Map a clarifiable violation to the clarification it should raise."""
+        if evaluation.rule_type == "evidence_required":
+            return "business_trip_evidence_required"
+        return "participant_count_required"
 
     def _escalation_reasons(
         self,

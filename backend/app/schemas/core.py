@@ -223,6 +223,7 @@ class PolicyRule(SchemaBase):
     currency: str = "IDR"
     per_person: bool = False
     prohibited_terms: list[str] = Field(default_factory=list)
+    required_terms: list[str] = Field(default_factory=list)
 
 
 class Policy(SchemaBase):
@@ -242,6 +243,7 @@ class PolicyEvaluation(SchemaBase):
     policy_id: str = Field(min_length=1, max_length=100)
     policy_version: int = Field(ge=1)
     rule_id: str = Field(min_length=1, max_length=100)
+    rule_type: str = Field(min_length=1, max_length=100)
     passed: bool
     severity: Severity
     clarifiable: bool = False

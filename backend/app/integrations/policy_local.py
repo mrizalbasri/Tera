@@ -25,9 +25,18 @@ PROHIBITED_TERMS = ("alkohol", "alcohol", "beer", "wine", "whiskey", "vodka")
 
 
 def _rule(
-    rule_id: str, rule_type: str, limit: Decimal | None = None
+    rule_id: str,
+    rule_type: str,
+    limit: Decimal | None = None,
+    *,
+    required_terms: list[str] | None = None,
 ) -> PolicyRule:
-    return PolicyRule(rule_id=rule_id, rule_type=rule_type, limit=limit)
+    return PolicyRule(
+        rule_id=rule_id,
+        rule_type=rule_type,
+        limit=limit,
+        required_terms=required_terms or [],
+    )
 
 
 _CATEGORY_RULES: dict[str, list[PolicyRule]] = {
@@ -38,11 +47,24 @@ _CATEGORY_RULES: dict[str, list[PolicyRule]] = {
     "fuel": [
         _rule("fuel_daily_limit", "max_amount", Decimal("150000")),
         _rule("receipt_required", "receipt_required"),
+        # BRD: fuel claims must be backed by an SPBU receipt.
+        _rule("fuel_spbu_required", "vendor_required", required_terms=["spbu"]),
     ],
-    "toll_parking": [_rule("receipt_required", "receipt_required")],
+    "toll_parking": [
+        _rule("receipt_required", "receipt_required"),
+        # BRD: toll/parking reimburses exactly the receipt amount.
+        _rule("toll_amount_matches", "amount_matches_declared"),
+    ],
     "hotel": [
         _rule("hotel_nightly_limit", "max_amount", Decimal("600000")),
         _rule("receipt_required", "receipt_required"),
+        # BRD: hotel stays require business-trip evidence; missing evidence
+        # is clarifiable, not an automatic rejection.
+        _rule(
+            "hotel_business_trip_required",
+            "evidence_required",
+            required_terms=["perjalanan dinas"],
+        ),
     ],
     "other": [],
 }
@@ -115,6 +137,7 @@ class LocalPolicyEvaluator:
                         extraction=extraction,
                         policy=policy,
                         processing_run_id=processing_run_id,
+                        rule_type=rule.rule_type,
                         rule_id=rule.rule_id,
                         passed=passed,
                         clarifiable=(
@@ -142,12 +165,100 @@ class LocalPolicyEvaluator:
                         extraction=extraction,
                         policy=policy,
                         processing_run_id=processing_run_id,
+                        rule_type=rule.rule_type,
                         rule_id=rule.rule_id,
                         passed=True,
                         actual_value=None,
                         limit=None,
                         reason_code=None,
                         explanation="A receipt was attached at intake.",
+                    )
+                )
+            elif rule.rule_type == "vendor_required":
+                haystack = self._descriptive_text(extraction)
+                matched = any(
+                    term in haystack for term in rule.required_terms
+                )
+                evaluations.append(
+                    self._result(
+                        claim=claim,
+                        extraction=extraction,
+                        policy=policy,
+                        processing_run_id=processing_run_id,
+                        rule_type=rule.rule_type,
+                        rule_id=rule.rule_id,
+                        passed=matched,
+                        actual_value=str(extraction.vendor.value),
+                        limit=", ".join(rule.required_terms),
+                        reason_code=None if matched else "required_vendor_missing",
+                        explanation=(
+                            f"Receipt vendor satisfies the {rule.rule_id} "
+                            f"requirement."
+                            if matched
+                            else (
+                                f"Receipt is not from the required vendor type; "
+                                f"expected it to mention: "
+                                f"{', '.join(rule.required_terms)}."
+                            )
+                        ),
+                    )
+                )
+            elif rule.rule_type == "evidence_required":
+                haystack = self._descriptive_text(extraction)
+                matched = any(
+                    term in haystack for term in rule.required_terms
+                )
+                evaluations.append(
+                    self._result(
+                        claim=claim,
+                        extraction=extraction,
+                        policy=policy,
+                        processing_run_id=processing_run_id,
+                        rule_type=rule.rule_type,
+                        rule_id=rule.rule_id,
+                        passed=matched,
+                        clarifiable=not matched,
+                        actual_value=str(extraction.vendor.value),
+                        limit=", ".join(rule.required_terms),
+                        reason_code=(
+                            None if matched else "business_trip_evidence_required"
+                        ),
+                        explanation=(
+                            f"Business-trip evidence was found on the receipt."
+                            if matched
+                            else (
+                                f"No business-trip evidence found; the receipt "
+                                f"must mention: {', '.join(rule.required_terms)}."
+                            )
+                        ),
+                    )
+                )
+            elif rule.rule_type == "amount_matches_declared":
+                declared = self._decimal(claim.declared_amount)
+                passed = declared is None or (
+                    total is not None and total == declared
+                )
+                evaluations.append(
+                    self._result(
+                        claim=claim,
+                        extraction=extraction,
+                        policy=policy,
+                        processing_run_id=processing_run_id,
+                        rule_type=rule.rule_type,
+                        rule_id=rule.rule_id,
+                        passed=passed,
+                        actual_value=total,
+                        limit=declared,
+                        reason_code=None if passed else "amount_mismatch",
+                        explanation=(
+                            f"Receipt total {total} matches the declared amount."
+                            if passed
+                            else (
+                                f"Receipt total {total} does not match the "
+                                f"declared amount {declared}; toll/parking "
+                                f"reimburses the receipt amount exactly."
+                            )
+                        ),
                     )
                 )
             elif rule.rule_type == "prohibited_items":
@@ -158,6 +269,7 @@ class LocalPolicyEvaluator:
                         extraction=extraction,
                         policy=policy,
                         processing_run_id=processing_run_id,
+                        rule_type=rule.rule_type,
                         rule_id=rule.rule_id,
                         passed=not matched,
                         actual_value=matched or None,
@@ -183,6 +295,12 @@ class LocalPolicyEvaluator:
             if any(term in haystack for haystack in haystacks)
         ]
 
+    @staticmethod
+    def _descriptive_text(extraction: ExtractionResult) -> str:
+        parts = [str(extraction.vendor.value)]
+        parts.extend(item.description for item in extraction.line_items)
+        return " ".join(parts).lower()
+
     def _result(
         self,
         *,
@@ -190,6 +308,7 @@ class LocalPolicyEvaluator:
         extraction: ExtractionResult,
         policy: Policy,
         processing_run_id: UUID,
+        rule_type: str,
         rule_id: str,
         passed: bool,
         actual_value: object,
@@ -204,6 +323,7 @@ class LocalPolicyEvaluator:
             policy_id=policy.policy_id,
             policy_version=policy.version,
             rule_id=rule_id,
+            rule_type=rule_type,
             passed=passed,
             severity=Severity.INFO if passed else Severity.BLOCKING,
             clarifiable=clarifiable,

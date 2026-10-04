@@ -134,11 +134,11 @@ def get_policy_evaluator() -> PolicyEvaluator:
 
 
 def get_duplicate_detector(
-    claims: ClaimRepository = Depends(get_claim_repository),
+    history: ClaimHistoryRepository = Depends(get_claim_history_repository),
     receipts: ReceiptRepository = Depends(get_receipt_repository),
     extractions: ExtractionRepository = Depends(get_extraction_repository),
 ) -> DuplicateDetector:
-    return AttributeDuplicateDetector(claims, receipts, extractions)
+    return AttributeDuplicateDetector(history, receipts, extractions)
 
 
 def get_anomaly_scorer() -> AnomalyScorer:
@@ -229,9 +229,7 @@ def get_clarification_service(
         clarifications,
         context,
         audit,
-        process_resume=lambda claim_id: extraction_service.process_claim(
-            claim_id, resume=True
-        ),
+        processing=extraction_service,
     )
 
 

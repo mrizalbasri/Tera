@@ -264,9 +264,7 @@ class ExtractionService:
                     for result in attempt_results
                 ]
                 findings = self._validate_extraction(claim, saved)
-                participants, participants_answered = self._answered_participants(
-                    claim.id
-                )
+                participants, _answered = self._answered_participants(claim.id)
                 evaluations = self._evaluate_policy(
                     claim, saved, run, attempts, participants
                 )
@@ -289,7 +287,7 @@ class ExtractionService:
                         evaluations[0].policy_version if evaluations else None
                     ),
                     processing_run_id=run.id,
-                    participants_answered=participants_answered,
+                    answered_codes=self._answered_codes(claim.id),
                 )
                 self._decisions.save(decision)
                 claim = self._transition_claim(
@@ -379,6 +377,14 @@ class ExtractionService:
                 evaluations.append(evaluation)
         return evaluations
 
+    def _answered_codes(self, claim_id: UUID) -> set[str]:
+        """Codes of clarifications that already received an answer."""
+        return {
+            clarification.code
+            for clarification in self._clarifications.list_for_claim(claim_id)
+            if clarification.status == ClarificationStatus.ANSWERED
+        }
+
     def _answered_participants(self, claim_id: UUID) -> tuple[int, bool]:
         """Participant count from the latest answered clarification, if any."""
         for clarification in reversed(self._clarifications.list_for_claim(claim_id)):
@@ -440,18 +446,24 @@ class ExtractionService:
     def _record_data_clarification(
         self, claim: Claim, decision: Decision, run: ProcessingRun
     ) -> ClarificationRequest:
-        if "participant_count_required" in decision.reason_codes:
-            code = "participant_count_required"
-            fields = ["participant_count"]
-        else:
-            code = "invalid_claim_data"
-            fields = list(decision.reason_codes)
+        clarification_fields = {
+            "participant_count_required": ["participant_count"],
+            "business_trip_evidence_required": ["business_trip_evidence"],
+        }
+        code = next(
+            (
+                reason
+                for reason in decision.reason_codes
+                if reason in clarification_fields
+            ),
+            "invalid_claim_data",
+        )
         clarification = Clarification(
             id=uuid4(),
             claim_id=claim.id,
             processing_run_id=run.id,
             code=code,
-            fields=fields,
+            fields=clarification_fields.get(code, list(decision.reason_codes)),
             question=decision.explanation,
             answer=None,
             status=ClarificationStatus.OPEN,

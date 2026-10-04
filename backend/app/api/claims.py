@@ -191,13 +191,12 @@ def answer_clarification(
     request: AnswerRequest,
     service: ClarificationService = Depends(get_clarification_service),
 ) -> ProcessClaimResponse:
-    service.answer(
+    _clarification, outcome, _replayed = service.submit_answer(
         claim_id,
         clarification_id,
         answer=request.answer,
         answered_by=request.answered_by,
     )
-    outcome = service.resume(claim_id)
     return ProcessClaimResponse(
         claim=outcome.claim,
         extractions=outcome.extractions,

@@ -156,6 +156,10 @@ class ClaimHistoryRepository(Protocol):
         self, employee_id: str, *, exclude_claim_id: UUID | None = None
     ) -> Sequence[Claim]: ...
 
+    def list_for_vendor(
+        self, vendor: str, *, exclude_claim_id: UUID | None = None
+    ) -> Sequence[Claim]: ...
+
 
 class ConversationContextRepository(Protocol):
     def append(self, entry: ConversationEntry) -> ConversationEntry: ...

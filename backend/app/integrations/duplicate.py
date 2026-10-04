@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 
 from app.domain.enums import DuplicateMatchType, Severity, SignalType
 from app.repositories.protocols import (
-    ClaimRepository,
+    ClaimHistoryRepository,
     ExtractionRepository,
     ReceiptRepository,
 )
@@ -27,11 +27,11 @@ class AttributeDuplicateDetector:
 
     def __init__(
         self,
-        claims: ClaimRepository,
+        history: ClaimHistoryRepository,
         receipts: ReceiptRepository,
         extractions: ExtractionRepository,
     ) -> None:
-        self._claims = claims
+        self._history = history
         self._receipts = receipts
         self._extractions = extractions
 
@@ -81,18 +81,20 @@ class AttributeDuplicateDetector:
             return []
         signals: list[Signal] = []
         seen_claims: set[UUID] = set()
-        for other in self._claims.list():
-            if other.id == claim.id:
-                continue
-            other_receipts = self._receipts.list_for_claim(other.id)
-            other_extractions = list(
-                self._extractions.list_for_receipts([r.id for r in other_receipts])
+        for own_result in own:
+            # Vendor history (FR-15) scopes the candidate set; the remaining
+            # attributes must also match before a signal is raised.
+            candidates = self._history.list_for_vendor(
+                str(own_result.vendor.value), exclude_claim_id=claim.id
             )
-            for other_result in other_extractions:
-                for own_result in own:
+            for other in candidates:
+                if other.id in seen_claims:
+                    continue
+                other_receipts = self._receipts.list_for_claim(other.id)
+                for other_result in self._extractions.list_for_receipts(
+                    [r.id for r in other_receipts]
+                ):
                     if not self._attributes_match(own_result, other_result):
-                        continue
-                    if other.id in seen_claims:
                         continue
                     seen_claims.add(other.id)
                     signals.append(
@@ -115,6 +117,7 @@ class AttributeDuplicateDetector:
                             ),
                         )
                     )
+                    break
         return signals
 
     @staticmethod

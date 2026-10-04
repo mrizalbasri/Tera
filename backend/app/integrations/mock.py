@@ -7,7 +7,10 @@ Fixture markers inside the receipt content steer behavior in tests:
 - ``RETRY_THEN_SUCCESS``: from the second attempt on, confidence is high.
 - ``CATEGORY:MEALS|FUEL|TOLL|HOTEL``: sets the extracted category.
 - ``TOTAL_MISMATCH``: line item sum disagrees with the extracted total.
+- ``AMOUNT_MISMATCH``: extracted total exceeds the declared amount by 50000.
 - ``ALCOHOL``: adds a prohibited item to the line items.
+- ``SPBU``: vendor becomes an SPBU station.
+- ``BUSINESSTRIP``: line item mentions business travel (perjalanan dinas).
 - ``OLD_DATE`` / ``FUTURE_DATE``: receipt date 20 days old / tomorrow.
 """
 
@@ -55,7 +58,6 @@ class MockReceiptExtractor:
             b"RETRY_THEN_SUCCESS" in content and attempt >= 2
         )
         confidence = LOW_CONFIDENCE_SCORE if low_confidence else HIGH_CONFIDENCE_SCORE
-        total = declared_amount or Decimal("10000")
         category = next(
             (
                 value
@@ -69,15 +71,24 @@ class MockReceiptExtractor:
             receipt_date = date.today() - timedelta(days=20)
         elif b"FUTURE_DATE" in content:
             receipt_date = date.today() + timedelta(days=1)
+        total = declared_amount or Decimal("10000")
+        if b"AMOUNT_MISMATCH" in content:
+            total = total + Decimal("50000")
         line_total = total / 2 if b"TOTAL_MISMATCH" in content else total
-        description = (
-            "Synthetic alcohol beer" if b"ALCOHOL" in content else "Synthetic expense"
+        vendor = (
+            "SPBU Pertamina 34.101.01" if b"SPBU" in content else "Synthetic Vendor"
         )
+        if b"ALCOHOL" in content:
+            description = "Synthetic alcohol beer"
+        elif b"BUSINESSTRIP" in content:
+            description = "Penginapan perjalanan dinas"
+        else:
+            description = "Synthetic expense"
         now = datetime.now(UTC)
         return ExtractionResult(
             id=uuid4(),
             receipt_id=receipt.id,
-            vendor=FieldConfidence(value="Synthetic Vendor", confidence=confidence),
+            vendor=FieldConfidence(value=vendor, confidence=confidence),
             receipt_date=FieldConfidence(
                 value=receipt_date,
                 confidence=confidence,

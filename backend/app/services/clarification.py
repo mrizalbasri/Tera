@@ -3,6 +3,10 @@
 Answering an open clarification stores the answer, records it in the claim's
 conversation context, and resumes processing with a NEW run — earlier runs,
 findings, and decisions are never overwritten.
+
+Repeated submission for an already-answered clarification is idempotent
+(FR-09/M5): it returns the recorded outcome of the original answer's run
+instead of erroring or creating another run.
 """
 
 from datetime import UTC, datetime
@@ -18,7 +22,8 @@ from app.repositories.protocols import (
     ClarificationRepository,
     ConversationContextRepository,
 )
-from app.schemas.core import Clarification, ConversationEntry
+from app.schemas.core import Clarification, ClarificationRequest, ConversationEntry
+from app.services.extraction import ExtractionService
 
 
 class ClarificationService:
@@ -28,42 +33,51 @@ class ClarificationService:
         clarifications: ClarificationRepository,
         context: ConversationContextRepository,
         audit: AuditRepository,
-        process_resume,
+        processing: ExtractionService,
     ) -> None:
         self._claims = claims
         self._clarifications = clarifications
         self._context = context
         self._audit = audit
-        # Processing is injected as a callable to avoid a service cycle:
-        # the resumed run reuses the extraction pipeline with resume=True.
-        self._process_resume = process_resume
+        # The extraction pipeline is injected directly; it never depends on
+        # this service, so there is no import cycle.
+        self._processing = processing
 
     def list_for_claim(self, claim_id: UUID) -> list[Clarification]:
         if self._claims.get(claim_id) is None:
             raise NotFoundError("Claim", str(claim_id))
         return list(self._clarifications.list_for_claim(claim_id))
 
-    def answer(
-        self, claim_id: UUID, clarification_id: UUID, *, answer: str, answered_by: str
-    ) -> Clarification:
+    def submit_answer(
+        self,
+        claim_id: UUID,
+        clarification_id: UUID,
+        *,
+        answer: str,
+        answered_by: str,
+    ) -> tuple[Clarification, dict, bool]:
+        """Store the answer and resume, or replay when already answered.
+
+        Returns (clarification, processing outcome, replayed).
+        """
         if self._claims.get(claim_id) is None:
             raise NotFoundError("Claim", str(claim_id))
         clarification = next(
             (
                 item
-                for item in self._clarifications.list_for_claim(claim_id)
+                for item in reversed(self._clarifications.list_for_claim(claim_id))
                 if item.id == clarification_id
             ),
             None,
         )
         if clarification is None:
             raise NotFoundError("Clarification", str(clarification_id))
-        if clarification.status != ClarificationStatus.OPEN:
-            raise ApplicationError(
-                ErrorCode.INVALID_CLAIM,
-                "This clarification has already been answered.",
-                409,
-            )
+
+        if clarification.status == ClarificationStatus.ANSWERED:
+            # Idempotent repeat: no mutation, no extra run — the recorded
+            # outcome of the original answer's run is returned as-is.
+            outcome = self._processing.process_claim(claim_id)
+            return clarification, outcome, True
 
         clean_answer = answer.strip()
         now = datetime.now(UTC)
@@ -103,18 +117,16 @@ class ClarificationService:
             },
             processing_run_id=clarification.processing_run_id,
         )
-        return answered
 
-    def resume(self, claim_id: UUID) -> dict:
         claim = self._claims.get(claim_id)
-        if claim is None:
-            raise NotFoundError("Claim", str(claim_id))
         apply_transition(ClaimStatus(claim.status), ClaimStatus.PROCESSING)
-        updated = claim.model_copy(
-            update={
-                "status": ClaimStatus.PROCESSING,
-                "updated_at": datetime.now(UTC),
-            }
+        self._claims.save(
+            claim.model_copy(
+                update={
+                    "status": ClaimStatus.PROCESSING,
+                    "updated_at": datetime.now(UTC),
+                }
+            )
         )
-        self._claims.save(updated)
-        return self._process_resume(claim_id)
+        outcome = self._processing.process_claim(claim_id, resume=True)
+        return answered, outcome, False

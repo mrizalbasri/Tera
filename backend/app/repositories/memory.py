@@ -164,9 +164,13 @@ class InMemoryClarificationRepository:
 
     def save(self, clarification: Clarification) -> Clarification:
         with self._lock:
-            self._clarifications.setdefault(clarification.claim_id, []).append(
-                clarification
-            )
+            items = self._clarifications.setdefault(clarification.claim_id, [])
+            for index, existing in enumerate(items):
+                if existing.id == clarification.id:
+                    items[index] = clarification
+                    break
+            else:
+                items.append(clarification)
         return clarification
 
     def list_for_claim(self, claim_id: UUID) -> Sequence[Clarification]:
@@ -273,10 +277,17 @@ class InMemorySignalRepository:
 
 
 class InMemoryClaimHistoryRepository:
-    """Employee-scoped claim history view over the claim repository."""
+    """Employee- and vendor-scoped claim history views (FR-15)."""
 
-    def __init__(self, claims: InMemoryClaimRepository) -> None:
+    def __init__(
+        self,
+        claims: InMemoryClaimRepository,
+        receipts: InMemoryReceiptRepository,
+        extractions: InMemoryExtractionRepository,
+    ) -> None:
         self._claims = claims
+        self._receipts = receipts
+        self._extractions = extractions
 
     def list_for_employee(
         self, employee_id: str, *, exclude_claim_id: UUID | None = None
@@ -286,6 +297,24 @@ class InMemoryClaimHistoryRepository:
             for claim in self._claims.list(employee_id=employee_id)
             if claim.id != exclude_claim_id
         )
+
+    def list_for_vendor(
+        self, vendor: str, *, exclude_claim_id: UUID | None = None
+    ) -> Sequence[Claim]:
+        wanted = vendor.strip().lower()
+        matched: list[Claim] = []
+        for claim in self._claims.list():
+            if claim.id == exclude_claim_id:
+                continue
+            receipt_ids = [
+                receipt.id for receipt in self._receipts.list_for_claim(claim.id)
+            ]
+            if any(
+                str(result.vendor.value).strip().lower() == wanted
+                for result in self._extractions.list_for_receipts(receipt_ids)
+            ):
+                matched.append(claim)
+        return tuple(matched)
 
 
 class InMemoryConversationContextRepository:
@@ -331,7 +360,7 @@ class InMemoryRepositories:
 
     @property
     def history(self) -> InMemoryClaimHistoryRepository:
-        return InMemoryClaimHistoryRepository(self.claims)
+        return InMemoryClaimHistoryRepository(self.claims, self.receipts, self.extractions)
 
 
 class InMemoryClaimStore:

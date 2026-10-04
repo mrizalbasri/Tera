@@ -8,12 +8,12 @@ from app.main import app
 
 @pytest.fixture(autouse=True)
 def isolated_stores():
-    """Give every test a fresh in-memory backend so tests stay order-independent."""
-    deps._repositories.cache_clear()
-    deps._file_storage.cache_clear()
+    """Give every test a fresh storage backend so tests stay order-independent."""
+    deps._memory_repositories.cache_clear()
+    deps._sql_repositories.cache_clear()
     yield
-    deps._repositories.cache_clear()
-    deps._file_storage.cache_clear()
+    deps._memory_repositories.cache_clear()
+    deps._sql_repositories.cache_clear()
 
 
 @pytest.fixture

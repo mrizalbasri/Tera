@@ -173,6 +173,7 @@ def _policy_violation(claim_id) -> PolicyEvaluation:
         policy_id="expense-policy",
         policy_version=1,
         rule_id="meal_daily_limit",
+        rule_type="max_amount_per_person",
         passed=False,
         severity=Severity.BLOCKING,
         reason_code="policy_limit_exceeded",

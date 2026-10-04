@@ -56,7 +56,7 @@ def test_shared_meal_asks_participants_then_approves() -> None:
     assert len(detail["attempts"]) == 2, "answer must create a NEW run"
 
 
-def test_answering_twice_is_rejected() -> None:
+def test_answering_twice_is_idempotent() -> None:
     payload = _process(b"%PDF-1.7\nCATEGORY:MEALS twice-asked\n%%EOF", "240000")
     claim_id = payload["claim"]["id"]
     clarification = client.get(f"/claims/{claim_id}/clarifications").json()["items"][0]
@@ -66,12 +66,21 @@ def test_answering_twice_is_rejected() -> None:
         json={"answer": "2", "answered_by": "employee-m5"},
     )
     assert first.status_code == 200
+    attempts_after_first = len(first.json()["attempts"])
 
+    # A repeated submission replays the recorded outcome: no error, no new run.
     second = client.post(
         f"/claims/{claim_id}/clarifications/{clarification['id']}/answer",
         json={"answer": "4", "answered_by": "employee-m5"},
     )
-    assert second.status_code == 409
+    assert second.status_code == 200
+    assert second.json()["claim"]["id"] == first.json()["claim"]["id"]
+    assert second.json()["decision"] == first.json()["decision"]
+    assert len(second.json()["attempts"]) == attempts_after_first
+
+    listing = client.get(f"/claims/{claim_id}/clarifications").json()
+    assert listing["total"] == 1, "clarification must not be duplicated"
+    assert listing["items"][0]["answer"] == "2", "first answer is preserved"
 
 
 def test_answered_but_still_over_limit_is_rejected() -> None:

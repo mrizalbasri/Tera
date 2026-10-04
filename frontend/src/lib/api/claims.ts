@@ -2,6 +2,7 @@ import { apiRequest } from './client';
 import type {
 	ClaimDetailResponse,
 	ClaimListResponse,
+	ClarificationListResponse,
 	CreateClaimResponse,
 	ProcessClaimResponse
 } from '$lib/types/claim';
@@ -54,20 +55,33 @@ export async function processClaim(claimId: string): Promise<ProcessClaimRespons
 	});
 }
 
+export async function listClarifications(claimId: string): Promise<ClarificationListResponse> {
+	return apiRequest<ClarificationListResponse>(
+		`/claims/${encodeURIComponent(claimId)}/clarifications`
+	);
+}
+
 /**
- * Endpoint jawaban klarifikasi (FR-09) mengikuti roadmap. Belum tersedia di
- * backend saat ini, jadi pemanggilannya akan menghasilkan ApiError yang
- * ditampilkan apa adanya oleh UI, bukan disembunyikan.
+ * FR-09: mengirim jawaban klarifikasi ke backend. Responsnya adalah hasil
+ * pemrosesan lanjutan (termasuk keputusan baru bila ada).
  */
 export async function answerClarification(input: {
 	claimId: string;
 	clarificationId: string;
 	answer: string;
-}): Promise<void> {
-	await apiRequest(
+	answeredBy?: string;
+}): Promise<ProcessClaimResponse> {
+	return apiRequest<ProcessClaimResponse>(
 		`/claims/${encodeURIComponent(input.claimId)}/clarifications/${encodeURIComponent(
 			input.clarificationId
 		)}/answer`,
-		{ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answer: input.answer }) }
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				answer: input.answer,
+				answered_by: input.answeredBy ?? CURRENT_EMPLOYEE_ID
+			})
+		}
 	);
 }

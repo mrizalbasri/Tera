@@ -1,175 +1,137 @@
 <script lang="ts">
-	type OcrItem = { desc: string; price: number };
-	type AuditEntry = { step: string; status: string; desc: string };
-	type ReviewClaim = {
-		id: string;
-		name: string;
-		role: string;
-		category: string;
-		date: string;
-		amount: number;
-		vendor: string;
-		reasonBadge: string;
-		reasonType: string;
-		aiReason: string;
-		status: string;
-		confidence: number;
-		ocrItems: OcrItem[];
-		aiAuditTrail: AuditEntry[];
-	};
+	import { onMount } from 'svelte';
+	import Toast from '$lib/components/Toast.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import { listReviews, decideReview, CURRENT_REVIEWER_ID } from '$lib/api/reviews';
+	import { ApiError } from '$lib/api/client';
+	import { showToast } from '$lib/stores/toast.svelte';
+	import { shortClaimRef } from '$lib/formatters/claim';
+	import { formatDateTime } from '$lib/formatters/date';
+	import { formatCurrency, formatConfidence } from '$lib/formatters/currency';
+	import { describeReasonCodes } from '$lib/formatters/reasonCodes';
+	import type { ReviewQueueItem, Signal } from '$lib/types/claim';
 
-	// Data antrean klaim (berdasarkan BRD)
-	let claims = $state<ReviewClaim[]>([
-		{
-			id: 'CLM-1042',
-			name: 'Budi Santoso',
-			role: 'Sales Lapangan Surabaya',
-			category: 'Hotel / Penginapan',
-			date: '28 Sep 2026',
-			amount: 650000,
-			vendor: 'Hotel Ibis Budget Surabaya',
-			reasonBadge: 'Nominal > Rp 500.000',
-			reasonType: 'warning',
-			aiReason: 'Nota valid (skor 94%), namun melebihi ambang batas auto-approve (Rp500.000).',
-			status: 'PENDING',
-			confidence: 94,
-			ocrItems: [
-				{ desc: 'Room Standard 1 Malam', price: 590909 },
-				{ desc: 'PB1 / Pajak Daerah 10%', price: 59091 }
-			],
-			aiAuditTrail: [
-				{ step: 'Kualitas Gambar', status: 'PASS', desc: 'Resolusi 1920x1080, tidak buram, teks terbaca jelas.' },
-				{ step: 'Ekstraksi OCR (FR-02)', status: 'PASS', desc: 'Berhasil membaca vendor, tanggal, rincian item, dan total.' },
-				{ step: 'Pengecekan Kebijakan (RAG)', status: 'PASS', desc: 'Batas hotel Rp600.000/malam. Tanggal klaim dalam 14 hari.' },
-				{ step: 'Deteksi Anomali & Duplikat (ML)', status: 'PASS', desc: 'Bukan klaim ganda, pola historis wajar.' },
-				{ step: 'Keputusan Otonom (FR-08/10)', status: 'FLAGGED', desc: 'Dieskalasi ke admin manusia karena total (Rp650rb) > batas otonom (Rp500rb).' }
-			]
-		},
-		{
-			id: 'CLM-1045',
-			name: 'Andi Wijaya',
-			role: 'Sales Lapangan Bandung',
-			category: 'BBM / SPBU',
-			date: '01 Okt 2026',
-			amount: 180000,
-			vendor: 'SPBU Pertamina 34-40112',
-			reasonBadge: 'Terdeteksi Anomali',
-			reasonType: 'danger',
-			aiReason: 'Nominal BBM melebihi batas kebijakan harian maksimal Rp150.000/hari kerja.',
-			status: 'PENDING',
-			confidence: 89,
-			ocrItems: [
-				{ desc: 'Pertamax 13.95 Liter @ Rp12.900', price: 180000 }
-			],
-			aiAuditTrail: [
-				{ step: 'Kualitas Gambar', status: 'PASS', desc: 'Foto struk SPBU terbaca.' },
-				{ step: 'Ekstraksi OCR (FR-02)', status: 'PASS', desc: 'Nominal Rp180.000 terverifikasi.' },
-				{ step: 'Pengecekan Kebijakan (RAG)', status: 'WARN', desc: 'Batas maksimal BBM per hari adalah Rp150.000. Selisih: Rp30.000.' },
-				{ step: 'Deteksi Anomali & Duplikat (ML)', status: 'WARN', desc: 'Karyawan mengajukan klaim BBM 2x dalam jarak 18 jam.' },
-				{ step: 'Keputusan Otonom (FR-08/10)', status: 'FLAGGED', desc: 'Dieskalasi ke manusia karena melanggar aturan limit anggaran.' }
-			]
-		},
-		{
-			id: 'CLM-1049',
-			name: 'Siti Rahma',
-			role: 'Sales Lapangan Semarang',
-			category: 'Makan Dinas',
-			date: '02 Okt 2026',
-			amount: 85000,
-			vendor: 'RM Padang Sederhana',
-			reasonBadge: 'Kepercayaan Rendah (72%)',
-			reasonType: 'info',
-			aiReason: 'Foto sedikit buram, rincian item minuman/pajak perlu verifikasi mata admin.',
-			status: 'PENDING',
-			confidence: 72,
-			ocrItems: [
-				{ desc: 'Nasi Rendang Komplit x1', price: 42000 },
-				{ desc: 'Ayam Gulai x1 (tidak jelas)', price: 28000 },
-				{ desc: 'Es Jeruk x1', price: 15000 }
-			],
-			aiAuditTrail: [
-				{ step: 'Kualitas Gambar', status: 'WARN', desc: 'Kamera goyang, bagian tengah nota agak buram.' },
-				{ step: 'Ekstraksi OCR (FR-02)', status: 'WARN', desc: 'Skor keyakinan 72% (di bawah batas minimal 80%).' },
-				{ step: 'Pengecekan Kebijakan (RAG)', status: 'PASS', desc: 'Maks Rp75.000/orang. Nota untuk 1 orang (melebihi Rp10.000).' },
-				{ step: 'Deteksi Anomali & Duplikat (ML)', status: 'PASS', desc: 'Tidak ada indikasi nota ganda.' },
-				{ step: 'Keputusan Otonom (FR-08/10)', status: 'FLAGGED', desc: 'Dieskalasi untuk konfirmasi mata manusia sebelum disetujui.' }
-			]
-		}
-	]);
-
-	let autoApprovedCount = $state(24);
+	let queue = $state<ReviewQueueItem[]>([]);
+	let loading = $state(true);
+	let loadError = $state<string | null>(null);
 	let searchQuery = $state('');
-	let selectedCategory = $state('ALL');
-	let activeModalClaim = $state<ReviewClaim | null>(null);
-	let toastMessage = $state('');
 
-	// Hitung angka statistik secara live
-	let pendingClaims = $derived(claims.filter(c => c.status === 'PENDING'));
-	let pendingCount = $derived(pendingClaims.length);
-	let filteredClaims = $derived(
-		claims.filter(c => {
-			const matchSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-			                    c.id.toLowerCase().includes(searchQuery.toLowerCase());
-			const matchCategory = selectedCategory === 'ALL' || c.category === selectedCategory;
-			return matchSearch && matchCategory;
+	// FR-10: keputusan reviewer selalu lewat konfirmasi + alasan eksplisit
+	let decisionTarget = $state<ReviewQueueItem | null>(null);
+	let decisionAction = $state<'approve' | 'reject'>('approve');
+	let decisionReason = $state('');
+	let submittingDecision = $state(false);
+	let decisionError = $state<string | null>(null);
+
+	// Bukti signal (duplikat/anomali) yang sedang dilihat reviewer
+	let activeSignals = $state<ReviewQueueItem | null>(null);
+
+	let pendingCount = $derived(queue.filter((item) => item.review.status === 'open').length);
+	let decidedCount = $derived(queue.length - pendingCount);
+	let filteredQueue = $derived(
+		queue.filter((item) => {
+			const q = searchQuery.trim().toLowerCase();
+			if (!q) return true;
+			return (
+				shortClaimRef(item.claim.id).toLowerCase().includes(q) ||
+				item.claim.employee_id.toLowerCase().includes(q)
+			);
 		})
 	);
 
-	function showToast(msg: string) {
-		toastMessage = msg;
-		setTimeout(() => {
-			toastMessage = '';
-		}, 3500);
-	}
-
-	function approveClaim(id: string) {
-		const claim = claims.find(c => c.id === id);
-		if (claim) {
-			claim.status = 'APPROVED';
-			autoApprovedCount += 1;
-			showToast(`✅ Berhasil! Klaim ${claim.id} atas nama ${claim.name} telah DISETUJUI.`);
-			if (activeModalClaim?.id === id) activeModalClaim = null;
+	async function load() {
+		loading = true;
+		loadError = null;
+		try {
+			const response = await listReviews();
+			queue = response.items;
+		} catch (error) {
+			loadError = error instanceof ApiError ? error.message : 'Terjadi kesalahan tak terduga.';
+		} finally {
+			loading = false;
 		}
 	}
 
-	function rejectClaim(id: string) {
-		const claim = claims.find(c => c.id === id);
-		if (claim) {
-			const reason = prompt('Masukkan alasan penolakan klaim (opsional):', 'Tidak sesuai kebijakan perusahaan');
-			if (reason !== null) {
-				claim.status = 'REJECTED';
-				showToast(`❌ Klaim ${claim.id} telah DITOLAK. Alasan dicatat.`);
-				if (activeModalClaim?.id === id) activeModalClaim = null;
-			}
+	onMount(load);
+
+	function openDecisionModal(item: ReviewQueueItem, action: 'approve' | 'reject') {
+		decisionTarget = item;
+		decisionAction = action;
+		decisionReason = '';
+		decisionError = null;
+	}
+
+	function closeDecisionModal() {
+		if (submittingDecision) return;
+		decisionTarget = null;
+		decisionError = null;
+	}
+
+	async function submitDecision() {
+		if (!decisionTarget || submittingDecision) return;
+		const reason = decisionReason.trim();
+		if (!reason) {
+			decisionError = 'Alasan keputusan wajib diisi.';
+			return;
+		}
+		submittingDecision = true;
+		decisionError = null;
+		try {
+			const response = await decideReview({
+				claimId: decisionTarget.claim.id,
+				action: decisionAction,
+				reason
+			});
+			showToast(
+				`✅ Klaim ${shortClaimRef(response.claim.id)} ${
+					decisionAction === 'approve' ? 'disetujui' : 'ditolak'
+				} — tercatat atas nama ${response.review.reviewer_reference ?? CURRENT_REVIEWER_ID}.`,
+				'success'
+			);
+			decisionTarget = null;
+			await load();
+		} catch (error) {
+			decisionError = error instanceof ApiError ? error.message : 'Gagal mengirim keputusan.';
+		} finally {
+			submittingDecision = false;
 		}
 	}
 
-	function formatRupiah(num: number) {
-		return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
+	function primaryReason(item: ReviewQueueItem): string {
+		const codes = item.decision ? describeReasonCodes(item.decision.reason_codes) : [];
+		return codes[0]?.label ?? 'Perlu review';
+	}
+
+	function severityLabel(severity: Signal['severity']): string {
+		return severity === 'blocking' ? 'Blocking' : severity === 'warning' ? 'Peringatan' : 'Info';
 	}
 
 	function exportToCSV() {
-		const headers = ['ID Klaim', 'Nama Karyawan', 'Kategori', 'Tanggal', 'Vendor', 'Nominal (IDR)', 'Status', 'Alasan AI'];
-		const rows = claims.map(c => [
-			c.id,
-			`"${c.name}"`,
-			`"${c.category}"`,
-			c.date,
-			`"${c.vendor}"`,
-			c.amount,
-			c.status,
-			`"${c.aiReason}"`
+		if (loading || queue.length === 0) {
+			showToast('Tidak ada data untuk diekspor.', 'error');
+			return;
+		}
+		const headers = ['ID Klaim', 'Karyawan', 'Diajukan', 'Nominal', 'Status Klaim', 'Status Review', 'Alasan'];
+		const rows = queue.map((item) => [
+			item.claim.id,
+			item.claim.employee_id,
+			formatDateTime(item.claim.submitted_at),
+			item.claim.declared_amount ?? '',
+			item.claim.status,
+			item.review.status,
+			item.decision?.explanation ?? ''
 		]);
-
-		const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-		const encodedUri = encodeURI(csvContent);
+		const csv = [
+			headers.join(','),
+			...rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+		].join('\n');
 		const link = document.createElement('a');
-		link.setAttribute('href', encodedUri);
-		link.setAttribute('download', `laporan-klaim-expense-agent-${new Date().toISOString().slice(0, 10)}.csv`);
+		link.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+		link.download = `antrean-review-${new Date().toISOString().slice(0, 10)}.csv`;
 		document.body.appendChild(link);
 		link.click();
 		document.body.removeChild(link);
-		showToast('📥 Laporan CSV berhasil diunduh ke komputermu!');
+		showToast('Laporan CSV berhasil diunduh.', 'success');
 	}
 </script>
 
@@ -177,11 +139,7 @@
 	<title>Review & Eskalasi Klaim | Expense Agent</title>
 </svelte:head>
 
-{#if toastMessage}
-	<div class="toast-notification">
-		{toastMessage}
-	</div>
-{/if}
+<Toast />
 
 <main>
 	<header class="header">
@@ -205,33 +163,24 @@
 		<div class="stat-card urgent">
 			<span class="stat-label">Perlu Review Manual</span>
 			<span class="stat-value">{pendingCount}</span>
-			<span class="stat-hint">{pendingCount > 0 ? 'Menunggu keputusan admin' : 'Semua antrean selesai! 🎉'}</span>
+			<span class="stat-hint">{pendingCount > 0 ? 'Menunggu keputusan reviewer' : 'Semua antrean selesai! 🎉'}</span>
 		</div>
 		<div class="stat-card">
-			<span class="stat-label">Auto-Approved Hari Ini</span>
-			<span class="stat-value">{autoApprovedCount}</span>
-			<span class="stat-hint">{Math.round((autoApprovedCount / (autoApprovedCount + claims.length)) * 100)}% tanpa intervensi manual</span>
+			<span class="stat-label">Selesai Ditinjau</span>
+			<span class="stat-value">{decidedCount}</span>
+			<span class="stat-hint">Keputusan terekam sebagai jejak audit</span>
 		</div>
 		<div class="stat-card">
-			<span class="stat-label">Estimasi Waktu Dihemat</span>
-			<span class="stat-value">{(autoApprovedCount * 5 / 60).toFixed(1)} Jam</span>
-			<span class="stat-hint">Target efisiensi: 5 menit per klaim</span>
+			<span class="stat-label">Total Antrean Eskalasi</span>
+			<span class="stat-value">{queue.length}</span>
+			<span class="stat-hint">Diteruskan agent ke reviewer manusia (FR-10)</span>
 		</div>
 	</section>
 
 	<!-- Filter & Search Bar -->
 	<div class="toolbar">
 		<div class="search-box">
-			🔍 <input type="text" placeholder="Cari ID klaim atau nama salesman..." bind:value={searchQuery} />
-		</div>
-		<div class="filter-group">
-			<span>Kategori:</span>
-			<select bind:value={selectedCategory}>
-				<option value="ALL">Semua Kategori</option>
-				<option value="Hotel / Penginapan">Hotel / Penginapan</option>
-				<option value="BBM / SPBU">BBM / SPBU</option>
-				<option value="Makan Dinas">Makan Dinas</option>
-			</select>
+			🔍 <input type="text" placeholder="Cari ID klaim atau nama karyawan..." bind:value={searchQuery} />
 		</div>
 	</div>
 
@@ -242,17 +191,25 @@
 			<span class="badge-count">{pendingCount} Klaim Perlu Tindakan</span>
 		</div>
 
-		{#if filteredClaims.length === 0}
+		{#if loading}
+			<div class="queue-state" role="status">
+				<span class="spin" aria-hidden="true">⟳</span> Memuat antrean review...
+			</div>
+		{:else if loadError}
+			<div class="queue-state error" role="alert">
+				<p>{loadError}</p>
+				<button type="button" class="btn-approve" onclick={load}>Coba lagi</button>
+			</div>
+		{:else if filteredQueue.length === 0}
 			<div class="empty-state">
-				<p>Tidak ada klaim yang cocok dengan pencarian.</p>
+				<p>{queue.length === 0 ? 'Antrean kosong — tidak ada klaim yang dieskalasi.' : 'Tidak ada klaim yang cocok dengan pencarian.'}</p>
 			</div>
 		{:else}
 			<table class="review-table">
 				<thead>
 					<tr>
 						<th>ID & Karyawan</th>
-						<th>Kategori & Vendor</th>
-						<th>Tanggal Nota</th>
+						<th>Diajukan</th>
 						<th>Nominal</th>
 						<th>Alasan Eskalasi AI</th>
 						<th>Status</th>
@@ -260,40 +217,32 @@
 					</tr>
 				</thead>
 				<tbody>
-					{#each filteredClaims as claim}
-						<tr class:resolved={claim.status !== 'PENDING'}>
+					{#each filteredQueue as item (item.review.id)}
+						<tr class:resolved={item.review.status !== 'open'}>
 							<td>
-								<strong>#{claim.id}</strong>
-								<div class="user-sub">{claim.name}</div>
-								<div class="role-sub">{claim.role}</div>
+								<strong>{shortClaimRef(item.claim.id)}</strong>
+								<div class="user-sub">{item.claim.employee_id}</div>
 							</td>
+							<td>{formatDateTime(item.claim.submitted_at)}</td>
+							<td class="amount">{formatCurrency(item.claim.declared_amount, item.claim.currency)}</td>
 							<td>
-								<span class="tag">{claim.category}</span>
-								<div class="vendor-sub">{claim.vendor}</div>
-							</td>
-							<td>{claim.date}</td>
-							<td class="amount">{formatRupiah(claim.amount)}</td>
-							<td>
-								<span class="badge {claim.reasonType}">{claim.reasonBadge}</span>
-								<p class="ai-reason">{claim.aiReason}</p>
-								<button class="btn-inspect" onclick={() => activeModalClaim = claim}>
+								<span class="badge {item.decision?.outcome === 'rejected' ? 'danger' : 'warning'}">{primaryReason(item)}</span>
+								<p class="ai-reason">{item.decision?.explanation ?? 'Agent meneruskan klaim ini ke reviewer manusia.'}</p>
+								<button class="btn-inspect" onclick={() => (activeSignals = item)}>
 									🔍 Lihat Bukti & Log AI
 								</button>
 							</td>
 							<td>
-								{#if claim.status === 'PENDING'}
-									<span class="status-pill pending">⏳ Menunggu</span>
-								{:else if claim.status === 'APPROVED'}
-									<span class="status-pill approved">✅ Disetujui</span>
-								{:else}
-									<span class="status-pill rejected">❌ Ditolak</span>
-								{/if}
+								<StatusBadge status={item.claim.status} size="sm" />
+								<div class="review-state">
+									{item.review.status === 'open' ? '⏳ Menunggu review' : `✓ Review selesai${item.review.reviewer_reference ? ` · ${item.review.reviewer_reference}` : ''}`}
+								</div>
 							</td>
 							<td>
-								{#if claim.status === 'PENDING'}
+								{#if item.review.status === 'open'}
 									<div class="action-buttons">
-										<button class="btn-approve" onclick={() => approveClaim(claim.id)}>Setujui</button>
-										<button class="btn-reject" onclick={() => rejectClaim(claim.id)}>Tolak</button>
+										<button class="btn-approve" onclick={() => openDecisionModal(item, 'approve')}>Setujui</button>
+										<button class="btn-reject" onclick={() => openDecisionModal(item, 'reject')}>Tolak</button>
 									</div>
 								{:else}
 									<span class="text-done">Selesai</span>
@@ -307,76 +256,138 @@
 	</section>
 </main>
 
-<!-- Modal Pop-up Bukti Nota & Audit Trail AI (FR-12) -->
-{#if activeModalClaim}
-	<div class="modal-backdrop" onclick={() => activeModalClaim = null} role="presentation">
-		<div class="modal-dialog" onclick={e => e.stopPropagation()} role="dialog" aria-modal="true">
+<!-- Modal Bukti & Audit Trail (FR-06/07/12) — hanya data dari API -->
+{#if activeSignals}
+	<div class="modal-backdrop" role="presentation">
+		<div class="modal-dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label="Bukti dan log AI klaim">
 			<div class="modal-header">
 				<div>
-					<span class="eyebrow">Audit Trail & Bukti Nota</span>
-					<h3>Detail Klaim #{activeModalClaim.id} - {activeModalClaim.name}</h3>
+					<span class="eyebrow">Audit Trail & Bukti Signal</span>
+					<h3>Klaim {shortClaimRef(activeSignals.claim.id)} · {activeSignals.claim.employee_id}</h3>
 				</div>
-				<button class="btn-close" onclick={() => activeModalClaim = null}>✕</button>
+				<button class="btn-close" onclick={() => (activeSignals = null)}>✕</button>
 			</div>
 
 			<div class="modal-body">
-				<!-- Kolom Kiri: Simulasi Struk Fisik -->
+				<!-- Kolom Kiri: Ringkasan klaim dari API -->
 				<div class="receipt-mockup">
 					<div class="receipt-paper">
 						<div class="receipt-header">
-							<h4>{activeModalClaim.vendor}</h4>
-							<p>Tanggal: {activeModalClaim.date}</p>
+							<h4>Ringkasan Klaim</h4>
+							<p>Diajukan: {formatDateTime(activeSignals.claim.submitted_at)}</p>
 							<p class="receipt-dash">--------------------------------</p>
 						</div>
 						<div class="receipt-items">
-							{#each activeModalClaim.ocrItems as item}
-								<div class="receipt-row">
-									<span>{item.desc}</span>
-									<span>{formatRupiah(item.price)}</span>
-								</div>
-							{/each}
+							<div class="receipt-row"><span>Nominal</span><span>{formatCurrency(activeSignals.claim.declared_amount, activeSignals.claim.currency)}</span></div>
+							<div class="receipt-row"><span>Status klaim</span><span>{activeSignals.claim.status}</span></div>
+							<div class="receipt-row"><span>Status review</span><span>{activeSignals.review.status}</span></div>
 						</div>
-						<div class="receipt-dash">--------------------------------</div>
-						<div class="receipt-total">
-							<strong>TOTAL:</strong>
-							<strong>{formatRupiah(activeModalClaim.amount)}</strong>
-						</div>
-						<div class="ocr-watermark">
-							<span>✓ Terverifikasi Vision OCR ({activeModalClaim.confidence}%)</span>
-						</div>
+						{#if activeSignals.decision}
+							<div class="receipt-dash">--------------------------------</div>
+							<div class="receipt-total">
+								<strong>Keyakinan:</strong>
+								<strong>{formatConfidence(activeSignals.decision.confidence)}</strong>
+							</div>
+							<div class="ocr-watermark">
+								<span>Keputusan backend · {formatDateTime(activeSignals.decision.created_at)}</span>
+							</div>
+						{/if}
 					</div>
 				</div>
 
-				<!-- Kolom Kanan: Langkah Kerja AI (Audit Trail FR-12) -->
+				<!-- Kolom Kanan: Keputusan + Signal duplikat/anomali -->
 				<div class="audit-log">
-					<h4>Jejak Logika Agent (FR-12)</h4>
-					<div class="timeline">
-						{#each activeModalClaim.aiAuditTrail as log, idx}
-							<div class="timeline-item">
-								<div class="timeline-badge {log.status}">
-									{log.status === 'PASS' ? '✓' : log.status === 'WARN' ? '!' : '⚠'}
+					<h4>Keputusan Agent (FR-08)</h4>
+					<p class="ai-reason">{activeSignals.decision?.explanation ?? 'Belum ada keputusan backend.'}</p>
+					{#if activeSignals.decision}
+						<div class="reason-chips">
+							{#each describeReasonCodes(activeSignals.decision.reason_codes) as reason (reason.label)}
+								<span class="tag">{reason.label}</span>
+							{/each}
+						</div>
+					{/if}
+
+					<h4 style="margin-top: 1.1rem;">Signal Duplikat & Anomali (FR-06/07)</h4>
+					{#if activeSignals.signals.length === 0}
+						<p class="ai-reason">Tidak ada signal dari backend untuk klaim ini.</p>
+					{:else}
+						<div class="timeline">
+							{#each activeSignals.signals as signal (signal.id)}
+								<div class="timeline-item">
+									<div class="timeline-badge {signal.severity === 'blocking' ? 'WARN' : 'PASS'}">
+										{signal.signal_type === 'duplicate' ? '⧉' : '⚠'}
+									</div>
+									<div class="timeline-content">
+										<strong>{signal.signal_type === 'duplicate' ? 'Duplikat' : 'Anomali'} · {severityLabel(signal.severity)}</strong>
+										<p>{signal.explanation}</p>
+										{#if signal.score != null}<p class="signal-meta">Skor: {formatConfidence(signal.score)}</p>{/if}
+										{#if signal.matched_claim_ids.length}
+											<p class="signal-meta">Klaim terkait: {signal.matched_claim_ids.map((id) => shortClaimRef(id)).join(', ')}</p>
+										{/if}
+									</div>
 								</div>
-								<div class="timeline-content">
-									<strong>Langkah {idx + 1}: {log.step}</strong>
-									<p>{log.desc}</p>
-								</div>
-							</div>
-						{/each}
-					</div>
+							{/each}
+						</div>
+					{/if}
 
 					<div class="modal-actions-bar">
-						{#if activeModalClaim.status === 'PENDING'}
-							{@const claimId = activeModalClaim.id}
-							<button class="btn-approve full" onclick={() => approveClaim(claimId)}>
+						{#if activeSignals.review.status === 'open'}
+							<button class="btn-approve full" onclick={() => openDecisionModal(activeSignals!, 'approve')}>
 								✓ Setujui Klaim Ini
 							</button>
-							<button class="btn-reject full" onclick={() => rejectClaim(claimId)}>
+							<button class="btn-reject full" onclick={() => openDecisionModal(activeSignals!, 'reject')}>
 								✕ Tolak Klaim
 							</button>
 						{:else}
-							<p class="status-summary">Klaim ini sudah berstatus: <strong>{activeModalClaim.status}</strong></p>
+							<p class="status-summary">
+								Review selesai{activeSignals.review.reviewer_reference ? ` oleh ${activeSignals.review.reviewer_reference}` : ''}: <strong>{activeSignals.review.action ?? '-'}</strong>
+							</p>
 						{/if}
 					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Modal Konfirmasi Keputusan (FR-10: konfirmasi eksplisit + alasan wajib) -->
+{#if decisionTarget}
+	<div class="modal-backdrop" role="presentation">
+		<div class="modal-dialog decision-dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label="Konfirmasi keputusan review">
+			<div class="modal-header">
+				<div>
+					<span class="eyebrow">Konfirmasi Keputusan</span>
+					<h3>{decisionAction === 'approve' ? '✓ Setujui' : '✕ Tolak'} klaim {shortClaimRef(decisionTarget.claim.id)}</h3>
+				</div>
+				<button class="btn-close" onclick={closeDecisionModal}>✕</button>
+			</div>
+			<div class="decision-modal-body">
+				<p class="ai-reason">
+					Keputusan ini akan dicatat sebagai keputusan resmi atas nama
+					<strong>{CURRENT_REVIEWER_ID}</strong> dan tidak dapat diubah dari UI.
+				</p>
+				<label class="reason-label" for="decision-reason">Alasan keputusan (wajib)</label>
+				<textarea
+					id="decision-reason"
+					bind:value={decisionReason}
+					rows="3"
+					placeholder={decisionAction === 'approve' ? 'Contoh: Nota dan konteks klarifikasi sudah meyakinkan.' : 'Contoh: Tidak sesuai kebijakan perusahaan.'}
+				></textarea>
+				{#if decisionError}
+					<p class="decision-error" role="alert">{decisionError}</p>
+				{/if}
+				<div class="modal-actions-bar">
+					<button class="btn-secondary" type="button" onclick={closeDecisionModal} disabled={submittingDecision}>
+						Batal
+					</button>
+					<button
+						class="{decisionAction === 'approve' ? 'btn-approve' : 'btn-reject'} full"
+						type="button"
+						onclick={submitDecision}
+						disabled={submittingDecision}
+					>
+						{submittingDecision ? 'Mengirim...' : decisionAction === 'approve' ? '✓ Konfirmasi Persetujuan' : '✕ Konfirmasi Penolakan'}
+					</button>
 				</div>
 			</div>
 		</div>
@@ -521,23 +532,7 @@
 		font-size: 0.9rem;
 	}
 
-	.filter-group {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.9rem;
-		color: #4b584c;
-		font-weight: 600;
-	}
 
-	.filter-group select {
-		padding: 0.5rem 0.8rem;
-		border: 1px solid #dce4da;
-		border-radius: 8px;
-		background: white;
-		font-size: 0.9rem;
-		outline: none;
-	}
 
 	/* Table */
 	.table-container {
@@ -606,16 +601,7 @@
 		margin-top: 0.2rem;
 	}
 
-	.role-sub {
-		font-size: 0.78rem;
-		color: #7b887c;
-	}
 
-	.vendor-sub {
-		font-size: 0.8rem;
-		color: #637064;
-		margin-top: 0.25rem;
-	}
 
 	.tag {
 		background: #edf3ec;
@@ -643,7 +629,6 @@
 
 	.badge.warning { background: #fef3c7; color: #92400e; }
 	.badge.danger { background: #fee2e2; color: #991b1b; }
-	.badge.info { background: #e0f2fe; color: #075985; }
 
 	.ai-reason {
 		margin: 0 0 0.5rem;
@@ -667,16 +652,6 @@
 		background: #eaf1e8;
 	}
 
-	.status-pill {
-		display: inline-block;
-		font-size: 0.8rem;
-		font-weight: 600;
-		padding: 0.25rem 0.6rem;
-		border-radius: 999px;
-	}
-	.status-pill.pending { background: #fef9c3; color: #854d0e; }
-	.status-pill.approved { background: #dcfce7; color: #166534; }
-	.status-pill.rejected { background: #fee2e2; color: #991b1b; }
 
 	.action-buttons {
 		display: flex;
@@ -719,21 +694,6 @@
 		padding: 3rem;
 		text-align: center;
 		color: #7b887c;
-	}
-
-	/* Toast */
-	.toast-notification {
-		position: fixed;
-		bottom: 2rem;
-		right: 2rem;
-		background: #172018;
-		color: #ffffff;
-		padding: 0.85rem 1.4rem;
-		border-radius: 8px;
-		font-weight: 600;
-		font-size: 0.9rem;
-		box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2);
-		z-index: 1000;
 	}
 
 	/* Modal */
@@ -884,7 +844,6 @@
 
 	.timeline-badge.PASS { background: #dcfce7; color: #166534; }
 	.timeline-badge.WARN { background: #fef3c7; color: #92400e; }
-	.timeline-badge.FLAGGED { background: #fee2e2; color: #991b1b; }
 
 	.timeline-content strong {
 		font-size: 0.85rem;
@@ -916,5 +875,93 @@
 		font-size: 0.9rem;
 		color: #556356;
 		margin: 0;
+	}
+	/* Queue states (loading / error) */
+	.queue-state {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 3rem;
+		color: #637064;
+		font-weight: 600;
+	}
+
+	.queue-state.error {
+		flex-direction: column;
+		gap: 0.75rem;
+		color: #b91c1c;
+	}
+
+	.queue-state .spin {
+		display: inline-block;
+		animation: reviewSpin 0.8s linear infinite;
+		font-size: 1.2rem;
+	}
+
+	@keyframes reviewSpin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
+	.review-state {
+		font-size: 0.75rem;
+		color: #637064;
+		margin-top: 0.3rem;
+	}
+
+	.reason-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.signal-meta {
+		font-size: 0.72rem;
+		color: #637064;
+		margin: 0.15rem 0 0;
+	}
+
+	/* Decision modal */
+	.decision-dialog {
+		max-width: 480px;
+		width: min(480px, 92vw);
+	}
+
+	.decision-modal-body {
+		padding: 0 1.5rem 1.5rem;
+	}
+
+	.reason-label {
+		display: block;
+		font-size: 0.82rem;
+		font-weight: 700;
+		color: #2b392c;
+		margin: 0.9rem 0 0.35rem;
+	}
+
+	.decision-modal-body textarea {
+		width: 100%;
+		box-sizing: border-box;
+		border: 1px solid #c9d6c7;
+		border-radius: 8px;
+		padding: 0.65rem 0.8rem;
+		font: inherit;
+		font-size: 0.9rem;
+		resize: vertical;
+		outline: none;
+	}
+
+	.decision-modal-body textarea:focus {
+		border-color: #36593b;
+		box-shadow: 0 0 0 3px rgba(54, 89, 59, 0.12);
+	}
+
+	.decision-error {
+		margin: 0.5rem 0 0;
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #b91c1c;
 	}
 </style>

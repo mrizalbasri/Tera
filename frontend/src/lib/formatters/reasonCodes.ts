@@ -18,6 +18,18 @@ const REASON_CODES: Record<string, ReasonCodeInfo> = {
 		label: 'Melebihi batas auto-approve',
 		explanation: 'Nominal klaim melebihi batas persetujuan otomatis sehingga perlu review.'
 	},
+	within_policy: {
+		label: 'Sesuai kebijakan',
+		explanation: 'Klaim tidak melanggar aturan kebijakan yang berlaku.'
+	},
+	confidence_sufficient: {
+		label: 'Keyakinan bacaan memadai',
+		explanation: 'Hasil ekstraksi melewati ambang keyakinan minimum.'
+	},
+	escalation_amount_threshold: {
+		label: 'Melebihi ambang eskalasi nominal',
+		explanation: 'Nominal klaim melebihi ambang sehingga diteruskan ke reviewer manusia.'
+	},
 	policy_limit_exceeded: {
 		label: 'Melebihi limit kebijakan',
 		explanation: 'Nilai klaim melampaui limit kategori pada kebijakan yang berlaku.'

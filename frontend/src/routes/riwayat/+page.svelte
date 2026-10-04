@@ -4,26 +4,15 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import { listClaims, CURRENT_EMPLOYEE_ID } from '$lib/api/claims';
 	import { ApiError } from '$lib/api/client';
+	import { showToast } from '$lib/stores/toast.svelte';
 	import { shortClaimRef } from '$lib/formatters/claim';
 	import { formatDate } from '$lib/formatters/date';
 	import { formatCurrency } from '$lib/formatters/currency';
-	import type { ToastState } from '$lib/types/ui';
 	import type { Claim } from '$lib/types/claim';
 
 	let claims = $state<Claim[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
-
-	let toast = $state<ToastState>({ message: '', type: 'success', visible: false });
-	let toastTimer: ReturnType<typeof setTimeout> | undefined;
-
-	function showToast(message: string, type: ToastState['type'] = 'success') {
-		clearTimeout(toastTimer);
-		toast = { message, type, visible: true };
-		toastTimer = setTimeout(() => {
-			toast = { ...toast, visible: false };
-		}, 3500);
-	}
 
 	async function load() {
 		loading = true;
@@ -84,7 +73,7 @@
 </svelte:head>
 
 <section class="riwayat-page">
-	<Toast {toast} />
+	<Toast />
 	<div class="page-header">
 		<div>
 			<h1>Riwayat Pengajuan</h1>

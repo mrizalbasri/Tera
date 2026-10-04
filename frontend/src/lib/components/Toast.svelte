@@ -1,7 +1,5 @@
 <script lang="ts">
-	import type { ToastState } from '$lib/types/ui';
-
-	let { toast }: { toast: ToastState } = $props();
+	import { toast } from '$lib/stores/toast.svelte';
 </script>
 
 {#if toast.visible}

@@ -1,16 +1,25 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import Toast from '$lib/components/Toast.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import AgentSteps from '$lib/components/AgentSteps.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
 	import FileAttachment from '$lib/components/FileAttachment.svelte';
-	import { createClaim, processClaim, MAX_RECEIPT_SIZE_BYTES, ALLOWED_RECEIPT_TYPES } from '$lib/api/claims';
+	import {
+		answerClarification,
+		createClaim,
+		listClarifications,
+		MAX_RECEIPT_SIZE_BYTES,
+		ALLOWED_RECEIPT_TYPES,
+		processClaim
+	} from '$lib/api/claims';
+	import { showToast } from '$lib/stores/toast.svelte';
 	import { shortClaimRef } from '$lib/formatters/claim';
 	import { formatClock, formatDate } from '$lib/formatters/date';
 	import { formatCurrency, formatConfidence } from '$lib/formatters/currency';
 	import { describeReasonCode } from '$lib/formatters/reasonCodes';
-	import type { AgentStepView, ToastState } from '$lib/types/ui';
-	import type { ClaimStatus, ProcessClaimResponse } from '$lib/types/claim';
+	import type { AgentStepView } from '$lib/types/ui';
+	import type { ClaimStatus, Decision, ProcessClaimResponse } from '$lib/types/claim';
 
 	type ChatAction = {
 		label: string;
@@ -31,6 +40,7 @@
 		claimRef?: string;
 		claimId?: string;
 		claimStatus?: ClaimStatus;
+		decision?: Decision | null;
 		decisionPending?: boolean;
 		actions?: ChatAction[];
 		isError?: boolean;
@@ -55,23 +65,18 @@
 	let submitPhase = $state<'idle' | 'uploading' | 'processing'>('idle');
 	let isProcessing = $derived(submitPhase !== 'idle');
 
-	// FR-09: klarifikasi terbuka + validasi jawaban kosong secara inline
-	let awaitingClarification = $state<{ claimId: string; code: string; message: string } | null>(null);
+	// FR-09: klarifikasi terbuka (dengan id dari backend) + validasi jawaban kosong
+	let awaitingClarification = $state<{
+		claimId: string;
+		clarificationId: string;
+		code: string;
+		message: string;
+	} | null>(null);
+	let submittingAnswer = $state(false);
 	let composerError = $state<string | null>(null);
 
 	// FR-03: retry proses hanya lewat tombol (bounded, tidak otomatis)
 	let retryableClaimId = $state<string | null>(null);
-
-	let toast = $state<ToastState>({ message: '', type: 'error', visible: false });
-	let toastTimer: ReturnType<typeof setTimeout> | undefined;
-
-	function showToast(message: string, type: ToastState['type'] = 'error') {
-		clearTimeout(toastTimer);
-		toast = { message, type, visible: true };
-		toastTimer = setTimeout(() => {
-			toast = { ...toast, visible: false };
-		}, 3500);
-	}
 
 	function scrollToBottom() {
 		setTimeout(() => {
@@ -199,6 +204,27 @@
 		await runProcessing(stepsId, claimId);
 	}
 
+	/** FR-09: hubungkan permintaan klarifikasi dengan id klarifikasi terbuka. */
+	async function attachOpenClarification(
+		claimId: string,
+		request: { code: string; message: string }
+	) {
+		try {
+			const list = await listClarifications(claimId);
+			const open = list.items.find((item) => item.status === 'open');
+			if (open) {
+				awaitingClarification = {
+					claimId,
+					clarificationId: open.id,
+					code: request.code,
+					message: open.question || request.message
+				};
+			}
+		} catch {
+			// daftar klarifikasi gagal dimuat — aksi retake tetap menjadi jalur lanjutan
+		}
+	}
+
 	async function runProcessing(stepsId: number, claimId: string) {
 		updateMessage(stepsId, {
 			steps: [
@@ -269,14 +295,16 @@
 				actions: [{ label: 'Upload nota yang lebih jelas', kind: 'retake' }],
 				timestamp: formatClock()
 			});
-			awaitingClarification = { claimId, code: clarification.code, message: clarification.message };
+			awaitingClarification = null;
+			await attachOpenClarification(claimId, clarification);
 			submitPhase = 'idle';
 			scrollToBottom();
 			return;
 		}
 
-		// FR-08: tidak ada keputusan yang diarahang backend — tampil jujur menunggu
+		// FR-08: render keputusan asli dari backend; tanpa keputusan, tampil jujur menunggu
 		const status = result.claim.status;
+		const decision = result.decision;
 		updateMessage(stepsId, {
 			claimStatus: status,
 			steps: [
@@ -285,22 +313,28 @@
 				{ label: 'Validasi kualitas bacaan', detail: 'Semua field terbaca dengan keyakinan memadai.', status: 'done' },
 				{
 					label: 'Keputusan agent',
-					detail: 'Klaim masuk antrean penilaian. Pantau status di halaman detail.',
+					detail: decision
+						? 'Keputusan diterbitkan oleh backend.'
+						: 'Klaim masuk antrean penilaian. Pantau status di halaman detail.',
 					status: 'done'
 				}
 			],
-			decisionPending: true
+			decision: decision ?? null,
+			decisionPending: !decision
 		});
 		messages.push({
 			id: nextId++,
 			from: 'agent',
-			text: `📩 Klaim ${shortClaimRef(claimId)} berhasil diajukan dan sedang dinilai agent.`,
+			text: `📩 Klaim ${shortClaimRef(claimId)} berhasil diajukan.`,
 			claimId,
-			actions: [{ label: 'Lihat detail klaim →', kind: 'detail', href: `/riwayat/${claimId}` }],
+			claimStatus: status,
 			timestamp: formatClock()
 		});
 		submitPhase = 'idle';
 		scrollToBottom();
+
+		// FR-01: respons sukses menghasilkan klaim dan mengarahkan ke halaman detail
+		setTimeout(() => goto(`/riwayat/${claimId}`), 1400);
 	}
 
 	async function retryProcess(claimId: string, actionMessageId: number) {
@@ -332,7 +366,8 @@
 		// kind 'detail' berupa <a>, ditangani browser
 	}
 
-	function sendText() {
+	async function sendText() {
+		if (submittingAnswer) return;
 		const text = draft.trim();
 		if (!text) {
 			// FR-09: jawaban/pesan kosong ditolak dengan pesan inline
@@ -342,25 +377,69 @@
 			return;
 		}
 		composerError = null;
-		messages.push({ id: nextId++, from: 'user', text, timestamp: formatClock() });
-		draft = '';
+
+		if (!awaitingClarification) {
+			messages.push({ id: nextId++, from: 'user', text, timestamp: formatClock() });
+			draft = '';
+			scrollToBottom();
+			return;
+		}
+
+		// FR-09: POST jawaban ke backend; kegagalan mempertahankan input
+		const clarification = awaitingClarification;
+		submittingAnswer = true;
+		const userMessageId = nextId++;
+		messages.push({ id: userMessageId, from: 'user', text, timestamp: formatClock() });
 		scrollToBottom();
 
-		if (awaitingClarification) {
-			const clarification = awaitingClarification;
-			awaitingClarification = null;
-			// FR-09: jawaban hanya read-only history — backend belum menyediakan
-			// endpoint jawaban klarifikasi, jadi tidak ada status sukses palsu.
-			messages.push({
-				id: nextId++,
-				from: 'agent',
-				text: `📝 Jawabanmu tercatat: "${text}". Namun pengiriman jawaban klarifikasi ke server belum tersedia (endpoint backend belum ada). Untuk melanjutkan klaim ${shortClaimRef(
-					clarification.claimId
-				)}, upload nota yang lebih jelas ya.`,
+		try {
+			const response = await answerClarification({
 				claimId: clarification.claimId,
-				actions: [{ label: 'Upload nota yang lebih jelas', kind: 'retake' }],
-				timestamp: formatClock()
+				clarificationId: clarification.clarificationId,
+				answer: text
 			});
+			draft = '';
+			awaitingClarification = null;
+			const resumedRef = shortClaimRef(clarification.claimId);
+
+			if (response.decision) {
+				messages.push({
+					id: nextId++,
+					from: 'agent',
+					text: `✅ Jawaban terkirim. Pemrosesan klaim ${resumedRef} dilanjutkan dan backend menerbitkan keputusan.`,
+					claimId: clarification.claimId,
+					claimStatus: response.claim.status,
+					decision: response.decision,
+					actions: [{ label: 'Lihat detail klaim →', kind: 'detail', href: `/riwayat/${clarification.claimId}` }],
+					timestamp: formatClock()
+				});
+			} else if (response.clarification) {
+				messages.push({
+					id: nextId++,
+					from: 'agent',
+					text: `🔁 Pemrosesan dilanjutkan, namun backend masih meminta perbaikan: ${response.clarification.message}`,
+					claimId: clarification.claimId,
+					actions: [{ label: 'Upload nota yang lebih jelas', kind: 'retake' }],
+					timestamp: formatClock()
+				});
+				await attachOpenClarification(clarification.claimId, response.clarification);
+			} else {
+				messages.push({
+					id: nextId++,
+					from: 'agent',
+					text: `✅ Jawaban terkirim untuk klaim ${resumedRef}. Pantau kelanjutannya di halaman detail.`,
+					claimId: clarification.claimId,
+					claimStatus: response.claim.status,
+					actions: [{ label: 'Lihat detail klaim →', kind: 'detail', href: `/riwayat/${clarification.claimId}` }],
+					timestamp: formatClock()
+				});
+			}
+		} catch (error) {
+			messages = messages.filter((m) => m.id !== userMessageId);
+			draft = text;
+			composerError = error instanceof Error ? error.message : 'Gagal mengirim jawaban.';
+		} finally {
+			submittingAnswer = false;
 			scrollToBottom();
 		}
 	}
@@ -372,7 +451,7 @@
 </svelte:head>
 
 <section class="chat-page">
-	<Toast {toast} />
+	<Toast />
 
 	<header class="chat-header">
 		<div class="header-left">
@@ -416,7 +495,9 @@
 					<div class="bubble agent steps-host">
 						<AgentSteps steps={message.steps} title={message.stepsTitle ?? 'Memproses nota...'} />
 						{#if message.claimRef}<span class="claim-id">{message.claimRef}</span>{/if}
-						{#if message.decisionPending}
+						{#if message.decision}
+							<DecisionBanner decision={message.decision} />
+						{:else if message.decisionPending}
 							<DecisionBanner decision={null} waitingNote="Keputusan resmi akan muncul setelah agent selesai menilai. Status saat ini ditampilkan di halaman detail." />
 						{/if}
 						{#if message.timestamp}<span class="bubble-time">{message.timestamp}</span>{/if}
@@ -494,13 +575,18 @@
 		<input
 			class="text-input"
 			type="text"
-			placeholder={awaitingClarification ? 'Tulis jawaban klarifikasi...' : 'Tulis pesan atau tanyakan sesuatu...'}
+			placeholder={submittingAnswer
+				? 'Mengirim jawaban...'
+				: awaitingClarification
+					? 'Tulis jawaban klarifikasi...'
+					: 'Tulis pesan atau tanyakan sesuatu...'}
 			bind:value={draft}
 			id="chat-text-input"
 			aria-label="Pesan"
 			aria-invalid={composerError ? 'true' : undefined}
+			disabled={submittingAnswer}
 		/>
-		<button type="submit" class="send-btn" id="btn-kirim-pesan">
+		<button type="submit" class="send-btn" id="btn-kirim-pesan" disabled={submittingAnswer}>
 			<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 				<line x1="22" y1="2" x2="11" y2="13"/>
 				<polygon points="22 2 15 22 11 13 2 9 22 2"/>

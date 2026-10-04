@@ -2,6 +2,7 @@
 	import { describeReasonCodes } from '$lib/formatters/reasonCodes';
 	import { formatConfidence } from '$lib/formatters/currency';
 	import { formatDateTime } from '$lib/formatters/date';
+	import type { Decision } from '$lib/types/claim';
 
 	/**
 	 * FR-08: banner keputusan hanya merender keputusan yang benar-benar
@@ -12,14 +13,7 @@
 		decision = null,
 		waitingNote = 'Agent sedang menilai klaim ini. Keputusan resmi hanya berasal dari backend.'
 	}: {
-		decision?: {
-			outcome: 'approved' | 'rejected' | 'needs_clarification' | 'escalated';
-			reasonCodes: string[];
-			explanation: string;
-			confidence: number | string | null;
-			createdAt: string;
-			createdBy: string;
-		} | null;
+		decision?: Decision | null;
 		waitingNote?: string;
 	} = $props();
 
@@ -30,7 +24,7 @@
 		escalated: { label: 'DIERUSKAN — perlu tinjauan', glyph: '⚠️', tone: 'warn' }
 	} as const;
 
-	const reasons = $derived(decision ? describeReasonCodes(decision.reasonCodes) : []);
+	const reasons = $derived(decision ? describeReasonCodes(decision.reason_codes) : []);
 	const outcomeView = $derived(decision ? OUTCOME_VIEW[decision.outcome] : null);
 </script>
 
@@ -55,8 +49,14 @@
 			{#if decision.confidence != null}
 				<div><dt>Keyakinan</dt><dd>{formatConfidence(decision.confidence)}</dd></div>
 			{/if}
-			<div><dt>Waktu</dt><dd>{formatDateTime(decision.createdAt)}</dd></div>
-			<div><dt>Sumber</dt><dd>{decision.createdBy === 'agent' ? 'Agent (otomatis)' : decision.createdBy}</dd></div>
+			{#if decision.anomaly_score != null}
+				<div><dt>Skor anomali</dt><dd>{formatConfidence(decision.anomaly_score)}</dd></div>
+			{/if}
+			<div><dt>Waktu</dt><dd>{formatDateTime(decision.created_at)}</dd></div>
+			<div>
+				<dt>Sumber</dt>
+				<dd>{decision.created_by === 'agent' ? 'Agent (otomatis)' : decision.created_by}</dd>
+			</div>
 		</dl>
 	</div>
 {:else}

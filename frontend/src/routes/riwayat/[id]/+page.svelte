@@ -3,17 +3,18 @@
 	import { onMount } from 'svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
-	import { getClaim } from '$lib/api/claims';
+	import { getClaim, listClarifications } from '$lib/api/claims';
 	import { ApiError } from '$lib/api/client';
 	import { shortClaimRef } from '$lib/formatters/claim';
 	import { formatDate, formatDateTime } from '$lib/formatters/date';
 	import { formatCurrency, formatConfidence, confidenceLevel, toNumber } from '$lib/formatters/currency';
 	import { describeReasonCode } from '$lib/formatters/reasonCodes';
-	import type { ClaimDetailResponse } from '$lib/types/claim';
+	import type { ClaimDetailResponse, Clarification } from '$lib/types/claim';
 
 	let id = $derived(page.params.id);
 
 	let detail = $state<ClaimDetailResponse | null>(null);
+	let clarifications = $state<Clarification[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let notFound = $state(false);
@@ -35,6 +36,9 @@
 
 		try {
 			detail = await getClaim(id as string);
+			// FR-15: konteks percakapan hanya dari respons API yang diotorisasi
+			const clarificationResponse = await listClarifications(id as string);
+			clarifications = clarificationResponse.items;
 		} catch (error) {
 			if (error instanceof ApiError && (error.status === 404 || error.code === 'not_found')) {
 				notFound = true;
@@ -52,6 +56,8 @@
 	const receipt = $derived(detail?.receipts[0] ?? null);
 	const extraction = $derived(detail?.extractions.at(-1) ?? null);
 	const attempts = $derived(detail?.attempts ?? []);
+	// FR-08: keputusan resmi terbaru dari backend (tidak pernah dihitung di klien)
+	const decision = $derived(detail?.decisions.at(-1) ?? null);
 
 	const fields = $derived(
 		extraction
@@ -130,7 +136,7 @@
 						</div>
 						{#if receipt.quality_findings.length}
 							<div class="quality-findings">
-								{#each receipt.quality_findings as finding (finding)}
+								{#each receipt.quality_findings as finding, i (`${finding}-${i}`)}
 									<span class="finding-chip">{describeReasonCode(finding).label}</span>
 								{/each}
 							</div>
@@ -192,7 +198,7 @@
 						{#if extraction.line_items.length}
 							<h4>Rincian Item</h4>
 							<ul class="line-items">
-								{#each extraction.line_items as item (item.description)}
+								{#each extraction.line_items as item, i (`${item.description}-${i}`)}
 									<li>
 										<span>{item.description} × {toNumber(item.quantity) ?? item.quantity}</span>
 										<strong>{formatCurrency(item.total, extraction.currency.value as string)}</strong>
@@ -207,7 +213,7 @@
 					<div class="glass-panel">
 						<h3>Percobaan Ekstraksi (FR-03)</h3>
 						<div class="attempts-list">
-							{#each attempts as attempt (attempt.attempt)}
+							{#each attempts as attempt, i (`${attempt.attempt}-${attempt.created_at}-${i}`)}
 								<div class="attempt-row {attempt.error_code ? 'failed' : 'ok'}">
 									<span class="attempt-num">Percobaan {attempt.attempt}</span>
 									{#if attempt.error_code}
@@ -238,10 +244,38 @@
 						<h3>Keputusan Agent (FR-08)</h3>
 					</div>
 					<DecisionBanner
-						decision={null}
-						waitingNote="Backend belum mengirim keputusan untuk klaim ini. Keputusan resmi hanya berasal dari backend dan akan tampil di sini."
+						decision={decision}
+						waitingNote="Backend belum menerbitkan keputusan untuk klaim ini. Keputusan resmi hanya berasal dari backend dan akan tampil di sini."
 					/>
 				</div>
+
+				{#if clarifications.length}
+					<div class="glass-panel">
+						<h3>Riwayat Klarifikasi (FR-15)</h3>
+						<p class="scope-note">Khusus klaim ini · urutan sesuai API · tidak dapat diubah</p>
+						<ol class="clarification-list">
+							{#each clarifications as item (item.id)}
+								<li class="clarification-item">
+									<div class="clarification-entry agent-entry">
+										<span class="entry-author">Agent · {formatDateTime(item.created_at)}</span>
+										<p>{item.question}</p>
+									</div>
+									{#if item.answer}
+										<div class="clarification-entry user-entry">
+											<span class="entry-author">Karyawan · {formatDateTime(item.answered_at)}</span>
+											<p>{item.answer}</p>
+										</div>
+									{:else if item.status === 'open'}
+										<div class="clarification-entry pending-entry">
+											<span class="entry-author">Menunggu jawaban</span>
+											<p>Buka halaman chat untuk menjawab klarifikasi ini.</p>
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ol>
+					</div>
+				{/if}
 			</div>
 		</div>
 	{/if}
@@ -594,6 +628,73 @@
 		background: var(--color-primary-light);
 		transform: translateY(-1px);
 		box-shadow: 0 4px 12px rgba(26, 107, 92, 0.2);
+	}
+
+	/* Clarification history (FR-15) */
+	.scope-note {
+		margin: -0.6rem 0 0.9rem;
+		font-size: 0.7rem;
+		color: var(--color-text-muted);
+	}
+
+	.clarification-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.9rem;
+	}
+
+	.clarification-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		padding-bottom: 0.9rem;
+		border-bottom: 1px dashed rgba(26, 107, 92, 0.15);
+	}
+
+	.clarification-item:last-child {
+		padding-bottom: 0;
+		border-bottom: none;
+	}
+
+	.clarification-entry {
+		border-radius: var(--radius-sm);
+		padding: 0.55rem 0.8rem;
+		font-size: 0.8rem;
+	}
+
+	.clarification-entry p {
+		margin: 0.15rem 0 0;
+		line-height: 1.5;
+	}
+
+	.agent-entry {
+		background: rgba(26, 107, 92, 0.06);
+		border: 1px solid var(--color-border);
+	}
+
+	.user-entry {
+		background: rgba(59, 130, 246, 0.07);
+		border: 1px solid rgba(59, 130, 246, 0.2);
+		margin-left: 1.25rem;
+	}
+
+	.pending-entry {
+		background: rgba(245, 158, 11, 0.07);
+		border: 1px dashed rgba(245, 158, 11, 0.4);
+		margin-left: 1.25rem;
+		color: #b45309;
+	}
+
+	.entry-author {
+		display: block;
+		font-size: 0.66rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--color-text-muted);
 	}
 
 	@media (max-width: 768px) {

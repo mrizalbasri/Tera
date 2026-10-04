@@ -944,11 +944,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 0.75rem;
 		font-weight: bold;
-		flex-shrink: 0;
-	}
-
 	.step-indicator.PASS { background: #dcfce7; color: #15803d; }
 	.step-indicator.WARN { background: #fef3c7; color: #b45309; }
 

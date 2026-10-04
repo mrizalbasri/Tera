@@ -1,6 +1,25 @@
-<script>
+<script lang="ts">
+	type OcrItem = { desc: string; price: number };
+	type AuditEntry = { step: string; status: string; desc: string };
+	type ReviewClaim = {
+		id: string;
+		name: string;
+		role: string;
+		category: string;
+		date: string;
+		amount: number;
+		vendor: string;
+		reasonBadge: string;
+		reasonType: string;
+		aiReason: string;
+		status: string;
+		confidence: number;
+		ocrItems: OcrItem[];
+		aiAuditTrail: AuditEntry[];
+	};
+
 	// Data antrean klaim (berdasarkan BRD)
-	let claims = $state([
+	let claims = $state<ReviewClaim[]>([
 		{
 			id: 'CLM-1042',
 			name: 'Budi Santoso',
@@ -81,7 +100,7 @@
 	let autoApprovedCount = $state(24);
 	let searchQuery = $state('');
 	let selectedCategory = $state('ALL');
-	let activeModalClaim = $state(null);
+	let activeModalClaim = $state<ReviewClaim | null>(null);
 	let toastMessage = $state('');
 
 	// Hitung angka statistik secara live
@@ -96,14 +115,14 @@
 		})
 	);
 
-	function showToast(msg) {
+	function showToast(msg: string) {
 		toastMessage = msg;
 		setTimeout(() => {
 			toastMessage = '';
 		}, 3500);
 	}
 
-	function approveClaim(id) {
+	function approveClaim(id: string) {
 		const claim = claims.find(c => c.id === id);
 		if (claim) {
 			claim.status = 'APPROVED';
@@ -113,7 +132,7 @@
 		}
 	}
 
-	function rejectClaim(id) {
+	function rejectClaim(id: string) {
 		const claim = claims.find(c => c.id === id);
 		if (claim) {
 			const reason = prompt('Masukkan alasan penolakan klaim (opsional):', 'Tidak sesuai kebijakan perusahaan');
@@ -125,7 +144,7 @@
 		}
 	}
 
-	function formatRupiah(num) {
+	function formatRupiah(num: number) {
 		return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
 	}
 
@@ -347,10 +366,11 @@
 
 					<div class="modal-actions-bar">
 						{#if activeModalClaim.status === 'PENDING'}
-							<button class="btn-approve full" onclick={() => approveClaim(activeModalClaim.id)}>
+							{@const claimId = activeModalClaim.id}
+							<button class="btn-approve full" onclick={() => approveClaim(claimId)}>
 								✓ Setujui Klaim Ini
 							</button>
-							<button class="btn-reject full" onclick={() => rejectClaim(activeModalClaim.id)}>
+							<button class="btn-reject full" onclick={() => rejectClaim(claimId)}>
 								✕ Tolak Klaim
 							</button>
 						{:else}

@@ -1,17 +1,17 @@
 <script>
-	// Data antrean klaim (berdasarkan BRD)
+	// Data antrean klaim interaktif
 	let claims = $state([
 		{
 			id: 'CLM-1042',
 			name: 'Budi Santoso',
 			role: 'Sales Lapangan Surabaya',
-			category: 'Hotel / Penginapan',
+			category: 'Hotel / Stay',
 			date: '28 Sep 2026',
 			amount: 650000,
 			vendor: 'Hotel Ibis Budget Surabaya',
-			reasonBadge: 'Nominal > Rp 500.000',
+			reasonBadge: 'Nominal > Rp 500k',
 			reasonType: 'warning',
-			aiReason: 'Nota valid (skor 94%), namun melebihi ambang batas auto-approve (Rp500.000).',
+			aiReason: 'Nota valid (skor 94%), namun melebihi batas auto-approve (Rp500.000).',
 			status: 'PENDING',
 			confidence: 94,
 			ocrItems: [
@@ -22,19 +22,19 @@
 				{ step: 'Kualitas Gambar', status: 'PASS', desc: 'Resolusi 1920x1080, tidak buram, teks terbaca jelas.' },
 				{ step: 'Ekstraksi OCR (FR-02)', status: 'PASS', desc: 'Berhasil membaca vendor, tanggal, rincian item, dan total.' },
 				{ step: 'Pengecekan Kebijakan (RAG)', status: 'PASS', desc: 'Batas hotel Rp600.000/malam. Tanggal klaim dalam 14 hari.' },
-				{ step: 'Deteksi Anomali & Duplikat (ML)', status: 'PASS', desc: 'Bukan klaim ganda, pola historis wajar.' },
-				{ step: 'Keputusan Otonom (FR-08/10)', status: 'FLAGGED', desc: 'Dieskalasi ke admin manusia karena total (Rp650rb) > batas otonom (Rp500rb).' }
+				{ step: 'Deteksi Anomali & Duplikat', status: 'PASS', desc: 'Bukan klaim ganda, pola historis wajar.' },
+				{ step: 'Keputusan Otonom (FR-08/10)', status: 'FLAGGED', desc: 'Dieskalasi ke admin karena total melebihi batas otonom.' }
 			]
 		},
 		{
 			id: 'CLM-1045',
 			name: 'Andi Wijaya',
 			role: 'Sales Lapangan Bandung',
-			category: 'BBM / SPBU',
+			category: 'BBM Pertamina',
 			date: '01 Okt 2026',
 			amount: 180000,
 			vendor: 'SPBU Pertamina 34-40112',
-			reasonBadge: 'Terdeteksi Anomali',
+			reasonBadge: 'Anomali Limit',
 			reasonType: 'danger',
 			aiReason: 'Nominal BBM melebihi batas kebijakan harian maksimal Rp150.000/hari kerja.',
 			status: 'PENDING',
@@ -46,7 +46,7 @@
 				{ step: 'Kualitas Gambar', status: 'PASS', desc: 'Foto struk SPBU terbaca.' },
 				{ step: 'Ekstraksi OCR (FR-02)', status: 'PASS', desc: 'Nominal Rp180.000 terverifikasi.' },
 				{ step: 'Pengecekan Kebijakan (RAG)', status: 'WARN', desc: 'Batas maksimal BBM per hari adalah Rp150.000. Selisih: Rp30.000.' },
-				{ step: 'Deteksi Anomali & Duplikat (ML)', status: 'WARN', desc: 'Karyawan mengajukan klaim BBM 2x dalam jarak 18 jam.' },
+				{ step: 'Deteksi Anomali & Duplikat', status: 'WARN', desc: 'Karyawan mengajukan klaim BBM 2x dalam jarak 18 jam.' },
 				{ step: 'Keputusan Otonom (FR-08/10)', status: 'FLAGGED', desc: 'Dieskalasi ke manusia karena melanggar aturan limit anggaran.' }
 			]
 		},
@@ -58,7 +58,7 @@
 			date: '02 Okt 2026',
 			amount: 85000,
 			vendor: 'RM Padang Sederhana',
-			reasonBadge: 'Kepercayaan Rendah (72%)',
+			reasonBadge: 'Low Confidence (72%)',
 			reasonType: 'info',
 			aiReason: 'Foto sedikit buram, rincian item minuman/pajak perlu verifikasi mata admin.',
 			status: 'PENDING',
@@ -72,35 +72,32 @@
 				{ step: 'Kualitas Gambar', status: 'WARN', desc: 'Kamera goyang, bagian tengah nota agak buram.' },
 				{ step: 'Ekstraksi OCR (FR-02)', status: 'WARN', desc: 'Skor keyakinan 72% (di bawah batas minimal 80%).' },
 				{ step: 'Pengecekan Kebijakan (RAG)', status: 'PASS', desc: 'Maks Rp75.000/orang. Nota untuk 1 orang (melebihi Rp10.000).' },
-				{ step: 'Deteksi Anomali & Duplikat (ML)', status: 'PASS', desc: 'Tidak ada indikasi nota ganda.' },
+				{ step: 'Deteksi Anomali & Duplikat', status: 'PASS', desc: 'Tidak ada indikasi nota ganda.' },
 				{ step: 'Keputusan Otonom (FR-08/10)', status: 'FLAGGED', desc: 'Dieskalasi untuk konfirmasi mata manusia sebelum disetujui.' }
 			]
 		}
 	]);
 
-	let autoApprovedCount = $state(24);
+	let autoApprovedCount = $state(289);
 	let searchQuery = $state('');
 	let selectedCategory = $state('ALL');
 	let activeModalClaim = $state(null);
 	let toastMessage = $state('');
 
-	// Hitung angka statistik secara live
 	let pendingClaims = $derived(claims.filter(c => c.status === 'PENDING'));
 	let pendingCount = $derived(pendingClaims.length);
 	let filteredClaims = $derived(
 		claims.filter(c => {
 			const matchSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
 			                    c.id.toLowerCase().includes(searchQuery.toLowerCase());
-			const matchCategory = selectedCategory === 'ALL' || c.category === selectedCategory;
+			const matchCategory = selectedCategory === 'ALL' || c.category.includes(selectedCategory);
 			return matchSearch && matchCategory;
 		})
 	);
 
 	function showToast(msg) {
 		toastMessage = msg;
-		setTimeout(() => {
-			toastMessage = '';
-		}, 3500);
+		setTimeout(() => { toastMessage = ''; }, 3500);
 	}
 
 	function approveClaim(id) {
@@ -116,10 +113,10 @@
 	function rejectClaim(id) {
 		const claim = claims.find(c => c.id === id);
 		if (claim) {
-			const reason = prompt('Masukkan alasan penolakan klaim (opsional):', 'Tidak sesuai kebijakan perusahaan');
+			const reason = prompt('Masukkan alasan penolakan klaim:', 'Melanggar batas nominal kebijakan');
 			if (reason !== null) {
 				claim.status = 'REJECTED';
-				showToast(`❌ Klaim ${claim.id} telah DITOLAK. Alasan dicatat.`);
+				showToast(`❌ Klaim ${claim.id} telah DITOLAK.`);
 				if (activeModalClaim?.id === id) activeModalClaim = null;
 			}
 		}
@@ -130,32 +127,25 @@
 	}
 
 	function exportToCSV() {
-		const headers = ['ID Klaim', 'Nama Karyawan', 'Kategori', 'Tanggal', 'Vendor', 'Nominal (IDR)', 'Status', 'Alasan AI'];
-		const rows = claims.map(c => [
-			c.id,
-			`"${c.name}"`,
-			`"${c.category}"`,
-			c.date,
-			`"${c.vendor}"`,
-			c.amount,
-			c.status,
-			`"${c.aiReason}"`
-		]);
-
+		const headers = ['ID Klaim', 'Nama Salesman', 'Kategori', 'Tanggal', 'Vendor', 'Nominal', 'Status', 'Alasan'];
+		const rows = claims.map(c => [c.id, `"${c.name}"`, `"${c.category}"`, c.date, `"${c.vendor}"`, c.amount, c.status, `"${c.aiReason}"`]);
 		const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
 		const encodedUri = encodeURI(csvContent);
 		const link = document.createElement('a');
 		link.setAttribute('href', encodedUri);
-		link.setAttribute('download', `laporan-klaim-expense-agent-${new Date().toISOString().slice(0, 10)}.csv`);
+		link.setAttribute('download', `review-antrean-klaim-${new Date().toISOString().slice(0, 10)}.csv`);
 		document.body.appendChild(link);
 		link.click();
 		document.body.removeChild(link);
-		showToast('📥 Laporan CSV berhasil diunduh ke komputermu!');
+		showToast('📥 Data antrean berhasil diekspor ke CSV!');
 	}
 </script>
 
 <svelte:head>
-	<title>Review & Eskalasi Klaim | Expense Agent</title>
+	<title>Expense Agent - Claim Escalation & Review</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </svelte:head>
 
 {#if toastMessage}
@@ -164,115 +154,131 @@
 	</div>
 {/if}
 
-<main>
-	<header class="header">
-		<div>
-			<a href="/" class="back-link">← Kembali ke Beranda</a>
-			<p class="eyebrow">Admin & Finance Review Portal</p>
-			<h1>Review & Eskalasi Klaim</h1>
-			<p class="subtitle">
-				Tinjau nota operasional yang membutuhkan persetujuan manual (nominal di atas limit, skor anomali, atau nota kurang jelas).
-			</p>
+<div class="review-wrapper">
+	<!-- Top Nav -->
+	<header class="top-nav">
+		<div class="brand">
+			<a href="/" class="brand-logo">
+				<span class="logo-dot"></span>
+				ExpenseAgent
+			</a>
+			<span class="page-title">/ Human Review Portal</span>
 		</div>
-		<div class="header-actions">
-			<button class="btn-secondary" onclick={exportToCSV}>
-				📥 Unduh CSV (FR-14)
+
+		<div class="top-controls">
+			<a href="/dashboard" class="btn-dashboard-link">
+				📊 Buka Analytics Dashboard
+			</a>
+			<button class="btn-action" onclick={exportToCSV}>
+				Export CSV
 			</button>
 		</div>
 	</header>
 
-	<!-- Ringkasan Cepat -->
-	<section class="stats-grid">
-		<div class="stat-card urgent">
-			<span class="stat-label">Perlu Review Manual</span>
-			<span class="stat-value">{pendingCount}</span>
-			<span class="stat-hint">{pendingCount > 0 ? 'Menunggu keputusan admin' : 'Semua antrean selesai! 🎉'}</span>
+	<!-- 3 Colorful Gradient Cards -->
+	<section class="stat-cards-grid">
+		<div class="gradient-card orange">
+			<div class="card-top">
+				<span class="card-icon">⚠️</span>
+				<span class="card-title">Perlu Review Manual</span>
+			</div>
+			<div class="card-value">{pendingCount}</div>
+			<div class="card-sub">{pendingCount > 0 ? 'Klaim menunggu verifikasi admin' : 'Semua antrean selesai! 🎉'}</div>
+			<div class="card-wave"></div>
 		</div>
-		<div class="stat-card">
-			<span class="stat-label">Auto-Approved Hari Ini</span>
-			<span class="stat-value">{autoApprovedCount}</span>
-			<span class="stat-hint">{Math.round((autoApprovedCount / (autoApprovedCount + claims.length)) * 100)}% tanpa intervensi manual</span>
+
+		<div class="gradient-card purple">
+			<div class="card-top">
+				<span class="card-icon">⚡</span>
+				<span class="card-title">Auto-Approved AI</span>
+			</div>
+			<div class="card-value">{autoApprovedCount}</div>
+			<div class="card-sub">Diproses otonom tanpa sentuhan manual</div>
+			<div class="card-wave"></div>
 		</div>
-		<div class="stat-card">
-			<span class="stat-label">Estimasi Waktu Dihemat</span>
-			<span class="stat-value">{(autoApprovedCount * 5 / 60).toFixed(1)} Jam</span>
-			<span class="stat-hint">Target efisiensi: 5 menit per klaim</span>
+
+		<div class="gradient-card blue">
+			<div class="card-top">
+				<span class="card-icon">⏱️</span>
+				<span class="card-title">Waktu Kerja Dihemat</span>
+			</div>
+			<div class="card-value">{(autoApprovedCount * 5 / 60).toFixed(0)} Jam</div>
+			<div class="card-sub">Berdasarkan rata-rata 5 menit per nota</div>
+			<div class="card-wave"></div>
 		</div>
 	</section>
 
-	<!-- Filter & Search Bar -->
-	<div class="toolbar">
-		<div class="search-box">
-			🔍 <input type="text" placeholder="Cari ID klaim atau nama salesman..." bind:value={searchQuery} />
-		</div>
-		<div class="filter-group">
-			<span>Kategori:</span>
-			<select bind:value={selectedCategory}>
-				<option value="ALL">Semua Kategori</option>
-				<option value="Hotel / Penginapan">Hotel / Penginapan</option>
-				<option value="BBM / SPBU">BBM / SPBU</option>
-				<option value="Makan Dinas">Makan Dinas</option>
-			</select>
-		</div>
-	</div>
-
-	<!-- Tabel Antrean Review -->
-	<section class="table-container">
-		<div class="table-header">
-			<h2>Daftar Antrean Klaim (Eskalasi)</h2>
-			<span class="badge-count">{pendingCount} Klaim Perlu Tindakan</span>
-		</div>
-
-		{#if filteredClaims.length === 0}
-			<div class="empty-state">
-				<p>Tidak ada klaim yang cocok dengan pencarian.</p>
+	<!-- Main Card Panel: Table & Filters -->
+	<section class="card-panel">
+		<!-- Toolbar / Search & Filter -->
+		<div class="toolbar">
+			<div class="search-pill">
+				<span class="icon">🔍</span>
+				<input type="text" placeholder="Search by ID or salesman name..." bind:value={searchQuery} />
 			</div>
-		{:else}
-			<table class="review-table">
+
+			<div class="filter-group">
+				<span class="filter-label">Kategori:</span>
+				<select bind:value={selectedCategory} class="filter-select">
+					<option value="ALL">Semua Kategori</option>
+					<option value="Hotel">Hotel / Penginapan</option>
+					<option value="BBM">BBM / SPBU</option>
+					<option value="Makan">Makan Dinas</option>
+				</select>
+			</div>
+		</div>
+
+		<!-- Table -->
+		<div class="table-responsive">
+			<table class="modern-table">
 				<thead>
 					<tr>
-						<th>ID & Karyawan</th>
-						<th>Kategori & Vendor</th>
+						<th>ID & Salesman</th>
+						<th>Kategori & Merchant</th>
 						<th>Tanggal Nota</th>
 						<th>Nominal</th>
-						<th>Alasan Eskalasi AI</th>
+						<th>Alasan AI Eskalasi</th>
 						<th>Status</th>
-						<th>Aksi</th>
+						<th>Aksi Admin</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each filteredClaims as claim}
 						<tr class:resolved={claim.status !== 'PENDING'}>
 							<td>
-								<strong>#{claim.id}</strong>
-								<div class="user-sub">{claim.name}</div>
-								<div class="role-sub">{claim.role}</div>
+								<div class="user-block">
+									<span class="id-tag">#{claim.id}</span>
+									<strong>{claim.name}</strong>
+									<span class="role-text">{claim.role}</span>
+								</div>
 							</td>
 							<td>
-								<span class="tag">{claim.category}</span>
-								<div class="vendor-sub">{claim.vendor}</div>
+								<div class="merchant-block">
+									<span class="cat-pill">{claim.category}</span>
+									<span class="vendor-text">{claim.vendor}</span>
+								</div>
 							</td>
-							<td>{claim.date}</td>
+							<td class="date-col">{claim.date}</td>
 							<td class="amount">{formatRupiah(claim.amount)}</td>
-							<td>
-								<span class="badge {claim.reasonType}">{claim.reasonBadge}</span>
-								<p class="ai-reason">{claim.aiReason}</p>
+							<td class="reason-cell">
+								<span class="reason-badge {claim.reasonType}">{claim.reasonBadge}</span>
+								<p class="reason-desc">{claim.aiReason}</p>
 								<button class="btn-inspect" onclick={() => activeModalClaim = claim}>
-									🔍 Lihat Bukti & Log AI
+									🔍 Cek Bukti Struk & Jejak AI
 								</button>
 							</td>
 							<td>
 								{#if claim.status === 'PENDING'}
-									<span class="status-pill pending">⏳ Menunggu</span>
+									<span class="status-pill warning">⏳ Review</span>
 								{:else if claim.status === 'APPROVED'}
-									<span class="status-pill approved">✅ Disetujui</span>
+									<span class="status-pill success">✅ Approved</span>
 								{:else}
-									<span class="status-pill rejected">❌ Ditolak</span>
+									<span class="status-pill danger">❌ Rejected</span>
 								{/if}
 							</td>
 							<td>
 								{#if claim.status === 'PENDING'}
-									<div class="action-buttons">
+									<div class="action-btn-group">
 										<button class="btn-approve" onclick={() => approveClaim(claim.id)}>Setujui</button>
 										<button class="btn-reject" onclick={() => rejectClaim(claim.id)}>Tolak</button>
 									</div>
@@ -284,30 +290,30 @@
 					{/each}
 				</tbody>
 			</table>
-		{/if}
+		</div>
 	</section>
-</main>
+</div>
 
-<!-- Modal Pop-up Bukti Nota & Audit Trail AI (FR-12) -->
+<!-- Modal Pop-up Bukti Nota & Log AI (FR-12) -->
 {#if activeModalClaim}
 	<div class="modal-backdrop" onclick={() => activeModalClaim = null} role="presentation">
 		<div class="modal-dialog" onclick={e => e.stopPropagation()} role="dialog" aria-modal="true">
 			<div class="modal-header">
 				<div>
-					<span class="eyebrow">Audit Trail & Bukti Nota</span>
+					<span class="modal-eyebrow">Bukti Struk & Audit Trail</span>
 					<h3>Detail Klaim #{activeModalClaim.id} - {activeModalClaim.name}</h3>
 				</div>
 				<button class="btn-close" onclick={() => activeModalClaim = null}>✕</button>
 			</div>
 
 			<div class="modal-body">
-				<!-- Kolom Kiri: Simulasi Struk Fisik -->
-				<div class="receipt-mockup">
+				<!-- Struk Fisik -->
+				<div class="receipt-container">
 					<div class="receipt-paper">
 						<div class="receipt-header">
 							<h4>{activeModalClaim.vendor}</h4>
 							<p>Tanggal: {activeModalClaim.date}</p>
-							<p class="receipt-dash">--------------------------------</p>
+							<div class="receipt-dash">--------------------------------</div>
 						</div>
 						<div class="receipt-items">
 							{#each activeModalClaim.ocrItems as item}
@@ -322,30 +328,30 @@
 							<strong>TOTAL:</strong>
 							<strong>{formatRupiah(activeModalClaim.amount)}</strong>
 						</div>
-						<div class="ocr-watermark">
-							<span>✓ Terverifikasi Vision OCR ({activeModalClaim.confidence}%)</span>
+						<div class="ocr-badge">
+							✓ Vision OCR Confidence: {activeModalClaim.confidence}%
 						</div>
 					</div>
 				</div>
 
-				<!-- Kolom Kanan: Langkah Kerja AI (Audit Trail FR-12) -->
-				<div class="audit-log">
-					<h4>Jejak Logika Agent (FR-12)</h4>
+				<!-- Jejak AI -->
+				<div class="audit-flow">
+					<h4>Alur Logika AI (FR-12)</h4>
 					<div class="timeline">
 						{#each activeModalClaim.aiAuditTrail as log, idx}
-							<div class="timeline-item">
-								<div class="timeline-badge {log.status}">
-									{log.status === 'PASS' ? '✓' : log.status === 'WARN' ? '!' : '⚠'}
+							<div class="timeline-step">
+								<div class="step-indicator {log.status}">
+									{log.status === 'PASS' ? '✓' : '!'}
 								</div>
-								<div class="timeline-content">
-									<strong>Langkah {idx + 1}: {log.step}</strong>
+								<div class="step-details">
+									<strong>Tahap {idx + 1}: {log.step}</strong>
 									<p>{log.desc}</p>
 								</div>
 							</div>
 						{/each}
 					</div>
 
-					<div class="modal-actions-bar">
+					<div class="modal-footer-actions">
 						{#if activeModalClaim.status === 'PENDING'}
 							<button class="btn-approve full" onclick={() => approveClaim(activeModalClaim.id)}>
 								✓ Setujui Klaim Ini
@@ -354,7 +360,7 @@
 								✕ Tolak Klaim
 							</button>
 						{:else}
-							<p class="status-summary">Klaim ini sudah berstatus: <strong>{activeModalClaim.status}</strong></p>
+							<p class="status-summary">Status Klaim: <strong>{activeModalClaim.status}</strong></p>
 						{/if}
 					</div>
 				</div>
@@ -364,430 +370,510 @@
 {/if}
 
 <style>
-	main {
-		max-width: 1140px;
+	:global(body) {
+		margin: 0;
+		background: #f1f4f9;
+		font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+		color: #1e293b;
+	}
+
+	.review-wrapper {
+		max-width: 1280px;
 		margin: 0 auto;
-		padding: 2.5rem 2rem;
+		padding: 2rem 2.5rem;
 		box-sizing: border-box;
 	}
 
-	.header {
+	/* Top Nav */
+	.top-nav {
 		display: flex;
 		justify-content: space-between;
-		align-items: flex-start;
+		align-items: center;
 		margin-bottom: 2rem;
+		flex-wrap: wrap;
+		gap: 1rem;
 	}
 
-	.back-link {
-		color: #55745a;
-		text-decoration: none;
-		font-weight: 600;
-		font-size: 0.9rem;
-		display: inline-block;
-		margin-bottom: 0.6rem;
-	}
-
-	.eyebrow {
-		margin: 0 0 0.35rem;
-		color: #55745a;
-		font-size: 0.8rem;
-		font-weight: 700;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-	}
-
-	h1 {
-		margin: 0;
-		font-size: 2.3rem;
-		letter-spacing: -0.04em;
-		color: #172018;
-	}
-
-	.subtitle {
-		margin: 0.5rem 0 0;
-		color: #5b665c;
-		font-size: 1rem;
-		max-width: 650px;
-	}
-
-	.btn-secondary {
-		background: #ffffff;
-		border: 1px solid #c9d6c7;
-		color: #27452a;
-		padding: 0.65rem 1.1rem;
-		border-radius: 8px;
-		font-weight: 600;
-		cursor: pointer;
-		font-size: 0.9rem;
-		box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-	}
-
-	.btn-secondary:hover {
-		background: #f4f7f3;
-	}
-
-	/* Stats */
-	.stats-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-		gap: 1.2rem;
-		margin-bottom: 2rem;
-	}
-
-	.stat-card {
-		background: #ffffff;
-		border: 1px solid #dce4da;
-		border-radius: 12px;
-		padding: 1.4rem;
+	.brand {
 		display: flex;
-		flex-direction: column;
+		align-items: center;
+		gap: 0.6rem;
 	}
 
-	.stat-card.urgent {
-		border-color: #f0c57c;
-		background: #fffdf8;
+	.brand-logo {
+		font-size: 1.35rem;
+		font-weight: 800;
+		color: #0f172a;
+		text-decoration: none;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		letter-spacing: -0.03em;
 	}
 
-	.stat-label {
+	.logo-dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: #7c3aed;
+		box-shadow: 0 0 10px #7c3aed;
+	}
+
+	.page-title {
+		color: #94a3b8;
+		font-size: 0.95rem;
+		font-weight: 600;
+	}
+
+	.top-controls {
+		display: flex;
+		align-items: center;
+		gap: 0.8rem;
+		flex-wrap: wrap;
+	}
+
+	.btn-dashboard-link {
+		background: #ffffff;
+		color: #475569;
+		border: 1px solid #e2e8f0;
+		padding: 0.6rem 1.1rem;
+		border-radius: 999px;
+		font-weight: 700;
+		font-size: 0.85rem;
+		text-decoration: none;
+		transition: all 0.2s;
+	}
+
+	.btn-dashboard-link:hover {
+		background: #f8fafc;
+		border-color: #cbd5e1;
+	}
+
+	.btn-action {
+		background: #7c3aed;
+		color: white;
+		border: none;
+		border-radius: 999px;
+		padding: 0.6rem 1.25rem;
+		font-weight: 700;
+		font-size: 0.85rem;
+		cursor: pointer;
+		box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+		transition: all 0.2s;
+	}
+
+	.btn-action:hover {
+		background: #6d28d9;
+		transform: translateY(-1px);
+	}
+
+	/* 3 Gradient Stat Cards */
+	.stat-cards-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: 1.4rem;
+		margin-bottom: 2rem;
+	}
+
+	.gradient-card {
+		color: white;
+		padding: 1.6rem;
+		border-radius: 20px;
+		position: relative;
+		overflow: hidden;
+		box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.12);
+		transition: transform 0.2s ease;
+	}
+
+	.gradient-card:hover {
+		transform: translateY(-3px);
+	}
+
+	.gradient-card.orange { background: linear-gradient(135deg, #ea580c, #f59e0b); }
+	.gradient-card.purple { background: linear-gradient(135deg, #7c3aed, #a855f7); }
+	.gradient-card.blue { background: linear-gradient(135deg, #2563eb, #38bdf8); }
+
+	.card-top {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.card-icon { font-size: 1.1rem; }
+
+	.card-title {
 		font-size: 0.82rem;
 		font-weight: 600;
-		color: #637064;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+		opacity: 0.9;
 	}
 
-	.stat-value {
-		font-size: 2.2rem;
+	.card-value {
+		font-size: 2.3rem;
 		font-weight: 800;
-		color: #172018;
-		margin: 0.4rem 0;
+		letter-spacing: -0.04em;
+		line-height: 1.1;
+		margin-bottom: 0.35rem;
 	}
 
-	.stat-card.urgent .stat-value {
-		color: #b45309;
+	.card-sub {
+		font-size: 0.82rem;
+		opacity: 0.85;
 	}
 
-	.stat-hint {
-		font-size: 0.85rem;
-		color: #7b887c;
+	.card-wave {
+		position: absolute;
+		right: -20px;
+		bottom: -20px;
+		width: 100px;
+		height: 100px;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.12);
+		pointer-events: none;
+	}
+
+	/* Card Panel */
+	.card-panel {
+		background: #ffffff;
+		border-radius: 20px;
+		padding: 1.8rem;
+		box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+		border: 1px solid #f1f5f9;
 	}
 
 	/* Toolbar */
 	.toolbar {
 		display: flex;
-		gap: 1rem;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 1.2rem;
+		margin-bottom: 1.5rem;
 		flex-wrap: wrap;
+		gap: 1rem;
 	}
 
-	.search-box {
-		background: white;
-		border: 1px solid #dce4da;
-		border-radius: 8px;
-		padding: 0.5rem 0.85rem;
+	.search-pill {
+		background: #f8fafc;
+		border-radius: 999px;
+		padding: 0.55rem 1.1rem;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		border: 1px solid #e2e8f0;
 		flex: 1;
-		min-width: 260px;
+		max-width: 380px;
 	}
 
-	.search-box input {
+	.search-pill input {
 		border: none;
 		outline: none;
+		background: transparent;
+		font-family: inherit;
+		font-size: 0.85rem;
 		width: 100%;
-		font-size: 0.9rem;
 	}
 
 	.filter-group {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		font-size: 0.9rem;
-		color: #4b584c;
-		font-weight: 600;
 	}
 
-	.filter-group select {
-		padding: 0.5rem 0.8rem;
-		border: 1px solid #dce4da;
-		border-radius: 8px;
-		background: white;
-		font-size: 0.9rem;
+	.filter-label {
+		font-size: 0.82rem;
+		font-weight: 700;
+		color: #64748b;
+	}
+
+	.filter-select {
+		padding: 0.5rem 0.9rem;
+		border: 1px solid #e2e8f0;
+		border-radius: 999px;
+		background: #f8fafc;
+		font-size: 0.85rem;
+		font-family: inherit;
 		outline: none;
+		font-weight: 600;
+		color: #334155;
 	}
 
 	/* Table */
-	.table-container {
-		background: #ffffff;
-		border: 1px solid #dce4da;
-		border-radius: 12px;
-		overflow: hidden;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
+	.table-responsive {
+		overflow-x: auto;
 	}
 
-	.table-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.2rem 1.5rem;
-		border-bottom: 1px solid #eef2ed;
-	}
-
-	.table-header h2 {
-		margin: 0;
-		font-size: 1.25rem;
-		color: #172018;
-	}
-
-	.badge-count {
-		background: #fef3c7;
-		color: #92400e;
-		font-weight: 600;
-		font-size: 0.8rem;
-		padding: 0.35rem 0.75rem;
-		border-radius: 999px;
-	}
-
-	.review-table {
+	.modern-table {
 		width: 100%;
 		border-collapse: collapse;
 		text-align: left;
 	}
 
-	.review-table th {
-		background: #f9faf8;
-		padding: 0.9rem 1.2rem;
-		font-size: 0.82rem;
+	.modern-table th {
+		padding: 0.9rem 1rem;
+		color: #94a3b8;
+		font-size: 0.78rem;
 		font-weight: 700;
-		color: #556356;
 		text-transform: uppercase;
-		border-bottom: 1px solid #e2e8e0;
+		letter-spacing: 0.05em;
+		border-bottom: 1px solid #f1f5f9;
 	}
 
-	.review-table td {
-		padding: 1.1rem 1.2rem;
-		border-bottom: 1px solid #f0f4ef;
+	.modern-table td {
+		padding: 1.2rem 1rem;
+		font-size: 0.88rem;
+		border-bottom: 1px solid #f8fafc;
 		vertical-align: top;
-		font-size: 0.92rem;
 	}
 
 	tr.resolved {
-		background: #fafbfa;
-		opacity: 0.75;
+		background: #fafcff;
+		opacity: 0.7;
 	}
 
-	.user-sub {
-		font-size: 0.85rem;
-		color: #2b392c;
-		font-weight: 600;
+	.user-block strong {
+		display: block;
+		font-size: 0.92rem;
+		color: #0f172a;
 		margin-top: 0.2rem;
 	}
 
-	.role-sub {
-		font-size: 0.78rem;
-		color: #7b887c;
-	}
-
-	.vendor-sub {
-		font-size: 0.8rem;
-		color: #637064;
-		margin-top: 0.25rem;
-	}
-
-	.tag {
-		background: #edf3ec;
-		color: #2e5434;
-		padding: 0.2rem 0.55rem;
-		border-radius: 6px;
-		font-size: 0.78rem;
-		font-weight: 600;
-	}
-
-	.amount {
+	.id-tag {
+		background: #f1f5f9;
+		color: #475569;
 		font-weight: 700;
-		color: #1b261c;
+		font-size: 0.75rem;
+		padding: 0.2rem 0.45rem;
+		border-radius: 6px;
+	}
+
+	.role-text {
+		font-size: 0.78rem;
+		color: #94a3b8;
+	}
+
+	.merchant-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+
+	.cat-pill {
+		display: inline-block;
+		width: fit-content;
+		background: #f5f3ff;
+		color: #7c3aed;
+		font-size: 0.78rem;
+		font-weight: 700;
+		padding: 0.2rem 0.6rem;
+		border-radius: 999px;
+	}
+
+	.vendor-text {
+		font-size: 0.82rem;
+		color: #64748b;
+	}
+
+	.date-col {
+		color: #64748b;
+		font-weight: 500;
 		white-space: nowrap;
 	}
 
-	.badge {
+	.amount {
+		font-weight: 800;
+		color: #0f172a;
+		white-space: nowrap;
+	}
+
+	.reason-cell {
+		max-width: 320px;
+	}
+
+	.reason-badge {
 		display: inline-block;
 		font-size: 0.75rem;
 		font-weight: 700;
-		padding: 0.2rem 0.5rem;
+		padding: 0.2rem 0.55rem;
 		border-radius: 6px;
 		margin-bottom: 0.35rem;
 	}
 
-	.badge.warning { background: #fef3c7; color: #92400e; }
-	.badge.danger { background: #fee2e2; color: #991b1b; }
-	.badge.info { background: #e0f2fe; color: #075985; }
+	.reason-badge.warning { background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5; }
+	.reason-badge.danger { background: #fef2f2; color: #b91c1c; border: 1px solid #fee2e2; }
+	.reason-badge.info { background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7; }
 
-	.ai-reason {
+	.reason-desc {
 		margin: 0 0 0.5rem;
-		font-size: 0.82rem;
-		color: #5d6b5e;
+		font-size: 0.8rem;
+		color: #64748b;
 		line-height: 1.35;
 	}
 
 	.btn-inspect {
-		background: none;
-		border: 1px dashed #7a947d;
-		color: #2a4c2e;
-		font-size: 0.78rem;
-		font-weight: 600;
-		padding: 0.25rem 0.5rem;
-		border-radius: 4px;
+		background: #f8fafc;
+		border: 1px dashed #cbd5e1;
+		color: #64748b;
+		font-size: 0.75rem;
+		font-weight: 700;
+		padding: 0.25rem 0.6rem;
+		border-radius: 6px;
 		cursor: pointer;
+		transition: all 0.15s;
 	}
 
 	.btn-inspect:hover {
-		background: #eaf1e8;
+		background: #f1f5f9;
+		color: #0f172a;
+		border-color: #94a3b8;
 	}
 
 	.status-pill {
 		display: inline-block;
-		font-size: 0.8rem;
-		font-weight: 600;
-		padding: 0.25rem 0.6rem;
+		font-size: 0.75rem;
+		font-weight: 700;
+		padding: 0.3rem 0.75rem;
 		border-radius: 999px;
 	}
-	.status-pill.pending { background: #fef9c3; color: #854d0e; }
-	.status-pill.approved { background: #dcfce7; color: #166534; }
-	.status-pill.rejected { background: #fee2e2; color: #991b1b; }
 
-	.action-buttons {
+	.status-pill.warning { background: #fff7ed; color: #c2410c; }
+	.status-pill.success { background: #dcfce7; color: #15803d; }
+	.status-pill.danger { background: #fef2f2; color: #b91c1c; }
+
+	.action-btn-group {
 		display: flex;
 		gap: 0.4rem;
 	}
 
 	.btn-approve {
-		background: #36593b;
+		background: #10b981;
 		color: white;
 		border: none;
-		border-radius: 6px;
-		padding: 0.45rem 0.8rem;
-		font-weight: 600;
-		font-size: 0.82rem;
+		border-radius: 8px;
+		padding: 0.45rem 0.85rem;
+		font-weight: 700;
+		font-size: 0.8rem;
 		cursor: pointer;
+		transition: background 0.15s;
 	}
 
-	.btn-approve:hover { background: #27422b; }
+	.btn-approve:hover { background: #059669; }
 
 	.btn-reject {
-		background: #ffffff;
-		color: #b91c1c;
-		border: 1px solid #fca5a5;
-		border-radius: 6px;
-		padding: 0.45rem 0.8rem;
-		font-weight: 600;
-		font-size: 0.82rem;
+		background: white;
+		color: #ef4444;
+		border: 1px solid #fecaca;
+		border-radius: 8px;
+		padding: 0.45rem 0.85rem;
+		font-weight: 700;
+		font-size: 0.8rem;
 		cursor: pointer;
+		transition: all 0.15s;
 	}
 
 	.btn-reject:hover { background: #fef2f2; }
 
 	.text-done {
-		color: #889689;
-		font-size: 0.85rem;
-		font-style: italic;
+		color: #94a3b8;
+		font-size: 0.82rem;
+		font-weight: 600;
 	}
 
-	.empty-state {
-		padding: 3rem;
-		text-align: center;
-		color: #7b887c;
-	}
-
-	/* Toast */
+	/* Toast Notification */
 	.toast-notification {
 		position: fixed;
 		bottom: 2rem;
 		right: 2rem;
-		background: #172018;
+		background: #0f172a;
 		color: #ffffff;
 		padding: 0.85rem 1.4rem;
-		border-radius: 8px;
+		border-radius: 12px;
 		font-weight: 600;
-		font-size: 0.9rem;
-		box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2);
+		font-size: 0.88rem;
+		box-shadow: 0 10px 25px -5px rgba(0,0,0,0.25);
 		z-index: 1000;
 	}
 
-	/* Modal */
+	/* Modal Dialog */
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgba(18, 25, 19, 0.55);
+		background: rgba(15, 23, 42, 0.6);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		z-index: 999;
-		backdrop-filter: blur(2px);
+		backdrop-filter: blur(4px);
 	}
 
 	.modal-dialog {
 		background: white;
 		width: 90%;
 		max-width: 860px;
-		border-radius: 14px;
+		border-radius: 20px;
 		overflow: hidden;
-		box-shadow: 0 20px 25px -5px rgba(0,0,0,0.15);
+		box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
 		max-height: 90vh;
 		display: flex;
 		flex-direction: column;
 	}
 
 	.modal-header {
-		padding: 1.2rem 1.6rem;
-		border-bottom: 1px solid #eef2ed;
+		padding: 1.4rem 1.8rem;
+		border-bottom: 1px solid #f1f5f9;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 	}
 
+	.modal-eyebrow {
+		font-size: 0.78rem;
+		font-weight: 700;
+		color: #7c3aed;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
 	.modal-header h3 {
 		margin: 0.2rem 0 0;
-		color: #172018;
 		font-size: 1.3rem;
+		color: #0f172a;
 	}
 
 	.btn-close {
-		background: none;
+		background: #f1f5f9;
 		border: none;
-		font-size: 1.3rem;
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
+		font-size: 1.1rem;
 		cursor: pointer;
-		color: #637064;
+		color: #64748b;
 	}
 
 	.modal-body {
-		padding: 1.6rem;
+		padding: 1.8rem;
 		display: grid;
 		grid-template-columns: 1fr 1.3fr;
-		gap: 1.5rem;
+		gap: 1.6rem;
 		overflow-y: auto;
 	}
 
 	/* Receipt Mockup */
-	.receipt-mockup {
-		background: #f0f3ef;
+	.receipt-container {
+		background: #f8fafc;
 		padding: 1rem;
-		border-radius: 8px;
-		display: flex;
-		justify-content: center;
+		border-radius: 14px;
 	}
 
 	.receipt-paper {
 		background: white;
-		width: 100%;
 		padding: 1.2rem;
-		border-radius: 4px;
-		box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+		border-radius: 8px;
+		box-shadow: 0 4px 10px rgba(0,0,0,0.03);
 		font-family: monospace;
 		font-size: 0.85rem;
-		color: #2b392c;
+		color: #334155;
 	}
 
 	.receipt-header h4 {
@@ -799,12 +885,13 @@
 	.receipt-header p {
 		margin: 0;
 		text-align: center;
-		color: #6d7b6f;
+		color: #94a3b8;
+		font-size: 0.8rem;
 	}
 
 	.receipt-dash {
 		text-align: center;
-		color: #cbd5cb;
+		color: #cbd5e1;
 		margin: 0.6rem 0;
 	}
 
@@ -821,36 +908,36 @@
 		margin-top: 0.5rem;
 	}
 
-	.ocr-watermark {
+	.ocr-badge {
 		margin-top: 1.2rem;
-		background: #eaf3e8;
-		color: #2e5434;
-		padding: 0.4rem;
-		border-radius: 4px;
+		background: #f5f3ff;
+		color: #7c3aed;
+		padding: 0.45rem;
+		border-radius: 6px;
 		text-align: center;
 		font-size: 0.75rem;
-		font-weight: bold;
+		font-weight: 700;
 	}
 
-	/* Timeline Audit */
-	.audit-log h4 {
+	/* Audit Flow */
+	.audit-flow h4 {
 		margin: 0 0 1rem;
-		color: #172018;
+		color: #0f172a;
 	}
 
-		.timeline {
+	.timeline {
 		display: flex;
 		flex-direction: column;
 		gap: 0.9rem;
 	}
 
-	.timeline-item {
+	.timeline-step {
 		display: flex;
 		gap: 0.8rem;
 		align-items: flex-start;
 	}
 
-	.timeline-badge {
+	.step-indicator {
 		width: 22px;
 		height: 22px;
 		border-radius: 50%;
@@ -862,39 +949,38 @@
 		flex-shrink: 0;
 	}
 
-	.timeline-badge.PASS { background: #dcfce7; color: #166534; }
-	.timeline-badge.WARN { background: #fef3c7; color: #92400e; }
-	.timeline-badge.FLAGGED { background: #fee2e2; color: #991b1b; }
+	.step-indicator.PASS { background: #dcfce7; color: #15803d; }
+	.step-indicator.WARN { background: #fef3c7; color: #b45309; }
 
-	.timeline-content strong {
+	.step-details strong {
 		font-size: 0.85rem;
-		color: #202b21;
+		color: #1e293b;
 	}
 
-	.timeline-content p {
+	.step-details p {
 		margin: 0.2rem 0 0;
 		font-size: 0.8rem;
-		color: #5d6b5e;
+		color: #64748b;
 		line-height: 1.35;
 	}
 
-	.modal-actions-bar {
+	.modal-footer-actions {
 		margin-top: 1.5rem;
 		display: flex;
 		gap: 0.6rem;
-		padding-top: 1rem;
-		border-top: 1px solid #eef2ed;
+		padding-top: 1.2rem;
+		border-top: 1px solid #f1f5f9;
 	}
 
 	.btn-approve.full, .btn-reject.full {
 		flex: 1;
 		padding: 0.65rem;
-		font-size: 0.88rem;
+		font-size: 0.85rem;
 	}
 
 	.status-summary {
 		font-size: 0.9rem;
-		color: #556356;
+		color: #64748b;
 		margin: 0;
 	}
 </style>

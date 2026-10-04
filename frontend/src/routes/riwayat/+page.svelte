@@ -1,22 +1,80 @@
 <script lang="ts">
-	// State to test empty history view
-	let isEmpty = $state(false);
-	
-	// Toast Notification
-	let toast = $state<{ message: string, type: 'error' | 'success', visible: boolean }>({ message: '', type: 'success', visible: false });
+	import { onMount } from 'svelte';
+	import Toast from '$lib/components/Toast.svelte';
+	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import { listClaims, CURRENT_EMPLOYEE_ID } from '$lib/api/claims';
+	import { ApiError } from '$lib/api/client';
+	import { shortClaimRef } from '$lib/formatters/claim';
+	import { formatDate } from '$lib/formatters/date';
+	import { formatCurrency } from '$lib/formatters/currency';
+	import type { ToastState } from '$lib/types/ui';
+	import type { Claim } from '$lib/types/claim';
 
-	function showToast(message: string, type: 'error' | 'success' = 'success') {
+	let claims = $state<Claim[]>([]);
+	let loading = $state(true);
+	let loadError = $state<string | null>(null);
+
+	let toast = $state<ToastState>({ message: '', type: 'success', visible: false });
+	let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function showToast(message: string, type: ToastState['type'] = 'success') {
+		clearTimeout(toastTimer);
 		toast = { message, type, visible: true };
-		setTimeout(() => { toast.visible = false; }, 3500);
+		toastTimer = setTimeout(() => {
+			toast = { ...toast, visible: false };
+		}, 3500);
 	}
 
+	async function load() {
+		loading = true;
+		loadError = null;
+		try {
+			const response = await listClaims(CURRENT_EMPLOYEE_ID);
+			claims = [...response.items].sort(
+				(a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
+			);
+		} catch (error) {
+			loadError = error instanceof ApiError ? error.message : 'Terjadi kesalahan tak terduga.';
+		} finally {
+			loading = false;
+		}
+	}
+
+	onMount(load);
+
+	const approved = $derived(claims.filter((c) => c.status === 'approved'));
+	const rejected = $derived(claims.filter((c) => c.status === 'rejected'));
+	const waiting = $derived(
+		claims.filter((c) => c.status !== 'approved' && c.status !== 'rejected')
+	);
+	const approvedTotal = $derived(
+		approved.reduce((sum, c) => sum + (Number(c.declared_amount) || 0), 0)
+	);
+
 	function exportToCSV() {
-		if (isEmpty) {
+		if (loading || claims.length === 0) {
 			showToast('Tidak ada data untuk diekspor.', 'error');
 			return;
 		}
-		// Dummy action
-		showToast('File laporan_klaim.csv sedang diunduh...', 'success');
+		const headers = ['ID Klaim', 'Diajukan', 'Status', 'Nominal', 'Mata Uang'];
+		const rows = claims.map((c) => [
+			c.id,
+			formatDate(c.submitted_at),
+			c.status,
+			c.declared_amount ?? '',
+			c.currency
+		]);
+		const csv = [
+			headers.join(','),
+			...rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
+		].join('\n');
+		const link = document.createElement('a');
+		link.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+		link.download = `riwayat-klaim-${new Date().toISOString().slice(0, 10)}.csv`;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		showToast('File riwayat klaim berhasil diunduh.', 'success');
 	}
 </script>
 
@@ -26,17 +84,7 @@
 </svelte:head>
 
 <section class="riwayat-page">
-	<!-- Toast Notification -->
-	{#if toast.visible}
-		<div class="toast {toast.type}">
-			{#if toast.type === 'error'}
-				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-			{:else}
-				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-			{/if}
-			<span>{toast.message}</span>
-		</div>
-	{/if}
+	<Toast {toast} />
 	<div class="page-header">
 		<div>
 			<h1>Riwayat Pengajuan</h1>
@@ -44,7 +92,7 @@
 		</div>
 		<div class="header-actions">
 			<button class="export-btn" id="btn-export-csv" onclick={exportToCSV}>
-				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
 					<polyline points="17 8 12 3 7 8"/>
 					<line x1="12" y1="3" x2="12" y2="15"/>
@@ -54,11 +102,20 @@
 		</div>
 	</div>
 
-	{#if isEmpty}
-		<!-- Empty State -->
+	{#if loading}
+		<div class="state-panel" role="status">
+			<span class="spin" aria-hidden="true">⟳</span> Memuat riwayat klaim...
+		</div>
+	{:else if loadError}
+		<div class="state-panel error" role="alert">
+			<h3>Gagal memuat riwayat</h3>
+			<p>{loadError}</p>
+			<button type="button" class="primary-btn" onclick={load}>Coba lagi</button>
+		</div>
+	{:else if claims.length === 0}
 		<div class="empty-state">
 			<div class="empty-icon">
-				<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+				<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
 					<line x1="9" y1="9" x2="15" y2="15"/>
 					<line x1="15" y1="9" x2="9" y2="15"/>
@@ -69,129 +126,71 @@
 			<a href="/" class="primary-btn">Mulai Upload Nota</a>
 		</div>
 	{:else}
-		<!-- Summary cards -->
 		<div class="summary-grid">
 			<div class="summary-card">
-				<span class="summary-icon approved">
+				<span class="summary-icon approved" aria-hidden="true">
 					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
 				</span>
 				<div>
-					<strong>8</strong>
+					<strong>{approved.length}</strong>
 					<span>Disetujui</span>
 				</div>
 			</div>
 			<div class="summary-card">
-				<span class="summary-icon pending">
+				<span class="summary-icon pending" aria-hidden="true">
 					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
 				</span>
 				<div>
-					<strong>2</strong>
-					<span>Menunggu</span>
+					<strong>{waiting.length}</strong>
+					<span>Sedang proses / klarifikasi</span>
 				</div>
 			</div>
 			<div class="summary-card">
-				<span class="summary-icon rejected">
+				<span class="summary-icon rejected" aria-hidden="true">
 					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 				</span>
 				<div>
-					<strong>1</strong>
+					<strong>{rejected.length}</strong>
 					<span>Ditolak</span>
 				</div>
 			</div>
 			<div class="summary-card">
-				<span class="summary-icon total-icon">
+				<span class="summary-icon total-icon" aria-hidden="true">
 					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
 				</span>
 				<div>
-					<strong>Rp 1,4 jt</strong>
+					<strong>{formatCurrency(approvedTotal)}</strong>
 					<span>Total disetujui</span>
 				</div>
 			</div>
 		</div>
 
-		<!-- Table -->
 		<div class="table-card">
 			<div class="table-header">
 				<span class="table-title">Semua Klaim</span>
-				<span class="table-count">7 klaim</span>
+				<span class="table-count">{claims.length} klaim</span>
 			</div>
 			<div class="table-wrap">
 				<table>
 					<thead>
 						<tr>
 							<th>ID Klaim</th>
-							<th>Tanggal</th>
-							<th>Kategori</th>
-							<th>Vendor / Keterangan</th>
+							<th>Diajukan</th>
 							<th>Nominal</th>
 							<th>Status</th>
 							<th></th>
 						</tr>
 					</thead>
 					<tbody>
-						<tr>
-							<td class="claim-id-cell">CLM-28001</td>
-							<td>28 Sep 2026</td>
-							<td><span class="cat-tag bbm">BBM</span></td>
-							<td>SPBU Pertamina Margonda</td>
-							<td>Rp 120.000</td>
-							<td><span class="status-pill approved">✓ Disetujui</span></td>
-							<td><a href="/riwayat/28001" class="detail-link" id="link-detail-28001">Lihat →</a></td>
-						</tr>
-						<tr>
-							<td class="claim-id-cell">CLM-27002</td>
-							<td>27 Sep 2026</td>
-							<td><span class="cat-tag makan">Makan</span></td>
-							<td>RM Padang Sederhana</td>
-							<td>Rp 65.000</td>
-							<td><span class="status-pill approved">✓ Disetujui</span></td>
-							<td><a href="/riwayat/27002" class="detail-link" id="link-detail-27002">Lihat →</a></td>
-						</tr>
-						<tr>
-							<td class="claim-id-cell">CLM-25003</td>
-							<td>25 Sep 2026</td>
-							<td><span class="cat-tag tol">Tol/Parkir</span></td>
-							<td>Tol Jagorawi</td>
-							<td>Rp 22.000</td>
-							<td><span class="status-pill approved">✓ Disetujui</span></td>
-							<td><a href="/riwayat/25003" class="detail-link" id="link-detail-25003">Lihat →</a></td>
-						</tr>
-						<tr>
-							<td class="claim-id-cell">CLM-24004</td>
-							<td>24 Sep 2026</td>
-							<td><span class="cat-tag makan">Makan</span></td>
-							<td>Nota untuk 4 orang</td>
-							<td>Rp 240.000</td>
-							<td><span class="status-pill pending">⏳ Menunggu</span></td>
-							<td><a href="/riwayat/24004" class="detail-link" id="link-detail-24004">Lihat →</a></td>
-						</tr>
-						<tr>
-							<td class="claim-id-cell">CLM-22005</td>
-							<td>22 Sep 2026</td>
-							<td><span class="cat-tag bbm">BBM</span></td>
-							<td>SPBU Shell Ciawi</td>
-							<td>Rp 145.000</td>
-							<td><span class="status-pill approved">✓ Disetujui</span></td>
-							<td><a href="/riwayat/22005" class="detail-link" id="link-detail-22005">Lihat →</a></td>
-						</tr>
-						<tr>
-							<td class="claim-id-cell">CLM-20006</td>
-							<td>20 Sep 2026</td>
-							<td><span class="cat-tag tol">Tol/Parkir</span></td>
-							<td>Parkir Mall Depok</td>
-							<td>Rp 22.000</td>
-							<td><span class="status-pill rejected">✕ Duplikat</span></td>
-							<td><a href="/riwayat/20006" class="detail-link" id="link-detail-20006">Lihat →</a></td>
-						</tr>
-						<tr>
-							<td class="claim-id-cell">CLM-18007</td>
-							<td>18 Sep 2026</td>
-							<td><span class="cat-tag makan">Makan</span></td>
-							<td>KFC Bogor Raya</td>
-							<td>Rp 72.000</td>
-							<td><span class="status-pill pending">⏳ Menunggu</span></td>
-							<td><a href="/riwayat/18007" class="detail-link" id="link-detail-18007">Lihat →</a></td>
-						</tr>
+						{#each claims as claim (claim.id)}
+							<tr>
+								<td class="claim-id-cell">{shortClaimRef(claim.id)}</td>
+								<td>{formatDate(claim.submitted_at)}</td>
+								<td>{formatCurrency(claim.declared_amount, claim.currency)}</td>
+								<td><StatusBadge status={claim.status} size="sm" /></td>
+								<td><a href="/riwayat/{claim.id}" class="detail-link">Lihat →</a></td>
+							</tr>
+						{/each}
 					</tbody>
 				</table>
 			</div>
@@ -249,6 +248,49 @@
 		background: rgba(26, 107, 92, 0.07);
 		border-color: var(--color-primary);
 		transform: translateY(-1px);
+	}
+
+	.state-panel {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		gap: 0.4rem;
+		padding: 4rem 2rem;
+		background: rgba(255, 255, 255, 0.75);
+		backdrop-filter: blur(16px);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		color: var(--color-text-muted);
+		font-weight: 500;
+	}
+
+	.state-panel.error {
+		border: 1px solid rgba(239, 68, 68, 0.25);
+	}
+
+	.state-panel h3 {
+		margin: 0;
+		color: var(--color-text);
+	}
+
+	.state-panel p {
+		margin: 0 0 0.75rem;
+		max-width: 420px;
+		line-height: 1.5;
+	}
+
+	.spin {
+		display: inline-block;
+		animation: spinAnim 0.8s linear infinite;
+		font-size: 1.2rem;
+		color: var(--color-primary);
+	}
+
+	@keyframes spinAnim {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
 
 	/* Summary Cards */
@@ -364,35 +406,6 @@
 		font-weight: 600;
 	}
 
-	/* Category Tags */
-	.cat-tag {
-		display: inline-block;
-		padding: 0.2rem 0.55rem;
-		border-radius: 20px;
-		font-size: 0.7rem;
-		font-weight: 600;
-	}
-
-	.cat-tag.bbm { background: rgba(59, 130, 246, 0.12); color: #1d4ed8; }
-	.cat-tag.makan { background: rgba(245, 158, 11, 0.12); color: #b45309; }
-	.cat-tag.tol { background: rgba(139, 92, 246, 0.12); color: #6d28d9; }
-
-	/* Status Pills */
-	.status-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.25rem;
-		padding: 0.25rem 0.7rem;
-		border-radius: 20px;
-		font-size: 0.72rem;
-		font-weight: 600;
-		white-space: nowrap;
-	}
-
-	.status-pill.approved { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
-	.status-pill.pending { background: rgba(245, 158, 11, 0.12); color: #b45309; }
-	.status-pill.rejected { background: rgba(239, 68, 68, 0.1); color: #dc2626; }
-
 	/* Detail link */
 	.detail-link {
 		font-size: 0.78rem;
@@ -464,10 +477,13 @@
 		padding: 0.75rem 1.25rem;
 		background: var(--color-primary);
 		color: white;
+		font: inherit;
 		font-size: 0.85rem;
 		font-weight: 600;
 		text-decoration: none;
+		border: none;
 		border-radius: var(--radius-sm);
+		cursor: pointer;
 		transition: all var(--transition);
 	}
 
@@ -475,31 +491,5 @@
 		background: var(--color-primary-light);
 		transform: translateY(-1px);
 		box-shadow: 0 4px 12px rgba(26, 107, 92, 0.2);
-	}
-
-	/* ─── Toast ─── */
-	.toast {
-		position: fixed;
-		top: 1.5rem;
-		left: 50%;
-		transform: translateX(-50%);
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.75rem 1.25rem;
-		border-radius: var(--radius-sm);
-		font-weight: 600;
-		font-size: 0.85rem;
-		z-index: 1000;
-		box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-		animation: toastSlide 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-	}
-
-	.toast.error { background: #fef2f2; border: 1px solid #f87171; color: #b91c1c; }
-	.toast.success { background: #f0fdf4; border: 1px solid #4ade80; color: #15803d; }
-
-	@keyframes toastSlide {
-		from { top: -2rem; opacity: 0; }
-		to { top: 1.5rem; opacity: 1; }
 	}
 </style>

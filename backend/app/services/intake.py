@@ -1,15 +1,21 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import PurePath
 from uuid import uuid4
 
-from fastapi import UploadFile
-
+from app.audit.events import record_audit_event
 from app.config import Settings
-from app.domain.enums import ClaimStatus
-from app.errors import ApplicationError, NotFoundError
-from app.repositories.memory import InMemoryClaimStore
+from app.domain.enums import ActorType, ClaimStatus
+from app.errors import ApplicationError, ErrorCode
+from app.repositories.protocols import (
+    AuditRepository,
+    ClaimRepository,
+    FileStorage,
+    ReceiptQualityChecker,
+    ReceiptRepository,
+)
 from app.schemas.core import Claim, Receipt
 
 ALLOWED_MEDIA_TYPES = {
@@ -20,54 +26,87 @@ ALLOWED_MEDIA_TYPES = {
 MAX_FILENAME_LENGTH = 255
 
 
+@dataclass(frozen=True)
+class ReceiptUpload:
+    """Transport-independent receipt input; the HTTP layer converts UploadFile."""
+
+    filename: str | None
+    media_type: str | None
+    content: bytes
+
+
+@dataclass(frozen=True)
+class PreparedReceipt:
+    filename: str
+    media_type: str
+    content: bytes
+    content_hash: str
+    quality_score: float
+    quality_findings: list[str]
+
+
 class IntakeService:
-    def __init__(self, store: InMemoryClaimStore, settings: Settings) -> None:
-        self._store = store
+    def __init__(
+        self,
+        claims: ClaimRepository,
+        receipts: ReceiptRepository,
+        storage: FileStorage,
+        quality: ReceiptQualityChecker,
+        audit: AuditRepository,
+        settings: Settings,
+    ) -> None:
+        self._claims = claims
+        self._receipts = receipts
+        self._storage = storage
+        self._quality = quality
+        self._audit = audit
         self._settings = settings
 
-    async def create_claim(
+    def create_claim(
         self,
         *,
         employee_id: str,
         currency: str,
         declared_amount: Decimal | None,
-        files: list[UploadFile],
+        files: list[ReceiptUpload],
         idempotency_key: str | None,
     ) -> tuple[Claim, list[Receipt], bool]:
         employee_id = employee_id.strip()
         currency = currency.strip().upper()
         if not employee_id:
-            raise ApplicationError("invalid_claim", "employee_id is required.", 422)
+            raise ApplicationError(
+                ErrorCode.INVALID_CLAIM, "employee_id is required.", 422
+            )
         if len(currency) != 3 or not currency.isalpha():
             raise ApplicationError(
-                "invalid_claim", "currency must be a three-letter code.", 422
+                ErrorCode.INVALID_CLAIM, "currency must be a three-letter code.", 422
             )
         if not files:
             raise ApplicationError(
-                "receipt_required", "At least one receipt is required.", 422
+                ErrorCode.RECEIPT_REQUIRED, "At least one receipt is required.", 422
             )
 
         if idempotency_key:
-            existing = self._store.get_by_idempotency_key(idempotency_key)
+            existing = self._claims.get_by_idempotency_key(idempotency_key)
             if existing:
-                return existing, list(self._store.list_receipts(existing.id)), True
+                return existing, list(self._receipts.list_for_claim(existing.id)), True
 
-        prepared: list[tuple[UploadFile, bytes, str, float, list[str]]] = []
+        prepared: list[PreparedReceipt] = []
         seen_hashes: set[str] = set()
         for upload in files:
-            content, media_type, content_hash, score, findings = (
-                await self._prepare_receipt(upload, seen_hashes)
+            candidate = self._prepare_receipt(upload, seen_hashes)
+            existing_claim_id = self._receipts.find_claim_id_by_content_hash(
+                candidate.content_hash
             )
-            existing_claim_id = self._store.get_claim_by_content_hash(content_hash)
             if existing_claim_id:
                 raise ApplicationError(
-                    "duplicate_receipt",
+                    ErrorCode.DUPLICATE_RECEIPT,
                     "A receipt with the same content has already been submitted.",
                     409,
                     {"claim_id": str(existing_claim_id)},
                 )
-            seen_hashes.add(content_hash)
-            prepared.append((upload, content, content_hash, score, findings))
+            seen_hashes.add(candidate.content_hash)
+            prepared.append(candidate)
 
         now = datetime.now(UTC)
         claim = Claim(
@@ -80,67 +119,94 @@ class IntakeService:
             created_at=now,
             updated_at=now,
         )
+        self._claims.save(claim)
         receipts: list[Receipt] = []
-        self._store.save_claim(claim, idempotency_key=idempotency_key)
-        for upload, _content, content_hash, score, findings in prepared:
+        for candidate in prepared:
+            reference = self._storage.put(
+                candidate.content,
+                filename=candidate.filename,
+                media_type=candidate.media_type,
+            )
             receipt = Receipt(
                 id=uuid4(),
                 claim_id=claim.id,
-                original_filename=_safe_filename(upload.filename),
-                media_type=upload.content_type or "application/octet-stream",
-                storage_reference=f"memory://{claim.id}/{uuid4()}",
-                content_hash=content_hash,
-                quality_score=Decimal(str(score)),
-                quality_findings=findings,
+                original_filename=candidate.filename,
+                media_type=candidate.media_type,
+                storage_reference=reference,
+                content_hash=candidate.content_hash,
+                quality_score=Decimal(str(candidate.quality_score)),
+                quality_findings=candidate.quality_findings,
                 created_at=now,
             )
-            self._store.save_receipt(receipt, content=content)
+            self._receipts.save(receipt)
             receipts.append(receipt)
+        record_audit_event(
+            self._audit,
+            aggregate_type="claim",
+            aggregate_id=claim.id,
+            event_type="claim.received",
+            actor_type=ActorType.EMPLOYEE,
+            safe_payload={
+                "receipt_count": len(receipts),
+                "media_types": [receipt.media_type for receipt in receipts],
+            },
+        )
+        # Registered only after the claim and all receipts are stored so a
+        # partial failure can never be replayed as a complete submission.
+        if idempotency_key:
+            self._claims.register_idempotency_key(idempotency_key, claim.id)
         return claim, receipts, False
 
-    async def _prepare_receipt(
-        self, upload: UploadFile, seen_hashes: set[str]
-    ) -> tuple[bytes, str, str, float, list[str]]:
+    def _prepare_receipt(
+        self, upload: ReceiptUpload, seen_hashes: set[str]
+    ) -> PreparedReceipt:
         filename = _safe_filename(upload.filename)
         if not filename:
-            raise ApplicationError("invalid_file", "A filename is required.", 422)
-        if upload.content_type not in ALLOWED_MEDIA_TYPES:
             raise ApplicationError(
-                "unsupported_media_type",
+                ErrorCode.INVALID_FILE, "A filename is required.", 422
+            )
+        media_type = upload.media_type or ""
+        if media_type not in ALLOWED_MEDIA_TYPES:
+            raise ApplicationError(
+                ErrorCode.UNSUPPORTED_MEDIA_TYPE,
                 "Only JPG, PNG, and PDF files are supported.",
                 415,
             )
-        content = await upload.read(self._settings.max_receipt_size_bytes + 1)
+        content = upload.content
         if len(content) > self._settings.max_receipt_size_bytes:
             raise ApplicationError(
-                "file_too_large",
+                ErrorCode.FILE_TOO_LARGE,
                 "Receipt exceeds the maximum allowed size.",
                 413,
                 {"max_bytes": self._settings.max_receipt_size_bytes},
             )
         if not content:
-            raise ApplicationError("invalid_file", "Receipt file is empty.", 422)
-        expected_signatures = ALLOWED_MEDIA_TYPES[upload.content_type]
+            raise ApplicationError(
+                ErrorCode.INVALID_FILE, "Receipt file is empty.", 422
+            )
+        expected_signatures = ALLOWED_MEDIA_TYPES[media_type]
         if not any(content.startswith(signature) for signature in expected_signatures):
             raise ApplicationError(
-                "invalid_file",
+                ErrorCode.INVALID_FILE,
                 "Receipt content does not match its declared media type.",
                 422,
             )
         content_hash = sha256(content).hexdigest()
         if content_hash in seen_hashes:
             raise ApplicationError(
-                "duplicate_receipt",
+                ErrorCode.DUPLICATE_RECEIPT,
                 "The same receipt was uploaded more than once.",
                 409,
             )
-        findings: list[str] = []
-        if upload.content_type.startswith("image/") and len(content) < 100:
-            findings.append("image_may_be_unreadable")
-        if upload.content_type == "application/pdf" and b"%%EOF" not in content:
-            findings.append("pdf_metadata_incomplete")
-        score = 0.5 if findings else 1.0
-        return content, upload.content_type, content_hash, score, findings
+        score, findings = self._quality.check(content, media_type=media_type)
+        return PreparedReceipt(
+            filename=filename,
+            media_type=media_type,
+            content=content,
+            content_hash=content_hash,
+            quality_score=score,
+            quality_findings=findings,
+        )
 
 
 def _safe_filename(filename: str | None) -> str:
@@ -159,10 +225,12 @@ def parse_declared_amount(value: str | None) -> Decimal | None:
         amount = Decimal(value)
     except InvalidOperation as exc:
         raise ApplicationError(
-            "invalid_claim", "declared_amount must be a valid decimal.", 422
+            ErrorCode.INVALID_CLAIM, "declared_amount must be a valid decimal.", 422
         ) from exc
     if amount <= 0:
         raise ApplicationError(
-            "invalid_claim", "declared_amount must be greater than zero.", 422
+            ErrorCode.INVALID_CLAIM,
+            "declared_amount must be greater than zero.",
+            422,
         )
     return amount

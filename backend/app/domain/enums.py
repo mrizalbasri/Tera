@@ -42,3 +42,19 @@ class ActorType(StrEnum):
     AGENT = "agent"
     EMPLOYEE = "employee"
     REVIEWER = "reviewer"
+
+
+class Severity(StrEnum):
+    INFO = "info"
+    WARNING = "warning"
+    BLOCKING = "blocking"
+
+
+class SignalType(StrEnum):
+    DUPLICATE = "duplicate"
+    ANOMALY = "anomaly"
+
+
+class DuplicateMatchType(StrEnum):
+    EXACT_HASH = "exact_hash"
+    LIKELY_ATTRIBUTES = "likely_attributes"

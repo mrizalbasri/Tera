@@ -9,8 +9,11 @@ from app.domain.enums import (
     ClaimStatus,
     ClarificationStatus,
     DecisionOutcome,
+    DuplicateMatchType,
     ProcessingRunStatus,
     ReviewStatus,
+    Severity,
+    SignalType,
 )
 
 
@@ -63,6 +66,7 @@ class FieldConfidence(SchemaBase):
 class ExtractionResult(SchemaBase):
     id: UUID
     receipt_id: UUID
+    processing_run_id: UUID | None = None
     vendor: FieldConfidence
     receipt_date: FieldConfidence
     total: FieldConfidence
@@ -76,6 +80,7 @@ class ExtractionResult(SchemaBase):
 
 class ExtractionAttempt(SchemaBase):
     attempt: int = Field(ge=1)
+    processing_run_id: UUID | None = None
     preprocessing: list[str] = Field(default_factory=list)
     confidence: dict[str, Decimal]
     extraction_id: UUID | None = None
@@ -110,6 +115,8 @@ class Decision(SchemaBase):
     explanation: str = Field(min_length=1, max_length=2000)
     confidence: Decimal | None = Field(default=None, ge=0, le=1)
     anomaly_score: Decimal | None = Field(default=None, ge=0, le=1)
+    source_signal_ids: list[UUID] = Field(default_factory=list)
+    policy_version: int | None = None
     created_by: ActorType
     created_at: datetime
 
@@ -117,6 +124,9 @@ class Decision(SchemaBase):
 class Clarification(SchemaBase):
     id: UUID
     claim_id: UUID
+    processing_run_id: UUID | None = None
+    code: str = Field(min_length=1, max_length=100)
+    fields: list[str] = Field(default_factory=list)
     question: str = Field(min_length=1, max_length=2000)
     answer: str | None = Field(default=None, max_length=2000)
     status: ClarificationStatus
@@ -135,6 +145,35 @@ class Review(SchemaBase):
     decided_at: datetime | None = None
 
 
+class Signal(SchemaBase):
+    """Structured duplicate/anomaly evidence feeding the decision engine."""
+
+    id: UUID
+    claim_id: UUID
+    processing_run_id: UUID
+    signal_type: SignalType
+    severity: Severity
+    confidence: Decimal | None = Field(default=None, ge=0, le=1)
+    match_type: DuplicateMatchType | None = None
+    matched_claim_ids: list[UUID] = Field(default_factory=list)
+    compared_fields: list[str] = Field(default_factory=list)
+    score: Decimal | None = Field(default=None, ge=0, le=1)
+    triggered_rules: list[str] = Field(default_factory=list)
+    evidence: dict[str, object] = Field(default_factory=dict)
+    detector_version: str = Field(min_length=1, max_length=100)
+    explanation: str = Field(min_length=1, max_length=2000)
+    created_at: datetime
+
+
+class ConversationEntry(SchemaBase):
+    """One bounded, safe conversation-context entry for a claim."""
+
+    claim_id: UUID
+    role: str = Field(min_length=1, max_length=20)
+    content: str = Field(min_length=1, max_length=2000)
+    created_at: datetime
+
+
 class AuditEvent(SchemaBase):
     id: UUID
     aggregate_type: str = Field(min_length=1, max_length=100)
@@ -148,3 +187,67 @@ class AuditEvent(SchemaBase):
     duration_ms: int | None = Field(default=None, ge=0)
     retry_count: int = Field(default=0, ge=0)
     error_code: str | None = Field(default=None, max_length=100)
+
+
+class ProcessingOutcome(SchemaBase):
+    """Internal result of one processing run, reused for idempotent replays."""
+
+    claim: Claim
+    extractions: list[ExtractionResult] = Field(default_factory=list)
+    attempts: list[ExtractionAttempt] = Field(default_factory=list)
+    clarification: ClarificationRequest | None = None
+    validation_findings: list["ValidationFinding"] = Field(default_factory=list)
+    policy_evaluations: list["PolicyEvaluation"] = Field(default_factory=list)
+    decision: "Decision | None" = None
+
+
+class ValidationFinding(SchemaBase):
+    """Deterministic rule check result attached to a processing run."""
+
+    claim_id: UUID
+    processing_run_id: UUID
+    extraction_id: UUID | None = None
+    rule_id: str = Field(min_length=1, max_length=100)
+    passed: bool
+    severity: Severity
+    actual: object | None = None
+    expected: str | None = None
+    reason_code: str | None = Field(default=None, max_length=100)
+    explanation: str = Field(min_length=1, max_length=2000)
+
+
+class PolicyRule(SchemaBase):
+    rule_id: str = Field(min_length=1, max_length=100)
+    rule_type: str = Field(min_length=1, max_length=100)
+    limit: Decimal | None = None
+    currency: str = "IDR"
+    per_person: bool = False
+    prohibited_terms: list[str] = Field(default_factory=list)
+    required_terms: list[str] = Field(default_factory=list)
+
+
+class Policy(SchemaBase):
+    policy_id: str = Field(min_length=1, max_length=100)
+    version: int = Field(ge=1)
+    category: str = Field(min_length=1, max_length=100)
+    effective_from: date
+    effective_to: date | None = None
+    rules: list[PolicyRule] = Field(default_factory=list)
+
+
+class PolicyEvaluation(SchemaBase):
+    """Rule-level policy result; the policy version travels with every result."""
+
+    claim_id: UUID
+    processing_run_id: UUID
+    policy_id: str = Field(min_length=1, max_length=100)
+    policy_version: int = Field(ge=1)
+    rule_id: str = Field(min_length=1, max_length=100)
+    rule_type: str = Field(min_length=1, max_length=100)
+    passed: bool
+    severity: Severity
+    clarifiable: bool = False
+    actual_value: object | None = None
+    limit: object | None = None
+    reason_code: str | None = Field(default=None, max_length=100)
+    explanation: str = Field(min_length=1, max_length=2000)

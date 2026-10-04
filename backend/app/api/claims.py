@@ -15,6 +15,7 @@ from app.api.deps import (
     get_policy_evaluation_repository,
     get_receipt_repository,
     get_signal_repository,
+    get_timeline_service,
     get_validation_finding_repository,
 )
 from app.config import Settings, get_settings
@@ -41,7 +42,9 @@ from app.schemas.core import (
     Signal,
     ValidationFinding,
 )
+from app.schemas.core import TimelineEntry
 from app.services.clarification import ClarificationService
+from app.services.timeline import TimelineService
 from app.services.extraction import ExtractionService
 from app.services.intake import IntakeService, ReceiptUpload, parse_declared_amount
 
@@ -82,6 +85,11 @@ class ProcessClaimResponse(BaseModel):
 
 class ClarificationListResponse(BaseModel):
     items: list[Clarification]
+    total: int
+
+
+class TimelineResponse(BaseModel):
+    items: list[TimelineEntry]
     total: int
 
 
@@ -170,6 +178,15 @@ def process_claim(
         policy_evaluations=outcome.policy_evaluations,
         decision=outcome.decision,
     )
+
+
+@router.get("/{claim_id}/timeline", response_model=TimelineResponse)
+def get_claim_timeline(
+    claim_id: UUID,
+    service: TimelineService = Depends(get_timeline_service),
+) -> TimelineResponse:
+    items = service.build(claim_id)
+    return TimelineResponse(items=items, total=len(items))
 
 
 @router.get("/{claim_id}/clarifications", response_model=ClarificationListResponse)

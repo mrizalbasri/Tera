@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from threading import RLock
 from uuid import UUID
 
+from app.integrations.storage import InMemoryFileStorage
 from app.schemas.core import (
     AuditEvent,
     Claim,
@@ -199,6 +200,14 @@ class InMemoryReviewRepository:
                 review for review in self._reviews.values() if review.status == "open"
             )
 
+    def list_for_claim(self, claim_id: UUID) -> Sequence[Review]:
+        with self._lock:
+            return tuple(
+                review
+                for review in self._reviews.values()
+                if review.claim_id == claim_id
+            )
+
 
 class InMemoryAuditRepository:
     def __init__(self) -> None:
@@ -357,6 +366,7 @@ class InMemoryRepositories:
         self.evaluations = InMemoryPolicyEvaluationRepository()
         self.signals = InMemorySignalRepository()
         self.context = InMemoryConversationContextRepository()
+        self.file_storage = InMemoryFileStorage()
 
     @property
     def history(self) -> InMemoryClaimHistoryRepository:

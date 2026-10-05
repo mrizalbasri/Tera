@@ -6,6 +6,7 @@ payload as JSON. Repositories reconstruct domain schemas with
 Pydantic remains the single source of shape truth.
 """
 
+import time
 from collections.abc import Sequence
 from uuid import UUID, uuid4
 
@@ -19,7 +20,7 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from app.errors import ApplicationError, ErrorCode
@@ -109,7 +110,9 @@ class AuditEventRow(Base):
     sequence_number: Mapped[int] = mapped_column()
     payload: Mapped[dict] = mapped_column(JSON)
     __table_args__ = (
-        UniqueConstraint("aggregate_id", "sequence_number", name="uq_audit_sequence"),
+        UniqueConstraint(
+            "aggregate_type", "aggregate_id", "sequence_number", name="uq_audit_sequence"
+        ),
     )
 
 
@@ -491,17 +494,18 @@ class SqlReviewRepository(SqlChildRepository):
 class SqlAuditRepository:
     """Append-only audit; the sequence is allocated atomically per aggregate."""
 
-    MAX_ATTEMPTS = 3
+    MAX_ATTEMPTS = 5
 
     def __init__(self, session_factory: sessionmaker) -> None:
         self._sessions = session_factory
 
     def append(self, event: AuditEvent) -> AuditEvent:
-        for _ in range(self.MAX_ATTEMPTS):
+        for attempt in range(self.MAX_ATTEMPTS):
             with self._sessions() as session:
                 max_sequence = session.scalar(
                     select(func.max(AuditEventRow.sequence_number)).where(
-                        AuditEventRow.aggregate_id == str(event.aggregate_id)
+                        AuditEventRow.aggregate_type == event.aggregate_type,
+                        AuditEventRow.aggregate_id == str(event.aggregate_id),
                     )
                 )
                 stored = event.model_copy(
@@ -519,8 +523,9 @@ class SqlAuditRepository:
                 try:
                     session.commit()
                     return stored
-                except IntegrityError:
+                except (IntegrityError, OperationalError):
                     session.rollback()
+                    time.sleep(0.01 * (attempt + 1))
         raise ApplicationError(
             ErrorCode.PERSISTENCE_CONFLICT,
             "Audit event could not be appended after repeated conflicts.",
@@ -533,6 +538,7 @@ class SqlAuditRepository:
         with self._sessions() as session:
             statement = (
                 select(AuditEventRow)
+                .where(AuditEventRow.aggregate_type == aggregate_type)
                 .where(AuditEventRow.aggregate_id == str(aggregate_id))
                 .order_by(AuditEventRow.sequence_number)
             )

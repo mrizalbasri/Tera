@@ -16,6 +16,8 @@ import pytest
 from app.api import deps
 from app.config import Settings, get_settings
 from app.main import app
+from app.audit.events import record_audit_event
+from app.domain.enums import ActorType
 from app.repositories.memory import (
     InMemoryAuditRepository,
     InMemoryClaimRepository,
@@ -378,3 +380,73 @@ def test_sql_keyed_processing_survives_restart(tmp_path) -> None:
     finally:
         app.dependency_overrides.pop(get_settings)
         deps._sql_repositories.cache_clear()
+
+
+def test_audit_is_isolated_across_aggregate_types_with_same_id() -> None:
+    """A claim and a receipt sharing one id must never share audit sequences."""
+    shared_id = uuid4()
+
+    repo = InMemoryAuditRepository()
+    record_audit_event(
+        repo,
+        aggregate_type="claim",
+        aggregate_id=shared_id,
+        event_type="claim.received",
+        actor_type=ActorType.EMPLOYEE,
+    )
+    record_audit_event(
+        repo,
+        aggregate_type="claim",
+        aggregate_id=shared_id,
+        event_type="claim.updated",
+        actor_type=ActorType.AGENT,
+    )
+    record_audit_event(
+        repo,
+        aggregate_type="receipt",
+        aggregate_id=shared_id,
+        event_type="receipt.stored",
+        actor_type=ActorType.AGENT,
+    )
+
+    claims = repo.list_for_aggregate("claim", shared_id)
+    receipts = repo.list_for_aggregate("receipt", shared_id)
+
+    assert [event.sequence_number for event in claims] == [1, 2]
+    assert [event.sequence_number for event in receipts] == [1]
+    assert all(event.aggregate_type == "claim" for event in claims)
+    assert all(event.aggregate_type == "receipt" for event in receipts)
+
+
+def test_sql_audit_is_isolated_across_aggregate_types_with_same_id(tmp_path) -> None:
+    repos = SqlRepositories(f"sqlite:///{tmp_path / 'isolation.db'}")
+    shared_id = uuid4()
+
+    record_audit_event(
+        repos.audit,
+        aggregate_type="claim",
+        aggregate_id=shared_id,
+        event_type="claim.received",
+        actor_type=ActorType.EMPLOYEE,
+    )
+    record_audit_event(
+        repos.audit,
+        aggregate_type="claim",
+        aggregate_id=shared_id,
+        event_type="claim.updated",
+        actor_type=ActorType.AGENT,
+    )
+    record_audit_event(
+        repos.audit,
+        aggregate_type="receipt",
+        aggregate_id=shared_id,
+        event_type="receipt.stored",
+        actor_type=ActorType.AGENT,
+    )
+
+    claims = repos.audit.list_for_aggregate("claim", shared_id)
+    receipts = repos.audit.list_for_aggregate("receipt", shared_id)
+
+    assert [event.sequence_number for event in claims] == [1, 2]
+    assert [event.sequence_number for event in receipts] == [1]
+    assert len(claims) == 2 and len(receipts) == 1

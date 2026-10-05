@@ -1,0 +1,20 @@
+flowchart LR
+    U["Salesman / Reviewer"] --> FE["SvelteKit Frontend<br/>(chat upload, dashboard, review)"]
+    FE -->|"REST JSON"| API["FastAPI API<br/>(routes + Pydantic schemas)"]
+
+    subgraph BE["FastAPI Backend — modular monolith"]
+        SVC["Claim Processing Service<br/>(use cases)"] --> LG["LangGraph Pipeline<br/>(M7.5, checkpointed + interrupt)"]
+        LG <-->|"evaluasi & keputusan"| DOM["Domain<br/>(transitions,<br/>decision precedence)"]
+        LG --> TOOLS["Tools — provider protocol:<br/>ReceiptQualityChecker · ValidationService ·<br/>PolicyRetriever (local | RAG ChromaDB) ·<br/>DuplicateDetector · AnomalyScorer (rules | ML)"]
+        LG --> MASK["SensitiveDataMasker<br/>(FR-13, wajib sebelum provider)"]
+        SVC --> REPO["Repositories<br/>(SQLAlchemy)"]
+        SVC --> AUD["Audit Events<br/>(append-only)"]
+    end
+
+    API --> SVC
+    MASK -->|"data termasking"| EXT["LLM / OCR Adapter<br/>LangChain, GLM vision via Z.ai<br/>(PROVIDER_MODE = mock | live)"]
+
+    REPO --> DB[("SQL Database<br/>SQLite dev/demo,<br/>PostgreSQL-ready")]
+    REPO --> FS[("File Storage<br/>receipt JPG/PNG/PDF")]
+    AUD --> DB
+    LG --> CP[("LangGraph Checkpointer<br/>(SQLite)")]

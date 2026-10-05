@@ -7,12 +7,22 @@ Pydantic remains the single source of shape truth.
 """
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, BLOB, String, create_engine, select
+from sqlalchemy import (
+    JSON,
+    BLOB,
+    String,
+    UniqueConstraint,
+    create_engine,
+    func,
+    select,
+    text,
+)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
+from app.errors import ApplicationError, ErrorCode
 from app.schemas.core import (
     AuditEvent,
     Claim,
@@ -84,9 +94,23 @@ class ConversationRow(Base):
 
 
 class IdempotencyRow(Base):
+    """Atomic reservation table; target_id is a claim or run id."""
+
     __tablename__ = "idempotency_keys"
     key: Mapped[str] = mapped_column(String(200), primary_key=True)
-    claim_id: Mapped[str] = mapped_column(String(_ID_LENGTH))
+    target_id: Mapped[str] = mapped_column(String(_ID_LENGTH))
+
+
+class AuditEventRow(Base):
+    __tablename__ = "audit_events"
+    id: Mapped[str] = mapped_column(String(_ID_LENGTH), primary_key=True)
+    aggregate_type: Mapped[str] = mapped_column(String(100))
+    aggregate_id: Mapped[str] = mapped_column(String(_ID_LENGTH), index=True)
+    sequence_number: Mapped[int] = mapped_column()
+    payload: Mapped[dict] = mapped_column(JSON)
+    __table_args__ = (
+        UniqueConstraint("aggregate_id", "sequence_number", name="uq_audit_sequence"),
+    )
 
 
 _KINDS = {
@@ -106,7 +130,11 @@ class SqlRepositories:
     """Bundle of SQL-backed repositories behind the same protocols."""
 
     def __init__(self, database_url: str) -> None:
-        self._engine = create_engine(database_url, future=True)
+        self._engine = create_engine(
+            database_url,
+            future=True,
+            connect_args={"check_same_thread": False},
+        )
         Base.metadata.create_all(self._engine)
         self._session_factory = sessionmaker(self._engine, expire_on_commit=False)
         self.claims = SqlClaimRepository(self._session_factory)
@@ -116,7 +144,7 @@ class SqlRepositories:
         self.extractions = SqlChildRepository(
             self._session_factory, "extraction", ExtractionResult
         )
-        self.attempts = SqlChildRepository(
+        self.attempts = SqlExtractionAttemptRepository(
             self._session_factory, "attempt", ExtractionAttempt
         )
         self.findings = SqlChildRepository(
@@ -132,13 +160,12 @@ class SqlRepositories:
         self.clarifications = SqlChildRepository(
             self._session_factory, "clarification", Clarification
         )
-        self.reviews = SqlChildRepository(self._session_factory, "review", Review)
+        self.reviews = SqlReviewRepository(self._session_factory, "review", Review)
         self.audit = SqlAuditRepository(self._session_factory)
         self.context = SqlConversationRepository(self._session_factory)
+        self.history = SqlClaimHistoryRepository(self._session_factory)
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
 
 
 class SqlClaimRepository:
@@ -146,13 +173,13 @@ class SqlClaimRepository:
         self._sessions = session_factory
 
     def get(self, claim_id: UUID) -> Claim | None:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             row = session.get(ClaimRow, str(claim_id))
             return Claim.model_validate(row.payload) if row else None
 
     def save(self, claim: Claim) -> Claim:
         payload = claim.model_dump(mode="json")
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             row = session.get(ClaimRow, str(claim.id))
             if row is None:
                 row = ClaimRow(
@@ -170,8 +197,8 @@ class SqlClaimRepository:
         return claim
 
     def list(self, *, employee_id: str | None = None) -> Sequence[Claim]:
-        with Session(self._sessions.engine) as session:
-            statement = select(ClaimRow).order_by(ClaimRow.rowid)
+        with self._sessions() as session:
+            statement = select(ClaimRow).order_by(text("rowid"))
             if employee_id is not None:
                 statement = statement.where(ClaimRow.employee_id == employee_id)
             return tuple(
@@ -179,18 +206,24 @@ class SqlClaimRepository:
             )
 
     def get_by_idempotency_key(self, key: str) -> Claim | None:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             row = session.get(IdempotencyRow, key)
             if row is None:
                 return None
-            claim_row = session.get(ClaimRow, row.claim_id)
+            claim_row = session.get(ClaimRow, row.target_id)
             return Claim.model_validate(claim_row.payload) if claim_row else None
 
-    def register_idempotency_key(self, key: str, claim_id: UUID) -> None:
-        with Session(self._sessions.engine) as session:
-            if session.get(IdempotencyRow, key) is None:
-                session.add(IdempotencyRow(key=key, claim_id=str(claim_id)))
+    def reserve_idempotency_key(self, key: str, claim_id: UUID) -> bool:
+        with self._sessions() as session:
+            if session.get(IdempotencyRow, key) is not None:
+                return False
+            session.add(IdempotencyRow(key=key, target_id=str(claim_id)))
+            try:
                 session.commit()
+            except IntegrityError:
+                session.rollback()
+                return False
+            return True
 
 
 class SqlReceiptRepository:
@@ -198,7 +231,7 @@ class SqlReceiptRepository:
         self._sessions = session_factory
 
     def save(self, receipt: Receipt) -> Receipt:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             if session.get(ReceiptRow, str(receipt.id)) is None:
                 session.add(
                     ReceiptRow(
@@ -212,22 +245,22 @@ class SqlReceiptRepository:
         return receipt
 
     def list_for_claim(self, claim_id: UUID) -> Sequence[Receipt]:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             statement = (
                 select(ReceiptRow)
                 .where(ReceiptRow.claim_id == str(claim_id))
-                .order_by(ReceiptRow.rowid)
+                .order_by(text("rowid"))
             )
             return tuple(
                 Receipt.model_validate(row.payload) for row in session.scalars(statement)
             )
 
     def find_claim_id_by_content_hash(self, content_hash: str) -> UUID | None:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             statement = (
                 select(ReceiptRow)
                 .where(ReceiptRow.content_hash == content_hash)
-                .order_by(ReceiptRow.rowid)
+                .order_by(text("rowid"))
                 .limit(1)
             )
             row = session.scalars(statement).first()
@@ -239,7 +272,7 @@ class SqlProcessingRunRepository:
         self._sessions = session_factory
 
     def save(self, run: ProcessingRun) -> ProcessingRun:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             row = session.get(ProcessingRunRow, str(run.id))
             if row is None:
                 session.add(
@@ -255,16 +288,16 @@ class SqlProcessingRunRepository:
         return run
 
     def get(self, run_id: UUID) -> ProcessingRun | None:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             row = session.get(ProcessingRunRow, str(run_id))
             return ProcessingRun.model_validate(row.payload) if row else None
 
     def list_for_claim(self, claim_id: UUID) -> Sequence[ProcessingRun]:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             statement = (
                 select(ProcessingRunRow)
                 .where(ProcessingRunRow.claim_id == str(claim_id))
-                .order_by(ProcessingRunRow.rowid)
+                .order_by(text("rowid"))
             )
             return tuple(
                 ProcessingRun.model_validate(row.payload)
@@ -274,6 +307,25 @@ class SqlProcessingRunRepository:
     def latest_for_claim(self, claim_id: UUID) -> ProcessingRun | None:
         runs = self.list_for_claim(claim_id)
         return runs[-1] if runs else None
+
+    def reserve_run_key(self, key: str, run_id: UUID) -> bool:
+        with self._sessions() as session:
+            if session.get(IdempotencyRow, key) is not None:
+                return False
+            session.add(IdempotencyRow(key=key, target_id=str(run_id)))
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                return False
+            return True
+
+    def get_run_by_key(self, key: str) -> ProcessingRun | None:
+        with self._sessions() as session:
+            row = session.get(IdempotencyRow, key)
+        if row is None:
+            return None
+        return self.get(UUID(row.target_id))
 
 
 class SqlChildRepository:
@@ -289,18 +341,23 @@ class SqlChildRepository:
         created_at = str(
             getattr(record, "created_at", None) or getattr(record, "timestamp", "")
         )
-        with Session(self._sessions.engine) as session:
-            if session.get(ChildRow, str(record.id)) is None:
+        # Schemas without an id (findings, evaluations) are write-once rows.
+        row_id = str(getattr(record, "id", None) or uuid4())
+        with self._sessions() as session:
+            row = session.get(ChildRow, row_id)
+            if row is None:
                 session.add(
                     ChildRow(
-                        id=str(record.id),
+                        id=row_id,
                         claim_id=claim_id,
                         kind=self._kind,
                         created_at=created_at,
                         payload=record.model_dump(mode="json"),
                     )
                 )
-                session.commit()
+            else:
+                row.payload = record.model_dump(mode="json")
+            session.commit()
         return record
 
     def _claim_id_for(self, record) -> str:
@@ -308,18 +365,18 @@ class SqlChildRepository:
         if hasattr(record, "claim_id"):
             return str(record.claim_id)
         if hasattr(record, "receipt_id"):
-            with Session(self._sessions.engine) as session:
+            with self._sessions() as session:
                 row = session.get(ReceiptRow, str(record.receipt_id))
                 return row.claim_id if row else ""
         return ""
 
     def list_for_claim(self, claim_id: UUID) -> Sequence:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             statement = (
                 select(ChildRow)
                 .where(ChildRow.claim_id == str(claim_id))
                 .where(ChildRow.kind == self._kind)
-                .order_by(ChildRow.rowid)
+                .order_by(text("rowid"))
             )
             return tuple(
                 self._schema.model_validate(row.payload)
@@ -331,11 +388,11 @@ class SqlChildRepository:
         if not receipt_ids:
             return ()
         wanted = {str(receipt_id) for receipt_id in receipt_ids}
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             statement = (
                 select(ChildRow)
                 .where(ChildRow.kind == self._kind)
-                .order_by(ChildRow.rowid)
+                .order_by(text("rowid"))
             )
             return tuple(
                 self._schema.model_validate(row.payload)
@@ -344,40 +401,140 @@ class SqlChildRepository:
             )
 
 
+class SqlClaimHistoryRepository:
+    """Employee- and vendor-scoped claim history views over SQL (FR-15)."""
+
+    def __init__(self, session_factory: sessionmaker) -> None:
+        self._sessions = session_factory
+
+    def list_for_employee(
+        self, employee_id: str, *, exclude_claim_id: UUID | None = None
+    ) -> Sequence[Claim]:
+        with self._sessions() as session:
+            statement = (
+                select(ClaimRow)
+                .where(ClaimRow.employee_id == employee_id)
+                .order_by(text("rowid"))
+            )
+            claims = [
+                Claim.model_validate(row.payload) for row in session.scalars(statement)
+            ]
+        return tuple(
+            claim
+            for claim in claims
+            if claim.id != exclude_claim_id
+        )
+
+    def list_for_vendor(
+        self, vendor: str, *, exclude_claim_id: UUID | None = None
+    ) -> Sequence[Claim]:
+        wanted = vendor.strip().lower()
+        matched: list[Claim] = []
+        with self._sessions() as session:
+            claim_rows = session.scalars(
+                select(ClaimRow).order_by(text("rowid"))
+            ).all()
+            for row in claim_rows:
+                if exclude_claim_id is not None and row.id == str(exclude_claim_id):
+                    continue
+                extraction_rows = session.scalars(
+                    select(ChildRow)
+                    .where(ChildRow.claim_id == row.id)
+                    .where(ChildRow.kind == "extraction")
+                ).all()
+                if any(
+                    str(payload.get("vendor", {}).get("value", "")).strip().lower()
+                    == wanted
+                    for payload in (extra.payload for extra in extraction_rows)
+                ):
+                    matched.append(Claim.model_validate(row.payload))
+        return tuple(matched)
+
+
+class SqlExtractionAttemptRepository(SqlChildRepository):
+    """Attempts are saved with an explicit claim id (protocol shape)."""
+
+    def save(self, claim_id: UUID, attempt: ExtractionAttempt) -> ExtractionAttempt:
+        with self._sessions() as session:
+            row_id = str(uuid4())  # attempts are write-once and have no id field
+            if session.get(ChildRow, row_id) is None:
+                session.add(
+                    ChildRow(
+                        id=row_id,
+                        claim_id=str(claim_id),
+                        kind=self._kind,
+                        created_at=str(attempt.created_at),
+                        payload=attempt.model_dump(mode="json"),
+                    )
+                )
+                session.commit()
+        return attempt
+
+
+class SqlReviewRepository(SqlChildRepository):
+    """Reviews expose the open-review queue query required by the protocol."""
+
+    def list_open(self) -> Sequence[Review]:
+        with self._sessions() as session:
+            rows = session.scalars(
+                select(ChildRow)
+                .where(ChildRow.kind == self._kind)
+                .order_by(text("rowid"))
+            ).all()
+        return tuple(
+            Review.model_validate(row.payload)
+            for row in rows
+            if row.payload.get("status") == "open"
+        )
+
+
 class SqlAuditRepository:
+    """Append-only audit; the sequence is allocated atomically per aggregate."""
+
+    MAX_ATTEMPTS = 3
+
     def __init__(self, session_factory: sessionmaker) -> None:
         self._sessions = session_factory
 
     def append(self, event: AuditEvent) -> AuditEvent:
-        with Session(self._sessions.engine) as session:
-            statement = (
-                select(ChildRow)
-                .where(ChildRow.kind == "audit")
-                .where(ChildRow.claim_id == str(event.aggregate_id))
-            )
-            sequence = len(session.scalars(statement).all()) + 1
-            stored = event.model_copy(update={"sequence_number": sequence})
-            session.add(
-                ChildRow(
-                    id=str(stored.id),
-                    claim_id=str(stored.aggregate_id),
-                    kind="audit",
-                    created_at=str(stored.timestamp),
-                    payload=stored.model_dump(mode="json"),
+        for _ in range(self.MAX_ATTEMPTS):
+            with self._sessions() as session:
+                max_sequence = session.scalar(
+                    select(func.max(AuditEventRow.sequence_number)).where(
+                        AuditEventRow.aggregate_id == str(event.aggregate_id)
+                    )
                 )
-            )
-            session.commit()
-        return stored
+                stored = event.model_copy(
+                    update={"sequence_number": (max_sequence or 0) + 1}
+                )
+                session.add(
+                    AuditEventRow(
+                        id=str(stored.id),
+                        aggregate_type=stored.aggregate_type,
+                        aggregate_id=str(stored.aggregate_id),
+                        sequence_number=stored.sequence_number,
+                        payload=stored.model_dump(mode="json"),
+                    )
+                )
+                try:
+                    session.commit()
+                    return stored
+                except IntegrityError:
+                    session.rollback()
+        raise ApplicationError(
+            ErrorCode.PERSISTENCE_CONFLICT,
+            "Audit event could not be appended after repeated conflicts.",
+            500,
+        )
 
     def list_for_aggregate(
         self, aggregate_type: str, aggregate_id: UUID
     ) -> Sequence[AuditEvent]:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             statement = (
-                select(ChildRow)
-                .where(ChildRow.kind == "audit")
-                .where(ChildRow.claim_id == str(aggregate_id))
-                .order_by(ChildRow.rowid)
+                select(AuditEventRow)
+                .where(AuditEventRow.aggregate_id == str(aggregate_id))
+                .order_by(AuditEventRow.sequence_number)
             )
             return tuple(
                 AuditEvent.model_validate(row.payload)
@@ -392,7 +549,7 @@ class SqlConversationRepository:
         self._sessions = session_factory
 
     def append(self, entry: ConversationEntry) -> ConversationEntry:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             statement = (
                 select(ConversationRow)
                 .where(ConversationRow.claim_id == str(entry.claim_id))
@@ -410,7 +567,7 @@ class SqlConversationRepository:
         return entry
 
     def list_for_claim(self, claim_id: UUID) -> Sequence[ConversationEntry]:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             statement = (
                 select(ConversationRow)
                 .where(ConversationRow.claim_id == str(claim_id))
@@ -428,18 +585,18 @@ class SqlFileStorage:
 
     def put(self, content: bytes, *, filename: str, media_type: str) -> str:
         reference = f"sql://{uuid4()}"
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             session.add(ReceiptContentRow(reference=reference, content=content))
             session.commit()
         return reference
 
     def get(self, reference: str) -> bytes | None:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             row = session.get(ReceiptContentRow, reference)
             return bytes(row.content) if row else None
 
     def delete(self, reference: str) -> None:
-        with Session(self._sessions.engine) as session:
+        with self._sessions() as session:
             row = session.get(ReceiptContentRow, reference)
             if row is not None:
                 session.delete(row)

@@ -16,6 +16,8 @@ class ErrorCode(StrEnum):
     RECEIPT_CONTENT_UNAVAILABLE = "receipt_content_unavailable"
     EXTRACTION_CONFIDENCE_LOW = "extraction_confidence_low"
     POLICY_UNAVAILABLE = "policy_unavailable"
+    PERSISTENCE_CONFLICT = "persistence_conflict"
+    IDEMPOTENCY_IN_PROGRESS = "idempotency_in_progress"
     NOT_FOUND = "not_found"
     INVALID_STATE_TRANSITION = "invalid_state_transition"
 

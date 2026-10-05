@@ -47,9 +47,12 @@ class InMemoryClaimRepository:
             claim_id = self._idempotency.get(key)
             return self._claims.get(claim_id) if claim_id else None
 
-    def register_idempotency_key(self, key: str, claim_id: UUID) -> None:
+    def reserve_idempotency_key(self, key: str, claim_id: UUID) -> bool:
         with self._lock:
-            self._idempotency.setdefault(key, claim_id)
+            if key in self._idempotency:
+                return False
+            self._idempotency[key] = claim_id
+            return True
 
 
 class InMemoryReceiptRepository:
@@ -76,6 +79,7 @@ class InMemoryReceiptRepository:
 class InMemoryProcessingRunRepository:
     def __init__(self) -> None:
         self._runs: dict[UUID, list[ProcessingRun]] = {}
+        self._run_keys: dict[str, UUID] = {}
         self._lock = RLock()
 
     def save(self, run: ProcessingRun) -> ProcessingRun:
@@ -105,6 +109,20 @@ class InMemoryProcessingRunRepository:
         with self._lock:
             runs = self._runs.get(claim_id, ())
             return runs[-1] if runs else None
+
+    def reserve_run_key(self, key: str, run_id: UUID) -> bool:
+        with self._lock:
+            if key in self._run_keys:
+                return False
+            self._run_keys[key] = run_id
+            return True
+
+    def get_run_by_key(self, key: str) -> ProcessingRun | None:
+        with self._lock:
+            run_id = self._run_keys.get(key)
+        if run_id is None:
+            return None
+        return self.get(run_id)
 
 
 class InMemoryExtractionRepository:

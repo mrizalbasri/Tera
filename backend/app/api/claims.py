@@ -166,9 +166,10 @@ def get_claim(
 @router.post("/{claim_id}/process", response_model=ProcessClaimResponse)
 def process_claim(
     claim_id: UUID,
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     service: ExtractionService = Depends(get_extraction_service),
 ) -> ProcessClaimResponse:
-    outcome = service.process_claim(claim_id)
+    outcome = service.process_claim(claim_id, idempotency_key=idempotency_key)
     return ProcessClaimResponse(
         claim=outcome.claim,
         extractions=outcome.extractions,

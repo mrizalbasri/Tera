@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import PurePath
+import time
 from uuid import uuid4
 
 from app.audit.events import record_audit_event
@@ -119,6 +120,22 @@ class IntakeService:
             created_at=now,
             updated_at=now,
         )
+        if idempotency_key:
+            # The reservation is the atomic gate: losing the race means
+            # another request with the same key owns this submission.
+            if not self._claims.reserve_idempotency_key(idempotency_key, claim.id):
+                existing = self._await_claim(idempotency_key)
+                if existing is not None:
+                    return (
+                        existing,
+                        list(self._receipts.list_for_claim(existing.id)),
+                        True,
+                    )
+                raise ApplicationError(
+                    ErrorCode.IDEMPOTENCY_IN_PROGRESS,
+                    "A request with this Idempotency-Key is still in progress.",
+                    409,
+                )
         self._claims.save(claim)
         receipts: list[Receipt] = []
         for candidate in prepared:
@@ -151,11 +168,16 @@ class IntakeService:
                 "media_types": [receipt.media_type for receipt in receipts],
             },
         )
-        # Registered only after the claim and all receipts are stored so a
-        # partial failure can never be replayed as a complete submission.
-        if idempotency_key:
-            self._claims.register_idempotency_key(idempotency_key, claim.id)
         return claim, receipts, False
+
+    def _await_claim(self, key: str) -> Claim | None:
+        """Wait briefly for an in-flight winner of the same idempotency key."""
+        for _ in range(20):
+            time.sleep(0.05)
+            existing = self._claims.get_by_idempotency_key(key)
+            if existing is not None:
+                return existing
+        return None
 
     def _prepare_receipt(
         self, upload: ReceiptUpload, seen_hashes: set[str]

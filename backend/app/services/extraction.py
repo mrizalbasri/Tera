@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -129,10 +130,18 @@ class ExtractionService:
         self._decider = decider
         self._settings = settings
 
-    def process_claim(self, claim_id: UUID, *, resume: bool = False) -> ProcessingOutcome:
+    def process_claim(
+        self,
+        claim_id: UUID,
+        *,
+        resume: bool = False,
+        idempotency_key: str | None = None,
+    ) -> ProcessingOutcome:
         claim = self._claims.get(claim_id)
         if claim is None:
             raise NotFoundError("Claim", str(claim_id))
+
+        run_key = f"run:{claim_id}:{idempotency_key}" if idempotency_key else None
 
         latest_run = self._runs.latest_for_claim(claim_id)
         if (
@@ -148,6 +157,25 @@ class ExtractionService:
             # Repetition without new input replays the recorded run instead of
             # creating a conflicting one (M6 reliability rule).
             return self._replay(claim_id, latest_run)
+
+        if run_key:
+            keyed_run = self._runs.get_run_by_key(run_key)
+            if keyed_run is not None:
+                self._await_terminal(keyed_run)
+                return self._keyed_result(claim_id, keyed_run)
+
+        run_id = uuid4()
+        if run_key and not self._runs.reserve_run_key(run_key, run_id):
+            winner = self._runs.get_run_by_key(run_key)
+            if winner is None:
+                raise ApplicationError(
+                    ErrorCode.IDEMPOTENCY_IN_PROGRESS,
+                    "A request with this Idempotency-Key is still in progress.",
+                    409,
+                )
+            self._await_terminal(winner)
+            return self._keyed_result(claim_id, winner)
+
         if latest_run is not None and latest_run.status == ProcessingRunStatus.RUNNING:
             raise ApplicationError(
                 ErrorCode.INVALID_CLAIM,
@@ -174,7 +202,7 @@ class ExtractionService:
             )
 
         run = ProcessingRun(
-            id=uuid4(),
+            id=run_id,
             claim_id=claim_id,
             status=ProcessingRunStatus.QUEUED,
             pipeline_version=PIPELINE_VERSION,
@@ -186,6 +214,27 @@ class ExtractionService:
         self._runs.save(run)
         logger.info("processing run %s queued for claim %s", run.id, claim_id)
         return self._execute_run(claim, run)
+
+    def _keyed_result(self, claim_id: UUID, run: ProcessingRun) -> ProcessingOutcome:
+        """Idempotent result for a keyed repeat: replay, or re-raise failures."""
+        if run.status == ProcessingRunStatus.FAILED:
+            raise ApplicationError(
+                run.error_code or ErrorCode.MALFORMED_EXTRACTION,
+                "Receipt extraction failed; please upload a clearer receipt.",
+                502,
+            )
+        return self._replay(claim_id, run)
+
+    def _await_terminal(self, run: ProcessingRun) -> ProcessingRun:
+        """Wait briefly for a concurrent winner's run to reach a final state."""
+        for _ in range(40):
+            if run.status != ProcessingRunStatus.RUNNING:
+                return run
+            time.sleep(0.05)
+            refreshed = self._runs.get(run.id)
+            if refreshed is not None:
+                run = refreshed
+        return run
 
     def _execute_run(self, claim: Claim, run: ProcessingRun) -> ProcessingOutcome:
         started_at = datetime.now(UTC)

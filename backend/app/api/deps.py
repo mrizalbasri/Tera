@@ -12,6 +12,7 @@ from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetri
 from app.integrations.quality import FileQualityChecker
 from app.integrations.storage import InMemoryFileStorage
 from app.repositories.memory import InMemoryRepositories
+from app.repositories.sql import SqlRepositories
 from app.repositories.protocols import (
     AnomalyScorer,
     AuditRepository,
@@ -40,75 +41,81 @@ from app.services.decision import DecisionEngine
 from app.services.extraction import ExtractionService
 from app.services.intake import IntakeService
 from app.services.review import ReviewService
+from app.services.timeline import TimelineService
 from app.services.validation import ValidationService
 
 
 @lru_cache
-def _repositories() -> InMemoryRepositories:
-    if get_settings().storage_backend != "memory":
-        raise NotImplementedError("Only the memory storage backend is wired.")
+def _memory_repositories() -> InMemoryRepositories:
     return InMemoryRepositories()
 
 
 @lru_cache
-def _file_storage() -> InMemoryFileStorage:
-    return InMemoryFileStorage()
+def _sql_repositories(database_url: str) -> SqlRepositories:
+    return SqlRepositories(database_url)
 
 
-def get_claim_repository() -> ClaimRepository:
-    return _repositories().claims
+def _backend(settings: Settings):
+    """Pick the storage backend bundle from request-scoped settings."""
+    if settings.storage_backend == "sql":
+        return _sql_repositories(settings.database_url)
+    return _memory_repositories()
 
 
-def get_receipt_repository() -> ReceiptRepository:
-    return _repositories().receipts
+def get_claim_repository(settings: Settings = Depends(get_settings)) -> ClaimRepository:
+    return _backend(settings).claims
 
 
-def get_processing_run_repository() -> ProcessingRunRepository:
-    return _repositories().runs
+def get_receipt_repository(settings: Settings = Depends(get_settings)) -> ReceiptRepository:
+    return _backend(settings).receipts
 
 
-def get_extraction_repository() -> ExtractionRepository:
-    return _repositories().extractions
+def get_processing_run_repository(settings: Settings = Depends(get_settings)) -> ProcessingRunRepository:
+    return _backend(settings).runs
 
 
-def get_extraction_attempt_repository() -> ExtractionAttemptRepository:
-    return _repositories().attempts
+def get_extraction_repository(settings: Settings = Depends(get_settings)) -> ExtractionRepository:
+    return _backend(settings).extractions
 
 
-def get_clarification_repository() -> ClarificationRepository:
-    return _repositories().clarifications
+def get_extraction_attempt_repository(settings: Settings = Depends(get_settings)) -> ExtractionAttemptRepository:
+    return _backend(settings).attempts
 
 
-def get_audit_repository() -> AuditRepository:
-    return _repositories().audit
+def get_clarification_repository(settings: Settings = Depends(get_settings)) -> ClarificationRepository:
+    return _backend(settings).clarifications
 
 
-def get_validation_finding_repository() -> ValidationFindingRepository:
-    return _repositories().findings
+def get_audit_repository(settings: Settings = Depends(get_settings)) -> AuditRepository:
+    return _backend(settings).audit
 
 
-def get_policy_evaluation_repository() -> PolicyEvaluationRepository:
-    return _repositories().evaluations
+def get_validation_finding_repository(settings: Settings = Depends(get_settings)) -> ValidationFindingRepository:
+    return _backend(settings).findings
 
 
-def get_signal_repository() -> SignalRepository:
-    return _repositories().signals
+def get_policy_evaluation_repository(settings: Settings = Depends(get_settings)) -> PolicyEvaluationRepository:
+    return _backend(settings).evaluations
 
 
-def get_decision_repository() -> DecisionRepository:
-    return _repositories().decisions
+def get_signal_repository(settings: Settings = Depends(get_settings)) -> SignalRepository:
+    return _backend(settings).signals
 
 
-def get_claim_history_repository() -> ClaimHistoryRepository:
-    return _repositories().history
+def get_decision_repository(settings: Settings = Depends(get_settings)) -> DecisionRepository:
+    return _backend(settings).decisions
 
 
-def get_review_repository() -> ReviewRepository:
-    return _repositories().reviews
+def get_claim_history_repository(settings: Settings = Depends(get_settings)) -> ClaimHistoryRepository:
+    return _backend(settings).history
 
 
-def get_file_storage() -> FileStorage:
-    return _file_storage()
+def get_review_repository(settings: Settings = Depends(get_settings)) -> ReviewRepository:
+    return _backend(settings).reviews
+
+
+def get_file_storage(settings: Settings = Depends(get_settings)) -> FileStorage:
+    return _backend(settings).file_storage
 
 
 def get_quality_checker() -> ReceiptQualityChecker:
@@ -211,8 +218,8 @@ def get_extraction_service(
         decider,
         settings,
     )
-def get_conversation_context_repository() -> ConversationContextRepository:
-    return _repositories().context
+def get_conversation_context_repository(settings: Settings = Depends(get_settings)) -> ConversationContextRepository:
+    return _backend(settings).context
 
 
 def get_clarification_service(
@@ -230,6 +237,36 @@ def get_clarification_service(
         context,
         audit,
         processing=extraction_service,
+    )
+
+
+def get_timeline_service(
+    claims: ClaimRepository = Depends(get_claim_repository),
+    receipts: ReceiptRepository = Depends(get_receipt_repository),
+    runs: ProcessingRunRepository = Depends(get_processing_run_repository),
+    attempts: ExtractionAttemptRepository = Depends(get_extraction_attempt_repository),
+    extractions: ExtractionRepository = Depends(get_extraction_repository),
+    findings: ValidationFindingRepository = Depends(get_validation_finding_repository),
+    evaluations: PolicyEvaluationRepository = Depends(get_policy_evaluation_repository),
+    decisions: DecisionRepository = Depends(get_decision_repository),
+    clarifications: ClarificationRepository = Depends(get_clarification_repository),
+    reviews: ReviewRepository = Depends(get_review_repository),
+    signals: SignalRepository = Depends(get_signal_repository),
+    audit: AuditRepository = Depends(get_audit_repository),
+) -> TimelineService:
+    return TimelineService(
+        claims,
+        receipts,
+        runs,
+        attempts,
+        extractions,
+        findings,
+        evaluations,
+        decisions,
+        clarifications,
+        reviews,
+        signals,
+        audit,
     )
 
 

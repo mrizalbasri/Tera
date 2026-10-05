@@ -1,0 +1,54 @@
+erDiagram
+    CLAIMS ||--o{ RECEIPTS : "memuat nota"
+    CLAIMS ||--o{ PROCESSING_RUNS : "diproses lewat"
+    CLAIMS ||--o{ DOMAIN_RECORDS : "miliki (extraction, finding, evaluation, signal, decision, clarification, review)"
+    CLAIMS ||--o{ CONVERSATION_CONTEXT : "konteks percakapan"
+    CLAIMS ||--o{ AUDIT_EVENTS : "jejak audit"
+    CLAIMS ||--o{ IDEMPOTENCY_KEYS : "dicadangkan via idempotency key"
+    FILE_STORAGE ||--o{ RECEIPTS : "menyimpan konten via reference"
+    PROCESSING_RUNS ||--o{ AUDIT_EVENTS : "menghasilkan event"
+
+    CLAIMS {
+        string id PK
+        string employee_id
+        string status
+        json payload
+    }
+    RECEIPTS {
+        string id PK
+        string claim_id FK
+        string content_hash
+        json payload
+    }
+    FILE_STORAGE {
+        string reference PK
+        blob content
+    }
+    PROCESSING_RUNS {
+        string id PK
+        string claim_id FK
+        json payload
+    }
+    DOMAIN_RECORDS {
+        string id PK
+        string claim_id FK
+        string kind
+        string created_at
+        json payload
+    }
+    CONVERSATION_CONTEXT {
+        int id PK
+        string claim_id FK
+        json payload
+    }
+    IDEMPOTENCY_KEYS {
+        string key PK
+        string target_id
+    }
+    AUDIT_EVENTS {
+        string id PK
+        string aggregate_type
+        string aggregate_id
+        int sequence_number
+        json payload
+    }

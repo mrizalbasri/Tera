@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> received: klaim dibuat + nota tersimpan
+    received --> processing: POST /process
+    processing --> approved: lolos semua cek (auto-approve)
+    processing --> rejected: duplikat terkonfirmasi / pelanggaran kebijakan
+    processing --> needs_clarification: data ambigu / confidence rendah
+    processing --> escalated: nominal > threshold / skor anomali tinggi
+    needs_clarification --> processing: jawaban karyawan (run baru)
+    escalated --> processing: reviewer memutuskan / override (run baru)
+    approved --> [*]
+    rejected --> [*]

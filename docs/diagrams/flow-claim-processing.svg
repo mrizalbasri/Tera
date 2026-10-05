@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1239.003 882" width="1239.003" height="882" style="--bg:#ffffff;--fg:#1f2328;--line:#d1d9e0;--accent:#0969da;--muted:#59636e;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="seq-arrow" markerWidth="8" markerHeight="5" refX="8" refY="2.5" orient="auto-start-reverse">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" />
+  </marker>
+  <marker id="seq-arrow-open" markerWidth="8" markerHeight="5" refX="8" refY="2.5" orient="auto-start-reverse">
+    <polyline points="0 0, 8 2.5, 0 5" fill="none" stroke="var(--_arrow)" stroke-width="1" />
+  </marker>
+</defs>
+<g class="block" data-type="alt" data-label="lolos semua cek (≤ Rp500rb, confidence ≥ 0,8)">
+  <rect x="30" y="468" width="630.739" height="324" rx="0" ry="0" fill="none" stroke="var(--_node-stroke)" stroke-width="1" />
+  <rect x="30" y="468" width="273.7299999999999" height="18" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="36" y="477" font-size="11" font-weight="600" fill="var(--_text-sec)" dy="3.8499999999999996">alt [lolos semua cek (≤ Rp500rb, confidence ≥ 0,8)]</text>
+  <line x1="30" y1="584" x2="660.739" y2="584" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+  <text x="38" y="598" font-size="11" text-anchor="start" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">[ambigu / berisiko]</text>
+</g>
+<line class="lifeline" data-actor="S" x1="85.874" y1="70" x2="85.874" y2="852" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="FE" x1="243.1865" y1="70" x2="243.1865" y2="852" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="API" x1="406.7975" y1="70" x2="406.7975" y2="852" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="LG" x1="574.8545" y1="70" x2="574.8545" y2="852" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="MK" x1="771.8105" y1="70" x2="771.8105" y2="852" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="LLM" x1="971.36" y1="70" x2="971.36" y2="852" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="DB" x1="1149.4205" y1="70" x2="1149.4205" y2="852" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<g class="message" data-from="S" data-to="FE" data-label="upload foto/PDF nota" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="85.874" y1="90" x2="243.1865" y2="90" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="164.53025" y="80" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">upload foto/PDF nota</text>
+</g>
+<g class="message" data-from="FE" data-to="API" data-label="POST /claims (file + idempotency key)" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="243.1865" y1="130" x2="406.7975" y2="130" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="324.992" y="120" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">POST /claims (file + idempotency key)</text>
+</g>
+<g class="message" data-from="API" data-to="DB" data-label="simpan Claim + Receipt (content hash)" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="406.7975" y1="170" x2="1149.4205" y2="170" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="778.1089999999999" y="160" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">simpan Claim + Receipt (content hash)</text>
+</g>
+<g class="message" data-from="FE" data-to="API" data-label="POST /claims/{id}/process" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="243.1865" y1="210" x2="406.7975" y2="210" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="324.992" y="200" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">POST /claims/{id}/process</text>
+</g>
+<g class="message" data-from="API" data-to="LG" data-label="mulai ProcessingRun" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="406.7975" y1="250" x2="574.8545" y2="250" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="490.826" y="240" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">mulai ProcessingRun</text>
+</g>
+<g class="message" data-from="LG" data-to="MK" data-label="cek kualitas nota, siapkan konten" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="574.8545" y1="290" x2="771.8105" y2="290" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="673.3325" y="280" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">cek kualitas nota, siapkan konten</text>
+</g>
+<g class="message" data-from="MK" data-to="LLM" data-label="panggil ekstraksi (data termasking, PROVIDER_MODE=live)" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="771.8105" y1="330" x2="971.36" y2="330" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="871.5852500000001" y="320" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">panggil ekstraksi (data termasking, PROVIDER_MODE=live)</text>
+</g>
+<g class="message" data-from="LLM" data-to="LG" data-label="field terstruktur + confidence per field" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="971.36" y1="370" x2="574.8545" y2="370" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="773.10725" y="360" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">field terstruktur + confidence per field</text>
+</g>
+<g class="message" data-from="LG" data-to="LG" data-label="validasi deterministik → kebijakan → duplikat → anomali" data-line-style="solid" data-arrow-head="filled" data-self="true">
+  <polyline points="574.8545,410 604.8545,410 604.8545,430 574.8545,430" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="612.8545" y="420" font-size="11" text-anchor="start" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">validasi deterministik → kebijakan → duplikat → anomali</text>
+</g>
+<g class="message" data-from="LG" data-to="API" data-label="decision = approved + reason codes" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="574.8545" y1="508" x2="406.7975" y2="508" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="490.826" y="498" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">decision = approved + reason codes</text>
+</g>
+<g class="message" data-from="API" data-to="FE" data-label="timeline langkah agent (FR-12)" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="406.7975" y1="548" x2="243.1865" y2="548" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="324.992" y="538" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">timeline langkah agent (FR-12)</text>
+</g>
+<g class="message" data-from="LG" data-to="API" data-label="interrupt (needs_clarification / escalated)" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="574.8545" y1="612" x2="406.7975" y2="612" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="490.826" y="602" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">interrupt (needs_clarification / escalated)</text>
+</g>
+<g class="message" data-from="API" data-to="FE" data-label="pertanyaan klarifikasi / antrean review" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="406.7975" y1="652" x2="243.1865" y2="652" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="324.992" y="642" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">pertanyaan klarifikasi / antrean review</text>
+</g>
+<g class="message" data-from="S" data-to="FE" data-label="jawab klarifikasi / reviewer memutuskan" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="85.874" y1="692" x2="243.1865" y2="692" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="164.53025" y="682" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">jawab klarifikasi / reviewer memutuskan</text>
+</g>
+<g class="message" data-from="FE" data-to="API" data-label="POST answer / POST /reviews/{id}/decision" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="243.1865" y1="732" x2="406.7975" y2="732" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="324.992" y="722" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">POST answer / POST /reviews/{id}/decision</text>
+</g>
+<g class="message" data-from="API" data-to="LG" data-label="resume run baru (run lama tidak diubah)" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="406.7975" y1="772" x2="574.8545" y2="772" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="490.826" y="762" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">resume run baru (run lama tidak diubah)</text>
+</g>
+<g class="message" data-from="API" data-to="DB" data-label="ProcessingRun, Signal, Decision, AuditEvent (append-only)" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="406.7975" y1="812" x2="1149.4205" y2="812" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="778.1089999999999" y="802" font-size="11" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">ProcessingRun, Signal, Decision, AuditEvent (append-only)</text>
+</g>
+<g class="actor" data-id="S" data-label="Salesman" data-type="actor">
+  <g transform="translate(67.874,32) scale(1.5)">
+    <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" fill="none" stroke="var(--_line)" stroke-width="0.6666666666666666" />
+    <path d="M15 10C15 11.6569 13.6569 13 12 13C10.3431 13 9 11.6569 9 10C9 8.34315 10.3431 7 12 7C13.6569 7 15 8.34315 15 10Z" fill="none" stroke="var(--_line)" stroke-width="0.6666666666666666" />
+    <path d="M5.62842 18.3563C7.08963 17.0398 9.39997 16 12 16C14.6 16 16.9104 17.0398 18.3716 18.3563" fill="none" stroke="var(--_line)" stroke-width="0.6666666666666666" />
+  </g>
+  <text x="85.874" y="84" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">Salesman</text>
+</g>
+<g class="actor" data-id="FE" data-label="SvelteKit Frontend" data-type="participant">
+  <rect x="171.748" y="30" width="142.877" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="243.1865" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">SvelteKit Frontend</text>
+</g>
+<g class="actor" data-id="API" data-label="FastAPI API" data-type="participant">
+  <rect x="354.625" y="30" width="104.345" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="406.7975" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">FastAPI API</text>
+</g>
+<g class="actor" data-id="LG" data-label="LangGraph Pipeline" data-type="participant">
+  <rect x="498.97" y="30" width="151.769" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="574.8545" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">LangGraph Pipeline</text>
+</g>
+<g class="actor" data-id="MK" data-label="SensitiveDataMasker" data-type="participant">
+  <rect x="690.739" y="30" width="162.14299999999997" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="771.8105" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">SensitiveDataMasker</text>
+</g>
+<g class="actor" data-id="LLM" data-label="LLM Provider (GLM)" data-type="participant">
+  <rect x="892.8820000000001" y="30" width="156.95600000000002" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="971.36" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">LLM Provider (GLM)</text>
+</g>
+<g class="actor" data-id="DB" data-label="SQL Database" data-type="participant">
+  <rect x="1089.838" y="30" width="119.16499999999999" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="1149.4205" y="50" font-size="13" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">SQL Database</text>
+</g>
+</svg>

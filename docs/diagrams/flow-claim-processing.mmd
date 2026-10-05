@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    actor S as Salesman
+    participant FE as SvelteKit Frontend
+    participant API as FastAPI API
+    participant LG as LangGraph Pipeline
+    participant MK as SensitiveDataMasker
+    participant LLM as LLM Provider (GLM)
+    participant DB as SQL Database
+
+    S->>FE: upload foto/PDF nota
+    FE->>API: POST /claims (file + idempotency key)
+    API->>DB: simpan Claim + Receipt (content hash)
+    FE->>API: POST /claims/{id}/process
+    API->>LG: mulai ProcessingRun
+    LG->>MK: cek kualitas nota, siapkan konten
+    MK->>LLM: panggil ekstraksi (data termasking, PROVIDER_MODE=live)
+    LLM-->>LG: field terstruktur + confidence per field
+    LG->>LG: validasi deterministik → kebijakan → duplikat → anomali
+    alt lolos semua cek (≤ Rp500rb, confidence ≥ 0,8)
+        LG-->>API: decision = approved + reason codes
+        API-->>FE: timeline langkah agent (FR-12)
+    else ambigu / berisiko
+        LG-->>API: interrupt (needs_clarification / escalated)
+        API-->>FE: pertanyaan klarifikasi / antrean review
+        S->>FE: jawab klarifikasi / reviewer memutuskan
+        FE->>API: POST answer / POST /reviews/{id}/decision
+        API->>LG: resume run baru (run lama tidak diubah)
+    end
+    API->>DB: ProcessingRun, Signal, Decision, AuditEvent (append-only)

@@ -47,3 +47,21 @@ Provider-specific request/response types stay inside the integration boundary.
 
 Masking, timeout, rate limit, malformed provider response, fallback provider,
 and deterministic validation after provider failure.
+
+## Tooling addendum (2026-10-05, ADR 0002)
+
+The LLM adapter is built with **LangChain** (`langchain`, `langchain-openai`)
+pointed at an OpenAI-compatible endpoint (GLM vision via Z.ai), selected by
+`PROVIDER_MODE=mock|live`:
+
+- `LlmReceiptExtractor` uses structured output against the existing
+  extraction schema; malformed model output remains a classified,
+  non-retryable error.
+- `SensitiveDataMasker` runs in our code before any prompt leaves the
+  boundary — masking stays provable at a single choke point.
+- The adapter lives in `app/integrations/` behind the existing
+  `ReceiptExtractor` protocol; tests use deterministic mocks and never
+  require network access or API keys.
+- See [[0002-langchain-langgraph-stack|ADR 0002]] for the full decision and
+  guardrails. LangGraph orchestration follows in M7.5; RAG policy retrieval
+  and ML anomaly scoring in M7.6.

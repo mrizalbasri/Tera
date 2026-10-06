@@ -232,7 +232,7 @@ class LlmReceiptExtractor:
                     ErrorClassification.NON_RETRYABLE,
                     "Live extraction output could not be parsed.",
                     502,
-                    {"detail": str(exc)[:200]},
+                    {"exception_type": type(exc).__name__},
                 ) from exc
             except ValidationError as exc:
                 raise classified_error(
@@ -240,7 +240,7 @@ class LlmReceiptExtractor:
                     ErrorClassification.NON_RETRYABLE,
                     "Live extraction returned malformed output.",
                     502,
-                    {"detail": str(exc)[:200]},
+                    {"exception_type": type(exc).__name__},
                 ) from exc
             except ApplicationError:
                 raise
@@ -290,7 +290,7 @@ class LlmReceiptExtractor:
                 ErrorClassification.NON_RETRYABLE,
                 "Live extraction produced a degenerate line item.",
                 502,
-                {"total": str(total), "quantity": str(output.quantity)},
+                {"stage": "line_item_derivation"},
             )
         try:
             return ExtractionResult(
@@ -326,13 +326,14 @@ class LlmReceiptExtractor:
         except ValidationError as exc:
             # The structured-output contract passed, but a field violated the
             # ExtractionResult schema (e.g. length limits); that is provider
-            # misbehaviour, classified — never an unclassified 500.
+            # misbehaviour, classified — never an unclassified 500. Exception
+            # text can echo model output, so details stay type-only.
             raise classified_error(
                 ErrorCode.MALFORMED_EXTRACTION,
                 ErrorClassification.NON_RETRYABLE,
                 "Live extraction output violated the result schema.",
                 502,
-                {"detail": str(exc)[:200]},
+                {"exception_type": type(exc).__name__},
             ) from exc
 
     @classmethod

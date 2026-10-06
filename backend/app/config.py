@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     extraction_confidence_threshold: float = 0.8
     max_claim_age_days: int = 14
     anomaly_escalation_threshold: float = 0.7
+    llm_base_url: str = "https://api.z.ai/api/paas/v4"
+    llm_model: str = "glm-4.5v"
+    llm_api_key: str = ""
+    llm_timeout_seconds: float = 30.0
+    llm_max_retries: int = 2
+    provider_fallback: Literal["none", "mock"] = "none"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

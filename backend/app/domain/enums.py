@@ -58,3 +58,10 @@ class SignalType(StrEnum):
 class DuplicateMatchType(StrEnum):
     EXACT_HASH = "exact_hash"
     LIKELY_ATTRIBUTES = "likely_attributes"
+
+
+class ErrorClassification(StrEnum):
+    """Provider failure taxonomy (M7 reliability rules)."""
+
+    RETRYABLE = "retryable"
+    NON_RETRYABLE = "non_retryable"

@@ -7,6 +7,7 @@ import httpx
 import openai
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.api.deps import get_receipt_extractor, get_sensitive_data_masker
@@ -95,6 +96,7 @@ def _jpeg_bytes() -> bytes:
         + _jpeg_segment(b"\xff\xe0", b"JFIF\x00" + b"\x01\x01\x00\x00\x01\x00\x01\x00\x00")
         + _jpeg_segment(b"\xff\xe1", exif_payload)
         + _jpeg_segment(b"\xff\xfe", b"handwritten-note")
+        + _jpeg_segment(b"\xff\xc0", b"\x08\x00\x10\x00\x10\x01\x01\x11\x00")  # SOF0
         + b"\xff\xda\x00\x02"  # start of scan (length header only)
         + b"\x11\x22\x33entropy-data CATEGORY:MEALS"
         + b"\xff\xd9"
@@ -591,6 +593,95 @@ def test_unknown_provider_failure_stays_retryable_as_unavailable() -> None:
     assert excinfo.value.code == "provider_unavailable"
     assert excinfo.value.details["error_type"] == "ValueError"
     assert excinfo.value.details["classification"] == ErrorClassification.RETRYABLE
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"\xff\xd8\xff\xd9",  # bare SOI+EOI: no frame, no scan
+        b"\xff\xd8"
+        + _jpeg_segment(b"\xff\xe0", b"JFIF\x00" + b"\x00" * 9)
+        + b"\xff\xd9",  # markers only, still no image data
+    ],
+    ids=["soi-eoi-only", "markers-without-frame"],
+)
+def test_jpeg_without_frame_or_scan_fails_closed(content) -> None:
+    extractor, stub = _extractor(
+        _settings(provider_fallback="none"), structured=lambda _m: _valid_output()
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=content, declared_amount=None, attempt=1
+        )
+
+    assert excinfo.value.code == "image_sanitization_failed"
+    assert (
+        excinfo.value.details["classification"] == ErrorClassification.NON_RETRYABLE
+    )
+    assert stub.calls == []
+
+
+# --- Result contract (LLM output -> ExtractionResult) -------------------------------
+
+
+def test_line_item_unit_price_never_rounds_to_zero() -> None:
+    extractor, _ = _extractor(
+        structured=lambda _m: _valid_output().model_copy(
+            update={"total": Decimal("0.01"), "quantity": Decimal("1000")}
+        )
+    )
+
+    result = extractor.extract(
+        receipt=_receipt(), content=_jpeg_bytes(), declared_amount=None, attempt=1
+    )
+
+    unit_price = result.line_items[0].unit_price
+    assert unit_price > 0, "rounding must not collapse the unit price"
+    assert result.total.value == Decimal("0.01")
+
+
+def test_degenerate_line_item_is_classified_malformed() -> None:
+    extractor, _ = _extractor(
+        structured=lambda _m: _valid_output().model_copy(
+            update={"total": Decimal("1E-30"), "quantity": Decimal("1E30")}
+        )
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "malformed_extraction"
+    assert (
+        excinfo.value.details["classification"] == ErrorClassification.NON_RETRYABLE
+    )
+
+
+def test_result_schema_violation_is_classified_malformed(monkeypatch) -> None:
+    from app.integrations import llm as llm_module
+
+    class ImpossibleTotalItem(BaseModel):
+        description: str = Field(min_length=1, max_length=255)
+        quantity: Decimal = Field(gt=0)
+        unit_price: Decimal = Field(gt=0)
+        total: Decimal = Field(gt=1000000)  # unreachable for the test total
+
+    monkeypatch.setattr(llm_module, "ExtractedLineItem", ImpossibleTotalItem)
+    extractor, _ = _extractor(structured=lambda _m: _valid_output())
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "malformed_extraction"
+    assert (
+        excinfo.value.details["classification"] == ErrorClassification.NON_RETRYABLE
+    )
 
 
 # --- Dependency wiring --------------------------------------------------------------

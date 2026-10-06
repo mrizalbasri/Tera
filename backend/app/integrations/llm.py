@@ -303,34 +303,63 @@ class LlmReceiptExtractor:
                 502,
             ) from exc
         total = output.total
-        return ExtractionResult(
-            id=uuid4(),
-            receipt_id=receipt.id,
-            vendor=FieldConfidence(value=output.vendor, confidence=output.confidence),
-            receipt_date=FieldConfidence(
-                value=receipt_date, confidence=output.confidence
-            ),
-            total=FieldConfidence(value=total, confidence=output.confidence),
-            currency=FieldConfidence(
-                value=output.currency.upper(), confidence=output.confidence
-            ),
-            category=FieldConfidence(
-                value=output.category, confidence=output.confidence
-            ),
-            line_items=[
-                ExtractedLineItem(
-                    description=output.vendor,
-                    quantity=output.quantity,
-                    unit_price=(total / output.quantity).quantize(Decimal("0.01")),
-                    total=total,
-                )
-            ],
-            warnings=list(output.warnings),
-            provider=(
-                f"{self.provider_name}:{self._settings.llm_model}:attempt-{attempt}"
-            ),
-            created_at=datetime.now(UTC),
-        )
+        # Keep enough precision that a tiny total over a huge quantity never
+        # rounds the unit price down to zero (the schema requires > 0); a
+        # still-degenerate quotient is a contract violation, not a 500.
+        quotient = total / output.quantity
+        unit_price = quotient.quantize(Decimal("0.01"))
+        if unit_price <= 0:
+            unit_price = quotient.quantize(Decimal("0.000001"))
+        if unit_price <= 0:
+            raise self._classified_error(
+                ErrorCode.MALFORMED_EXTRACTION,
+                ErrorClassification.NON_RETRYABLE,
+                "Live extraction produced a degenerate line item.",
+                502,
+                {"total": str(total), "quantity": str(output.quantity)},
+            )
+        try:
+            return ExtractionResult(
+                id=uuid4(),
+                receipt_id=receipt.id,
+                vendor=FieldConfidence(
+                    value=output.vendor, confidence=output.confidence
+                ),
+                receipt_date=FieldConfidence(
+                    value=receipt_date, confidence=output.confidence
+                ),
+                total=FieldConfidence(value=total, confidence=output.confidence),
+                currency=FieldConfidence(
+                    value=output.currency.upper(), confidence=output.confidence
+                ),
+                category=FieldConfidence(
+                    value=output.category, confidence=output.confidence
+                ),
+                line_items=[
+                    ExtractedLineItem(
+                        description=output.vendor,
+                        quantity=output.quantity,
+                        unit_price=unit_price,
+                        total=total,
+                    )
+                ],
+                warnings=list(output.warnings),
+                provider=(
+                    f"{self.provider_name}:{self._settings.llm_model}:attempt-{attempt}"
+                ),
+                created_at=datetime.now(UTC),
+            )
+        except ValidationError as exc:
+            # The structured-output contract passed, but a field violated the
+            # ExtractionResult schema (e.g. length limits); that is provider
+            # misbehaviour, classified — never an unclassified 500.
+            raise self._classified_error(
+                ErrorCode.MALFORMED_EXTRACTION,
+                ErrorClassification.NON_RETRYABLE,
+                "Live extraction output violated the result schema.",
+                502,
+                {"detail": str(exc)[:200]},
+            ) from exc
 
     @classmethod
     def _classify_provider_error(

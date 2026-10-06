@@ -23,6 +23,11 @@ _JPEG_STANDALONE_MARKERS = {0x01, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7
 _JPEG_SOS_MARKER = 0xDA
 _JPEG_EOI_MARKER = 0xD9
 _JPEG_COM_MARKER = 0xFE
+# Frame headers (SOF0-SOF15) minus DHT (C4), JPG (C8), and DAC (CC).
+_JPEG_SOF_MARKERS = {
+    0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+    0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF,
+}
 # APP0 (JFIF) and APP14 (Adobe transform) are kept; APP1-APP13, APP15 carry
 # EXIF/XMP/IPTC/vendor metadata and are dropped.
 _JPEG_METADATA_APP_MARKERS = set(range(0xE1, 0xEE)) | {0xEF}
@@ -44,6 +49,8 @@ def _strip_jpeg(data: bytes) -> bytes:
     if len(data) < 4 or data[:2] != _JPEG_SOI:
         raise ValueError("not a JPEG image")
     out = bytearray(_JPEG_SOI)
+    saw_frame = False
+    saw_scan = False
     i = 2
     size = len(data)
     while i < size:
@@ -61,6 +68,10 @@ def _strip_jpeg(data: bytes) -> bytes:
             out += data[segment_start:i]
             continue
         if marker == _JPEG_EOI_MARKER:
+            if not (saw_frame and saw_scan):
+                # Fail closed: a marker stream without frame and scan data
+                # carries no image, so nothing here is a receipt to parse.
+                raise ValueError("JPEG without frame or scan data")
             out += data[segment_start:i]
             break
         if i + 2 > size:
@@ -69,7 +80,12 @@ def _strip_jpeg(data: bytes) -> bytes:
         segment_end = i + segment_length
         if segment_length < 2 or segment_end > size:
             raise ValueError("truncated JPEG segment")
+        if marker in _JPEG_SOF_MARKERS:
+            saw_frame = True
         if marker == _JPEG_SOS_MARKER:
+            saw_scan = True
+            if not saw_frame:
+                raise ValueError("JPEG scan without frame data")
             # Entropy-coded scan data carries no metadata; copy up to the
             # first end-of-image marker. A raw 0xFFD9 cannot occur inside a
             # legal scan (byte stuffing turns 0xFF into 0xFF 0x00, restart

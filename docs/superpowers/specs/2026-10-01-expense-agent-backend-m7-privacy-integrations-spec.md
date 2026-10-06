@@ -65,3 +65,17 @@ pointed at an OpenAI-compatible endpoint (GLM vision via Z.ai), selected by
 - See [[0002-langchain-langgraph-stack|ADR 0002]] for the full decision and
   guardrails. LangGraph orchestration follows in M7.5; RAG policy retrieval
   and ML anomaly scoring in M7.6.
+
+## Media scope addendum (2026-10-06)
+
+Live vision extraction intentionally accepts JPG and PNG only — the primary
+use case is employees photographing receipts. A PDF receipt in live mode is
+classified non-retryable (`415 unsupported_media_for_vision`) and degrades to
+the mock extractor only when `PROVIDER_FALLBACK=mock`. Intake (M1) still
+accepts PDFs for the mock/deterministic path.
+
+The OCR adapter boundary named in this spec is therefore explicitly deferred:
+if the demo later requires PDF receipts, the planned route is rendering PDF
+pages to images (PyMuPDF or pypdfium2, inside `integrations/`) so they reuse
+the same vision extractor and masking choke point — no separate OCR provider
+is planned.

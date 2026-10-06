@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 30.0
     llm_max_retries: int = 2
     provider_fallback: Literal["none", "mock"] = "none"
+    # Pixel-level redaction is not attempted (unreliable without a local OCR
+    # pass); "block" fails closed and routes images to the local mock instead.
+    llm_image_privacy_mode: Literal["send", "block"] = "send"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

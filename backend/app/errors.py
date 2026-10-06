@@ -10,6 +10,7 @@ class ErrorCode(StrEnum):
     INVALID_FILE = "invalid_file"
     UNSUPPORTED_MEDIA_TYPE = "unsupported_media_type"
     UNSUPPORTED_MEDIA_FOR_VISION = "unsupported_media_for_vision"
+    IMAGE_PRIVACY_BLOCKED = "image_privacy_blocked"
     FILE_TOO_LARGE = "file_too_large"
     RECEIPT_REQUIRED = "receipt_required"
     DUPLICATE_RECEIPT = "duplicate_receipt"

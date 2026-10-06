@@ -414,6 +414,61 @@ def test_fallback_never_masks_langchain_parse_errors() -> None:
     assert excinfo.value.code == "malformed_extraction"
 
 
+# --- Image privacy gate (pixel disclosure control) -----------------------------------
+
+
+def test_block_mode_keeps_image_bytes_inside_the_boundary() -> None:
+    extractor, stub = _extractor(
+        _settings(llm_image_privacy_mode="block", provider_fallback="none"),
+        structured=lambda _m: _valid_output(),
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "image_privacy_blocked"
+    assert (
+        excinfo.value.details["classification"] == ErrorClassification.NON_RETRYABLE
+    )
+    assert stub.calls == [], "blocked images must never reach the provider"
+
+
+def test_block_mode_with_fallback_routes_to_the_local_mock() -> None:
+    extractor, stub = _extractor(
+        _settings(llm_image_privacy_mode="block", provider_fallback="mock"),
+        structured=lambda _m: _valid_output(),
+    )
+
+    result = extractor.extract(
+        receipt=_receipt(), content=_jpeg_bytes(),
+        declared_amount=Decimal("60000"), attempt=1,
+    )
+
+    assert result.provider.startswith("llm-fallback-mock:")
+    assert result.provider_degraded is True
+    assert stub.calls == [], "the provider must not receive blocked images"
+
+
+def test_send_mode_still_masks_text_and_strips_metadata() -> None:
+    extractor, stub = _extractor(
+        _settings(llm_image_privacy_mode="send"),
+        structured=lambda _m: _valid_output(),
+    )
+
+    extractor.extract(
+        receipt=_receipt(), content=_jpeg_bytes(),
+        declared_amount=Decimal("1234567890123"), attempt=1,
+    )
+
+    prompt_text = stub.calls[0][0].content[0]["text"]
+    assert "[MASKED:account:" in prompt_text
+    image = _outgoing_image_bytes(stub)
+    assert b"Exif" not in image and b"GPS" not in image
+
+
 def test_fallback_never_masks_malformed_model_output() -> None:
     def bad_output(_messages):
         return {"vendor": "x", "receipt_date": "2026-10-04", "total": "-5",

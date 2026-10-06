@@ -5,9 +5,10 @@ Design invariants (spec M7 + FR-13):
 - Masking runs HERE, before any prompt leaves the boundary — proven by tests
   that capture the outgoing payload. The receipt image itself is the source
   document the vision model must see, so its pixels cannot be masked; instead
-  the image envelope (EXIF/XMP/IPTC/comments) is stripped here, and image
-  bytes are never logged or persisted beyond the receipt's own storage
-  reference.
+  the image envelope (EXIF/XMP/IPTC/comments) is stripped here, image bytes
+  are never logged or persisted beyond the receipt's own storage reference,
+  and `LLM_IMAGE_PRIVACY_MODE=block` fails closed entirely (routing to the
+  local mock) for deployments that cannot accept pixel disclosure.
 - Model output must satisfy the extraction schema; anything else is a
   classified non-retryable error, never a success-shaped fallback.
 - Timeouts and rate limits are retryable (bounded, with backoff); malformed
@@ -273,7 +274,17 @@ class LlmReceiptExtractor:
         # the prompt leaves the process. The receipt image itself is the
         # submitted source document and must be seen by the vision model;
         # its metadata envelope is stripped, and parsing failures fail
-        # closed rather than send unsanitized bytes.
+        # closed rather than send unsanitized bytes. In strict privacy mode
+        # nothing about the image crosses the boundary at all.
+        if self._settings.llm_image_privacy_mode == "block":
+            # Pixel content cannot be proven free of personal data without a
+            # local OCR pass (deferred), so strict deployments fail closed.
+            raise self._classified_error(
+                ErrorCode.IMAGE_PRIVACY_BLOCKED,
+                ErrorClassification.NON_RETRYABLE,
+                "Receipt image forwarding is disabled by privacy policy.",
+                422,
+            )
         prompt = _EXTRACTION_PROMPT
         if declared_amount is not None:
             masked_amount = self._masker.mask(str(declared_amount)).masked_text
@@ -413,12 +424,20 @@ class LlmReceiptExtractor:
         sanitization failures, and credential/request-configuration errors
         must re-raise: retrying the mock cannot fix them, and a fallback
         result would mask a contract or privacy violation as success.
+
+        The one additional allowed case is the strict privacy gate
+        (`image_privacy_blocked`): the provider must not receive the image,
+        and the mock runs entirely in-process — degrading there is the
+        documented routing, not a masked failure.
         """
         if exc.details and exc.details.get("classification") == str(
             ErrorClassification.RETRYABLE
         ):
             return True
-        return exc.code == ErrorCode.UNSUPPORTED_MEDIA_FOR_VISION
+        return exc.code in (
+            ErrorCode.UNSUPPORTED_MEDIA_FOR_VISION,
+            ErrorCode.IMAGE_PRIVACY_BLOCKED,
+        )
 
     @staticmethod
     def _classified_error(

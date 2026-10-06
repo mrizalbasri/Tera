@@ -79,3 +79,27 @@ if the demo later requires PDF receipts, the planned route is rendering PDF
 pages to images (PyMuPDF or pypdfium2, inside `integrations/`) so they reuse
 the same vision extractor and masking choke point — no separate OCR provider
 is planned.
+
+## Image privacy design (2026-10-06, round 4)
+
+Pixel-level redaction of photographed receipts is deliberately NOT attempted:
+detecting visible personal data (names, card numbers, handwritten notes)
+requires a local OCR pass — the same deferred OCR boundary — and an
+unreliable redaction would provide false assurance, which is worse than a
+documented limitation. The boundary controls for images are:
+
+1. The metadata envelope (EXIF/XMP/IPTC/comments) is stripped before any
+   byte leaves the process, and unparseable images fail closed.
+2. Pixels travel only to the configured provider over TLS, never logged and
+   never persisted beyond the receipt's own storage reference.
+3. `LLM_IMAGE_PRIVACY_MODE=block` (default `send`) fails closed entirely:
+   images never cross the boundary, and live extraction routes to the
+   deterministic in-process mock (marked `provider_degraded`) or raises a
+   classified non-retryable `image_privacy_blocked` error when fallback is
+   disabled.
+
+The default is `send` because vision extraction is the product feature
+itself and demo data is synthetic; the trade-off is stated here rather than
+hidden. If the deferred OCR route lands later, the same local pass can power
+true pixel redaction (detect-and-redact before forwarding) behind the same
+choke point.

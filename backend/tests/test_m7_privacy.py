@@ -7,6 +7,7 @@ import httpx
 import openai
 import pytest
 from fastapi.testclient import TestClient
+from langchain_core.exceptions import OutputParserException
 from pydantic import BaseModel, Field
 
 from app.config import Settings
@@ -368,6 +369,49 @@ def test_pdf_receipt_degrades_to_mock_only_in_fallback_mode() -> None:
 
     assert result.provider.startswith("llm-fallback-mock:")
     assert stub.calls == [], "unsupported media must never reach the provider"
+
+
+def test_langchain_parse_error_is_non_retryable_and_never_retried() -> None:
+    calls = {"count": 0}
+
+    def unparseable(_messages):
+        calls["count"] += 1
+        raise OutputParserException("Failed to parse completion as JSON")
+
+    extractor, _ = _extractor(
+        _settings(provider_fallback="none", llm_max_retries=3),
+        structured=unparseable,
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "malformed_extraction"
+    assert (
+        excinfo.value.details["classification"] == ErrorClassification.NON_RETRYABLE
+    )
+    assert calls["count"] == 1, "parse failures must not be retried"
+
+
+def test_fallback_never_masks_langchain_parse_errors() -> None:
+    def unparseable(_messages):
+        raise OutputParserException("Failed to parse completion as JSON")
+
+    extractor, _ = _extractor(
+        _settings(provider_fallback="mock", llm_max_retries=0),
+        structured=unparseable,
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "malformed_extraction"
 
 
 def test_fallback_never_masks_malformed_model_output() -> None:

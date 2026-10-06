@@ -28,6 +28,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import openai
+from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
@@ -226,6 +227,18 @@ class LlmReceiptExtractor:
                         raw.model_dump(mode="json")
                     )
                 return LlmExtractionOutput.model_validate(raw)
+            except OutputParserException as exc:
+                # LangChain could not parse the model response into the
+                # contract — the provider answered, but unusably. That is a
+                # malformed-output case: classified, never retried, never
+                # hidden behind fallback.
+                raise self._classified_error(
+                    ErrorCode.MALFORMED_EXTRACTION,
+                    ErrorClassification.NON_RETRYABLE,
+                    "Live extraction output could not be parsed.",
+                    502,
+                    {"detail": str(exc)[:200]},
+                ) from exc
             except ValidationError as exc:
                 raise self._classified_error(
                     ErrorCode.MALFORMED_EXTRACTION,

@@ -12,10 +12,15 @@ masking, before any bytes leave the process:
 
 Entropy-coded JPEG data after SOS is copied verbatim up to the FIRST
 end-of-image marker; anything after EOI is discarded — trailing payloads
-must never cross the boundary. PNG critical chunks are copied verbatim. An
-image that cannot be parsed fails closed: the caller raises a classified
-non-retryable error instead of sending unsanitized bytes.
+must never cross the boundary. PNG chunks are validated fail-closed: every
+CRC must match, IHDR must come first, at least one IDAT must precede IEND,
+and IEND must end the stream exactly — a payload without real image data is
+rejected, not forwarded. An image that cannot be parsed fails closed: the
+caller raises a classified non-retryable error instead of sending
+unsanitized bytes.
 """
+
+import zlib
 
 _JPEG_SOI = b"\xff\xd8"
 _JPEG_EOI_BYTES = b"\xff\xd9"
@@ -34,6 +39,10 @@ _JPEG_METADATA_APP_MARKERS = set(range(0xE1, 0xEE)) | {0xEF}
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _PNG_METADATA_CHUNKS = {b"tEXt", b"zTXt", b"iTXt", b"eXIf", b"tIME"}
+_PNG_IHDR = b"IHDR"
+_PNG_IDAT = b"IDAT"
+_PNG_IEND = b"IEND"
+_PNG_IHDR_LENGTH = 13
 
 
 def strip_image_metadata(content: bytes, media_type: str) -> bytes:
@@ -113,15 +122,37 @@ def _strip_png(data: bytes) -> bytes:
     out = bytearray(_PNG_SIGNATURE)
     i = 8
     size = len(data)
+    seen_ihdr = False
+    seen_idat = False
+    idat_closed = False
     while i + 8 <= size:
         chunk_length = int.from_bytes(data[i : i + 4], "big")
         chunk_type = data[i + 4 : i + 8]
         chunk_end = i + 12 + chunk_length
         if chunk_end > size:
             raise ValueError("truncated PNG chunk")
+        stored_crc = int.from_bytes(data[chunk_end - 4 : chunk_end], "big")
+        if zlib.crc32(data[i + 4 : chunk_end - 4]) != stored_crc:
+            raise ValueError("corrupt PNG chunk CRC")
+        if chunk_type == _PNG_IHDR:
+            if seen_ihdr or i != 8 or chunk_length != _PNG_IHDR_LENGTH:
+                raise ValueError("invalid PNG IHDR placement")
+            seen_ihdr = True
+        elif chunk_type == _PNG_IDAT:
+            if not seen_ihdr or idat_closed:
+                raise ValueError("invalid PNG IDAT placement")
+            seen_idat = True
+        elif seen_idat:
+            idat_closed = True
         if chunk_type not in _PNG_METADATA_CHUNKS:
             out += data[i:chunk_end]
-        if chunk_type == b"IEND":
+        if chunk_type == _PNG_IEND:
+            if not (seen_ihdr and seen_idat):
+                raise ValueError("PNG without image data")
+            if chunk_length != 0:
+                raise ValueError("non-empty PNG IEND")
+            if chunk_end != size:
+                raise ValueError("trailing data after PNG IEND")
             return bytes(out)
         i = chunk_end
     raise ValueError("truncated PNG image")

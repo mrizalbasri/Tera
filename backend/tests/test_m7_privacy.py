@@ -6,6 +6,7 @@ from io import BytesIO
 import httpx
 import openai
 import pytest
+import zlib
 from fastapi.testclient import TestClient
 from langchain_core.exceptions import OutputParserException
 from pydantic import BaseModel, Field
@@ -106,7 +107,10 @@ def _jpeg_bytes() -> bytes:
 
 def _png_chunk(chunk_type: bytes, payload: bytes) -> bytes:
     return (
-        len(payload).to_bytes(4, "big") + chunk_type + payload + b"\x00\x00\x00\x00"
+        len(payload).to_bytes(4, "big")
+        + chunk_type
+        + payload
+        + zlib.crc32(chunk_type + payload).to_bytes(4, "big")
     )
 
 
@@ -117,6 +121,12 @@ def _png_bytes() -> bytes:
         + _png_chunk(b"tEXt", b"Comment\x00SECRET-GPS-DATA")
         + _png_chunk(b"IDAT", b"pixel-data")
         + _png_chunk(b"IEND", b"")
+    )
+
+
+def _png_chunk_with_crc(chunk_type: bytes, payload: bytes, crc: int) -> bytes:
+    return (
+        len(payload).to_bytes(4, "big") + chunk_type + payload + crc.to_bytes(4, "big")
     )
 
 
@@ -221,6 +231,49 @@ def test_outgoing_png_text_chunks_are_stripped_at_the_boundary() -> None:
     image = _outgoing_image_bytes(stub)
     assert b"SECRET-GPS-DATA" not in image
     assert b"pixel-data" in image  # critical IDAT survives
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", b"\x00" * 13)
+        + _png_chunk(b"IEND", b""),  # no IDAT: no image data
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"tEXt", b"Comment\x00x")
+        + _png_chunk(b"IHDR", b"\x00" * 13)
+        + _png_chunk(b"IDAT", b"pixels")
+        + _png_chunk(b"IEND", b""),  # IHDR is not the first chunk
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", b"\x00" * 13)
+        + _png_chunk_with_crc(b"IDAT", b"pixels", 0xDEADBEEF)
+        + _png_chunk(b"IEND", b""),  # corrupt chunk CRC
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", b"\x00" * 13)
+        + _png_chunk(b"IDAT", b"pixels")
+        + _png_chunk(b"IEND", b"")
+        + b"trailing-junk",  # payload after IEND
+    ],
+    ids=["no-idat", "ihdr-not-first", "corrupt-crc", "trailing-after-iend"],
+)
+def test_corrupt_pngs_fail_closed(content) -> None:
+    extractor, stub = _extractor(
+        _settings(provider_fallback="none"), structured=lambda _m: _valid_output()
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt("image/png"),
+            content=content,
+            declared_amount=None,
+            attempt=1,
+        )
+
+    assert excinfo.value.code == "image_sanitization_failed"
+    assert (
+        excinfo.value.details["classification"] == ErrorClassification.NON_RETRYABLE
+    )
+    assert stub.calls == []
 
 
 def test_unparseable_image_fails_closed_without_a_provider_call() -> None:

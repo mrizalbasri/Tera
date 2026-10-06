@@ -69,7 +69,7 @@ flowchart LR
 | Development | Coding & unit test | Lokal: `uvicorn app.main:app --reload` + `pnpm dev`; SQLite; `PROVIDER_MODE=mock` | Developer |
 | Demo/Production | Live link untuk juri GTNIC | PaaS publik berbasis container (kandidat: Render/Railway/Fly.io — **belum diputuskan**, wajib fix sebelum 4 Nov 2026); `PROVIDER_MODE=live` dengan kunci API di environment variable | Publik (data sintetis saja) |
 
-Status jujur per 2026-10-05: deploy belum dilakukan; backend M0–M6 teruji (85+ test) dan berjalan pada mode mock/deterministik. Integrasasi LLM (M7), orkestrasi LangGraph (M7.5), RAG+ML (M7.6), dan reporting (M8) dijadwalkan 19 Okt – 4 Nov sesuai rencana kerja [[05-brd|BRD]].
+Status jujur per 2026-10-06: deploy belum dilakukan; backend M0–M7 teruji (96 test) di branch `feat/backend-privacy-integrations` menunggu review/merge — M7 mencakup masking FR-13, ekstraksi LLM LangChain (GLM-4.5V via Z.ai, `PROVIDER_MODE=mock|live`), dan fallback provider. Mode live hanya struk JPG/PNG (foto HP); struk PDF live ditunda dengan alasan di spec M7. Uji asli ke endpoint LLM (smoke test ber-key) belum pernah dilakukan. Orkestrasi LangGraph (M7.5), RAG+ML (M7.6), dan reporting (M8) dijadwalkan 19 Okt – 4 Nov sesuai rencana kerja [[05-brd|BRD]].
 
 ## 3. Alur Data / Sequence (Alur Kritis)
 

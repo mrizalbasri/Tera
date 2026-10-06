@@ -15,6 +15,8 @@ from app.domain.enums import (
     DecisionOutcome,
     ProcessingRunStatus,
     ReviewStatus,
+    Severity,
+    SignalType,
 )
 from app.domain.transitions import apply_transition
 from app.errors import ApplicationError, ErrorCode, NotFoundError
@@ -324,7 +326,7 @@ class ExtractionService:
                     ),
                     default=Decimal("0"),
                 )
-                signals = self._detect_signals(claim, receipts, total, run)
+                signals = self._detect_signals(claim, receipts, total, run, saved)
                 decision = self._decider.decide(
                     claim=claim,
                     total=total,
@@ -476,6 +478,7 @@ class ExtractionService:
         receipts: list,
         total: Decimal,
         run: ProcessingRun,
+        extractions: list[ExtractionResult],
     ) -> list[Signal]:
         signals: list[Signal] = self._duplicate_detector.find_matches(
             claim=claim, receipts=receipts, processing_run_id=run.id
@@ -490,7 +493,38 @@ class ExtractionService:
         )
         self._signals.save(anomaly)
         signals.append(anomaly)
+        degraded = next(
+            (result for result in extractions if result.provider_degraded), None
+        )
+        if degraded is not None:
+            degraded_signal = self._provider_degraded_signal(claim, run, degraded)
+            self._signals.save(degraded_signal)
+            signals.append(degraded_signal)
         return signals
+
+    @staticmethod
+    def _provider_degraded_signal(
+        claim: Claim, run: ProcessingRun, extraction: ExtractionResult
+    ) -> Signal:
+        """Provenance signal that blocks auto-approval of fallback results."""
+        return Signal(
+            id=uuid4(),
+            claim_id=claim.id,
+            processing_run_id=run.id,
+            signal_type=SignalType.PROVIDER_DEGRADED,
+            severity=Severity.WARNING,
+            triggered_rules=["provider_fallback"],
+            evidence={
+                "provider": extraction.provider,
+                "warnings": extraction.warnings,
+            },
+            detector_version="provider-fallback-v1",
+            explanation=(
+                "Live extraction provider failed; the deterministic fallback "
+                "result must not be auto-approved."
+            ),
+            created_at=datetime.now(UTC),
+        )
 
     def _record_data_clarification(
         self, claim: Claim, decision: Decision, run: ProcessingRun

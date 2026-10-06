@@ -75,6 +75,9 @@ class ExtractionResult(SchemaBase):
     line_items: list[ExtractedLineItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     provider: str = Field(min_length=1, max_length=100)
+    # True when this result came from the deterministic fallback after a live
+    # provider failure; the decision engine must never auto-approve it.
+    provider_degraded: bool = False
     created_at: datetime
 
 

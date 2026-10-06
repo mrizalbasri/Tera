@@ -96,7 +96,7 @@ def _jpeg_bytes() -> bytes:
         + _jpeg_segment(b"\xff\xe1", exif_payload)
         + _jpeg_segment(b"\xff\xfe", b"handwritten-note")
         + b"\xff\xda\x00\x02"  # start of scan (length header only)
-        + b"\x11\x22\x33entropy-data"
+        + b"\x11\x22\x33entropy-data CATEGORY:MEALS"
         + b"\xff\xd9"
     )
 
@@ -307,6 +307,44 @@ def test_fallback_mode_degrades_to_mock_with_marked_provider() -> None:
 
     assert result.provider.startswith("llm-fallback-mock:")
     assert "live_provider_unavailable" in result.warnings
+    assert result.provider_degraded is True
+
+
+def test_fallback_after_live_failure_never_auto_approves() -> None:
+    def always_down(_messages):
+        raise RuntimeError("connection refused")
+
+    extractor = LlmReceiptExtractor(
+        _settings(provider_fallback="mock", llm_max_retries=0),
+        SensitiveDataMasker(),
+    )
+    extractor._structured = StubStructured(always_down)
+    app.dependency_overrides[get_receipt_extractor] = lambda: extractor
+    try:
+        created = client.post(
+            "/claims",
+            data={"employee_id": "fallback-e2e", "declared_amount": "60000"},
+            files={"files": ("receipt.jpg", BytesIO(_jpeg_bytes()), "image/jpeg")},
+        )
+        assert created.status_code == 201, created.text
+        claim_id = created.json()["claim"]["id"]
+
+        processed = client.post(f"/claims/{claim_id}/process")
+        assert processed.status_code == 200, processed.text
+        payload = processed.json()
+
+        assert payload["decision"]["outcome"] == "escalated"
+        assert "provider_fallback_active" in payload["decision"]["reason_codes"]
+
+        detail = client.get(f"/claims/{claim_id}").json()
+        degraded = [
+            signal
+            for signal in detail["signals"]
+            if signal["signal_type"] == "provider_degraded"
+        ]
+        assert degraded, "fallback provenance must be visible as a signal"
+    finally:
+        app.dependency_overrides.pop(get_receipt_extractor, None)
 
 
 def test_pdf_receipt_in_live_mode_is_classified_without_fallback() -> None:

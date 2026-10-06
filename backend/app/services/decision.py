@@ -3,8 +3,8 @@
 1. Blocking validation findings (invalid/missing data) -> needs_clarification.
 2. A duplicate signal -> rejected.
 3. A blocking policy violation -> rejected.
-4. High anomaly, low confidence, or amount above the escalation threshold
-   -> escalated.
+4. High anomaly, low confidence, amount above the escalation threshold, or a
+   provider-degraded (fallback) extraction -> escalated.
 5. Otherwise -> approved.
 
 A provider can never set a final decision; this engine is the only writer.
@@ -128,6 +128,14 @@ class DecisionEngine:
             escalation_reasons = self._escalation_reasons(
                 total, confidence, anomaly_score
             )
+            if any(
+                signal.signal_type == SignalType.PROVIDER_DEGRADED
+                for signal in signals
+            ):
+                # Fallback-provenance results are never auto-approved; a
+                # human confirms them even when every deterministic check
+                # passes (M7: provider failure cannot produce an approval).
+                escalation_reasons.insert(0, "provider_fallback_active")
             if escalation_reasons:
                 outcome = DecisionOutcome.ESCALATED
                 reason_codes = escalation_reasons

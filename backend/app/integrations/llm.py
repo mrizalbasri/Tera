@@ -189,6 +189,7 @@ class LlmReceiptExtractor:
             update={
                 "provider": f"{_FALLBACK_PROVIDER_PREFIX}:{attempt}",
                 "warnings": [*result.warnings, "live_provider_unavailable"],
+                "provider_degraded": True,
             }
         )
 

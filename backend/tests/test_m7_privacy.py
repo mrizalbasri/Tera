@@ -240,6 +240,47 @@ def test_unparseable_image_fails_closed_without_a_provider_call() -> None:
     assert stub.calls == [], "corrupt image must never reach the provider"
 
 
+def test_jpeg_bytes_after_end_of_image_are_discarded() -> None:
+    extractor, stub = _extractor(structured=lambda _m: _valid_output())
+
+    trailing = _jpeg_bytes() + b"SMUGGLED-TRAILING-PAYLOAD"
+    extractor.extract(
+        receipt=_receipt(), content=trailing, declared_amount=None, attempt=1
+    )
+
+    image = _outgoing_image_bytes(stub)
+    assert b"SMUGGLED-TRAILING-PAYLOAD" not in image
+    assert image.endswith(b"\xff\xd9"), "output must stop at end-of-image"
+    assert b"entropy-data" in image, "legitimate scan data survives"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"\xff\xd8"
+        + _jpeg_segment(b"\xff\xe0", b"JFIF\x00" + b"\x00" * 9)
+        + b"\xff",  # ends on a lone marker byte
+        b"\xff\xd8" + b"\xff\xda\x00\x02" + b"entropy-without-eoi",  # no EOI
+    ],
+    ids=["lone-marker-byte", "scan-without-eoi"],
+)
+def test_truncated_jpegs_fail_closed_as_sanitization_errors(content) -> None:
+    extractor, stub = _extractor(
+        _settings(provider_fallback="none"), structured=lambda _m: _valid_output()
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=content, declared_amount=None, attempt=1
+        )
+
+    assert excinfo.value.code == "image_sanitization_failed"
+    assert (
+        excinfo.value.details["classification"] == ErrorClassification.NON_RETRYABLE
+    )
+    assert stub.calls == []
+
+
 # --- Error taxonomy ---------------------------------------------------------------
 
 

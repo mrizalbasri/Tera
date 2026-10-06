@@ -10,12 +10,15 @@ masking, before any bytes leave the process:
   colour transform) which carry no personal data but affect decoding.
 - PNG: ancillary text chunks (tEXt, zTXt, iTXt), eXIf, and tIME.
 
-Entropy-coded JPEG data after SOS and PNG critical chunks are copied
-verbatim. An image that cannot be parsed fails closed: the caller raises a
-classified non-retryable error instead of sending unsanitized bytes.
+Entropy-coded JPEG data after SOS is copied verbatim up to the FIRST
+end-of-image marker; anything after EOI is discarded — trailing payloads
+must never cross the boundary. PNG critical chunks are copied verbatim. An
+image that cannot be parsed fails closed: the caller raises a classified
+non-retryable error instead of sending unsanitized bytes.
 """
 
 _JPEG_SOI = b"\xff\xd8"
+_JPEG_EOI_BYTES = b"\xff\xd9"
 _JPEG_STANDALONE_MARKERS = {0x01, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7}
 _JPEG_SOS_MARKER = 0xDA
 _JPEG_EOI_MARKER = 0xD9
@@ -46,6 +49,8 @@ def _strip_jpeg(data: bytes) -> bytes:
     while i < size:
         if data[i] != 0xFF:
             raise ValueError("corrupt JPEG marker stream")
+        if i + 1 >= size:
+            raise ValueError("truncated JPEG marker")
         marker = data[i + 1]
         if marker == 0xFF:  # padding fill byte
             i += 1
@@ -65,9 +70,15 @@ def _strip_jpeg(data: bytes) -> bytes:
         if segment_length < 2 or segment_end > size:
             raise ValueError("truncated JPEG segment")
         if marker == _JPEG_SOS_MARKER:
-            # Entropy-coded scan data carries no metadata; copy verbatim.
+            # Entropy-coded scan data carries no metadata; copy up to the
+            # first end-of-image marker. A raw 0xFFD9 cannot occur inside a
+            # legal scan (byte stuffing turns 0xFF into 0xFF 0x00, restart
+            # markers are FFD0-FFD7), so the first hit is the true EOI.
             out += data[segment_start:segment_end]
-            out += data[segment_end:]
+            eoi = data.find(_JPEG_EOI_BYTES, segment_end)
+            if eoi == -1:
+                raise ValueError("truncated JPEG scan")
+            out += data[segment_end : eoi + 2]
             break
         keeps_metadata = (
             marker == _JPEG_COM_MARKER or marker in _JPEG_METADATA_APP_MARKERS

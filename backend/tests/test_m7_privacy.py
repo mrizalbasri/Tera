@@ -3,6 +3,8 @@
 from decimal import Decimal
 from io import BytesIO
 
+import httpx
+import openai
 import pytest
 from fastapi.testclient import TestClient
 
@@ -323,6 +325,123 @@ def test_pdf_receipt_in_live_mode_is_classified_without_fallback() -> None:
 
     assert excinfo.value.code == "unsupported_media_for_vision"
     assert excinfo.value.status_code == 415
+
+
+# --- Provider error classification -------------------------------------------------
+
+
+def _provider_status_error(cls, status: int) -> Exception:
+    request = httpx.Request("POST", "https://provider.test/v1/chat/completions")
+    return cls("provider said no", response=httpx.Response(status, request=request), body=None)
+
+
+def _provider_connection_error(cls) -> Exception:
+    return cls(request=httpx.Request("POST", "https://provider.test"))
+
+
+def test_provider_timeout_is_retryable_and_bounded() -> None:
+    calls = {"count": 0}
+
+    def always_timeout(_messages):
+        calls["count"] += 1
+        raise _provider_connection_error(openai.APITimeoutError)
+
+    extractor, _ = _extractor(
+        _settings(provider_fallback="none", llm_max_retries=1),
+        structured=always_timeout,
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "provider_timeout"
+    assert excinfo.value.status_code == 504
+    assert excinfo.value.details["classification"] == ErrorClassification.RETRYABLE
+    assert calls["count"] == 2, "initial attempt + 1 bounded retry"
+
+
+def test_provider_rate_limit_is_retryable() -> None:
+    def always_limited(_messages):
+        raise _provider_status_error(openai.RateLimitError, 429)
+
+    extractor, _ = _extractor(
+        _settings(provider_fallback="none", llm_max_retries=0),
+        structured=always_limited,
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "provider_rate_limited"
+    assert excinfo.value.details["classification"] == ErrorClassification.RETRYABLE
+
+
+@pytest.mark.parametrize(
+    ("exception_factory", "expected_code"),
+    [
+        (
+            lambda: _provider_status_error(openai.AuthenticationError, 401),
+            "provider_authentication_failed",
+        ),
+        (
+            lambda: _provider_status_error(openai.BadRequestError, 400),
+            "provider_invalid_request",
+        ),
+        (
+            lambda: _provider_status_error(openai.NotFoundError, 404),
+            "provider_unsupported_configuration",
+        ),
+    ],
+    ids=["auth", "invalid-request", "unsupported-config"],
+)
+def test_provider_config_errors_are_non_retryable_and_never_retried(
+    exception_factory, expected_code
+) -> None:
+    calls = {"count": 0}
+
+    def failing(_messages):
+        calls["count"] += 1
+        raise exception_factory()
+
+    extractor, _ = _extractor(
+        _settings(provider_fallback="none", llm_max_retries=3),
+        structured=failing,
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == expected_code
+    assert (
+        excinfo.value.details["classification"] == ErrorClassification.NON_RETRYABLE
+    )
+    assert calls["count"] == 1, "configuration errors must not be retried"
+
+
+def test_unknown_provider_failure_stays_retryable_as_unavailable() -> None:
+    extractor, _ = _extractor(
+        _settings(provider_fallback="none", llm_max_retries=0),
+        structured=lambda _m: (_ for _ in ()).throw(ValueError("surprise")),
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "provider_unavailable"
+    assert excinfo.value.details["error_type"] == "ValueError"
+    assert excinfo.value.details["classification"] == ErrorClassification.RETRYABLE
 
 
 # --- Dependency wiring --------------------------------------------------------------

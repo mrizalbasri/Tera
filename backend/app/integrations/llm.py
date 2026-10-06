@@ -24,6 +24,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+import openai
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
@@ -52,6 +53,57 @@ _EXTRACTION_PROMPT = (
 
 _IMAGE_MEDIA_TYPES = {"image/jpeg", "image/png"}
 _FALLBACK_PROVIDER_PREFIX = "llm-fallback-mock"
+
+# M7 error taxonomy for provider SDK failures. First match wins —
+# APITimeoutError subclasses APIConnectionError, so it must come first.
+# Transient transport failures are retryable; anything caused by OUR
+# configuration or the request shape is not, because retrying cannot fix it.
+_PROVIDER_ERROR_MAP: tuple[
+    tuple[tuple[type[Exception], ...], str, str, int, ErrorClassification], ...
+] = (
+    (
+        (openai.APITimeoutError,),
+        ErrorCode.PROVIDER_TIMEOUT,
+        "Extraction provider timed out.",
+        504,
+        ErrorClassification.RETRYABLE,
+    ),
+    (
+        (openai.RateLimitError,),
+        ErrorCode.PROVIDER_RATE_LIMITED,
+        "Extraction provider rate limit was hit.",
+        429,
+        ErrorClassification.RETRYABLE,
+    ),
+    (
+        (openai.APIConnectionError,),
+        ErrorCode.PROVIDER_UNAVAILABLE,
+        "Extraction provider is unreachable.",
+        503,
+        ErrorClassification.RETRYABLE,
+    ),
+    (
+        (openai.AuthenticationError, openai.PermissionDeniedError),
+        ErrorCode.PROVIDER_AUTHENTICATION_FAILED,
+        "Provider rejected the configured credentials.",
+        502,
+        ErrorClassification.NON_RETRYABLE,
+    ),
+    (
+        (openai.BadRequestError,),
+        ErrorCode.PROVIDER_INVALID_REQUEST,
+        "Provider rejected the extraction request.",
+        502,
+        ErrorClassification.NON_RETRYABLE,
+    ),
+    (
+        (openai.NotFoundError,),
+        ErrorCode.PROVIDER_UNSUPPORTED_CONFIGURATION,
+        "Provider does not support the configured model or endpoint.",
+        502,
+        ErrorClassification.NON_RETRYABLE,
+    ),
+)
 
 
 class LlmExtractionOutput(BaseModel):
@@ -177,20 +229,18 @@ class LlmReceiptExtractor:
                 ) from exc
             except ApplicationError:
                 raise
-            except Exception as exc:  # network, timeout, rate limit
-                last_error = self._classified_error(
-                    "provider_unavailable",
-                    ErrorClassification.RETRYABLE,
-                    "Extraction provider is unavailable.",
-                    503,
-                    {"attempt": attempt, "retry": retry},
-                )
+            except Exception as exc:
+                error, classification = self._classify_provider_error(exc)
                 logger.warning(
-                    "live extraction provider error attempt=%s retry=%s: %s",
+                    "live extraction provider error attempt=%s retry=%s: %s: %s",
                     attempt,
                     retry,
+                    type(exc).__name__,
                     exc,
                 )
+                if classification is ErrorClassification.NON_RETRYABLE:
+                    raise error
+                last_error = error
                 if retry < self._settings.llm_max_retries:
                     time.sleep(0.2 * (retry + 1))
         assert last_error is not None
@@ -273,6 +323,36 @@ class LlmReceiptExtractor:
                 f"{self.provider_name}:{self._settings.llm_model}:attempt-{attempt}"
             ),
             created_at=datetime.now(UTC),
+        )
+
+    @classmethod
+    def _classify_provider_error(
+        cls, exc: Exception
+    ) -> tuple[ApplicationError, ErrorClassification]:
+        """Map a provider SDK failure onto the M7 error taxonomy.
+
+        Unknown failures stay retryable (bounded): an unclassified transient
+        error is safer to re-try than to abandon, while classified
+        configuration errors never retry.
+        """
+        details = {"error_type": type(exc).__name__}
+        for types, code, message, status, classification in _PROVIDER_ERROR_MAP:
+            if isinstance(exc, types):
+                return (
+                    cls._classified_error(
+                        code, classification, message, status, details
+                    ),
+                    classification,
+                )
+        return (
+            cls._classified_error(
+                ErrorCode.PROVIDER_UNAVAILABLE,
+                ErrorClassification.RETRYABLE,
+                "Extraction provider is unavailable.",
+                503,
+                details,
+            ),
+            ErrorClassification.RETRYABLE,
         )
 
     @staticmethod

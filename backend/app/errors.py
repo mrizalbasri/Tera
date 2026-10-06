@@ -42,6 +42,18 @@ class ApplicationError(Exception):
         return self.message
 
 
+def classified_error(
+    code: str,
+    classification: Any,
+    message: str,
+    status_code: int,
+    details: dict[str, Any] | None = None,
+) -> ApplicationError:
+    """Build an ApplicationError carrying its taxonomy classification."""
+    merged = {"classification": str(classification), **(details or {})}
+    return ApplicationError(code, message, status_code, merged)
+
+
 class NotFoundError(ApplicationError):
     def __init__(self, resource: str, identifier: str) -> None:
         super().__init__(

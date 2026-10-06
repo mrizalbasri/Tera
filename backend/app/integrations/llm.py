@@ -21,7 +21,6 @@ Design invariants (spec M7 + FR-13):
   metadata marks the degrade so it is always auditable.
 """
 
-import base64
 import logging
 import time
 from datetime import UTC, date, datetime
@@ -30,14 +29,13 @@ from uuid import uuid4
 
 import openai
 from langchain_core.exceptions import OutputParserException
-from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 from app.config import Settings
 from app.domain.enums import ErrorClassification
-from app.errors import ApplicationError, ErrorCode
-from app.integrations.image_privacy import strip_image_metadata
+from app.errors import ApplicationError, ErrorCode, classified_error
+from app.integrations.llm_prompt import build_extraction_message
 from app.integrations.masking import SensitiveDataMasker
 from app.integrations.mock import MockReceiptExtractor
 from app.schemas.core import (
@@ -48,13 +46,6 @@ from app.schemas.core import (
 )
 
 logger = logging.getLogger(__name__)
-
-_EXTRACTION_PROMPT = (
-    "You are an expense receipt parser. Extract the vendor, receipt date, "
-    "total, currency, and category from this receipt image. Category must be "
-    "one of: meals, fuel, toll_parking, hotel, other. Give every field the "
-    "same confidence between 0 and 1. Respond only with the required fields."
-)
 
 _IMAGE_MEDIA_TYPES = {"image/jpeg", "image/png"}
 _FALLBACK_PROVIDER_PREFIX = "llm-fallback-mock"
@@ -209,14 +200,16 @@ class LlmReceiptExtractor:
         attempt: int,
     ) -> LlmExtractionOutput:
         if receipt.media_type not in _IMAGE_MEDIA_TYPES:
-            raise self._classified_error(
+            raise classified_error(
                 ErrorCode.UNSUPPORTED_MEDIA_FOR_VISION,
                 ErrorClassification.NON_RETRYABLE,
                 f"Live extraction supports JPG and PNG receipts, got "
                 f"{receipt.media_type}.",
                 415,
             )
-        message = self._build_message(receipt, content, declared_amount)
+        message = build_extraction_message(
+            self._settings, self._masker, receipt, content, declared_amount
+        )
         last_error: ApplicationError | None = None
         for retry in range(self._settings.llm_max_retries + 1):
             try:
@@ -232,8 +225,9 @@ class LlmReceiptExtractor:
                 # LangChain could not parse the model response into the
                 # contract — the provider answered, but unusably. That is a
                 # malformed-output case: classified, never retried, never
-                # hidden behind fallback.
-                raise self._classified_error(
+                # hidden behind fallback. Exception text can carry raw model
+                # output, so details stay type-only.
+                raise classified_error(
                     ErrorCode.MALFORMED_EXTRACTION,
                     ErrorClassification.NON_RETRYABLE,
                     "Live extraction output could not be parsed.",
@@ -241,7 +235,7 @@ class LlmReceiptExtractor:
                     {"detail": str(exc)[:200]},
                 ) from exc
             except ValidationError as exc:
-                raise self._classified_error(
+                raise classified_error(
                     ErrorCode.MALFORMED_EXTRACTION,
                     ErrorClassification.NON_RETRYABLE,
                     "Live extraction returned malformed output.",
@@ -267,50 +261,6 @@ class LlmReceiptExtractor:
         assert last_error is not None
         raise last_error
 
-    def _build_message(
-        self, receipt: Receipt, content: bytes, declared_amount: Decimal | None
-    ) -> HumanMessage:
-        # FR-13 choke point: sensitive text fields are masked here, before
-        # the prompt leaves the process. The receipt image itself is the
-        # submitted source document and must be seen by the vision model;
-        # its metadata envelope is stripped, and parsing failures fail
-        # closed rather than send unsanitized bytes. In strict privacy mode
-        # nothing about the image crosses the boundary at all.
-        if self._settings.llm_image_privacy_mode == "block":
-            # Pixel content cannot be proven free of personal data without a
-            # local OCR pass (deferred), so strict deployments fail closed.
-            raise self._classified_error(
-                ErrorCode.IMAGE_PRIVACY_BLOCKED,
-                ErrorClassification.NON_RETRYABLE,
-                "Receipt image forwarding is disabled by privacy policy.",
-                422,
-            )
-        prompt = _EXTRACTION_PROMPT
-        if declared_amount is not None:
-            masked_amount = self._masker.mask(str(declared_amount)).masked_text
-            prompt += (
-                "\nDeclared amount submitted by the employee: " + masked_amount
-            )
-        try:
-            sanitized = strip_image_metadata(content, receipt.media_type)
-        except ValueError as exc:
-            raise self._classified_error(
-                ErrorCode.IMAGE_SANITIZATION_FAILED,
-                ErrorClassification.NON_RETRYABLE,
-                "Receipt image could not be sanitized before the provider call.",
-                422,
-                {"reason": str(exc)},
-            ) from exc
-        data_uri = (
-            f"data:{receipt.media_type};base64,{base64.b64encode(sanitized).decode()}"
-        )
-        return HumanMessage(
-            content=[
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": data_uri}},
-            ]
-        )
-
     def _to_extraction_result(
         self,
         receipt: Receipt,
@@ -320,7 +270,7 @@ class LlmReceiptExtractor:
         try:
             receipt_date = date.fromisoformat(output.receipt_date)
         except ValueError as exc:
-            raise self._classified_error(
+            raise classified_error(
                 ErrorCode.MALFORMED_EXTRACTION,
                 ErrorClassification.NON_RETRYABLE,
                 "Live extraction returned a malformed receipt date.",
@@ -335,7 +285,7 @@ class LlmReceiptExtractor:
         if unit_price <= 0:
             unit_price = quotient.quantize(Decimal("0.000001"))
         if unit_price <= 0:
-            raise self._classified_error(
+            raise classified_error(
                 ErrorCode.MALFORMED_EXTRACTION,
                 ErrorClassification.NON_RETRYABLE,
                 "Live extraction produced a degenerate line item.",
@@ -377,7 +327,7 @@ class LlmReceiptExtractor:
             # The structured-output contract passed, but a field violated the
             # ExtractionResult schema (e.g. length limits); that is provider
             # misbehaviour, classified — never an unclassified 500.
-            raise self._classified_error(
+            raise classified_error(
                 ErrorCode.MALFORMED_EXTRACTION,
                 ErrorClassification.NON_RETRYABLE,
                 "Live extraction output violated the result schema.",
@@ -399,13 +349,13 @@ class LlmReceiptExtractor:
         for types, code, message, status, classification in _PROVIDER_ERROR_MAP:
             if isinstance(exc, types):
                 return (
-                    cls._classified_error(
+                    classified_error(
                         code, classification, message, status, details
                     ),
                     classification,
                 )
         return (
-            cls._classified_error(
+            classified_error(
                 ErrorCode.PROVIDER_UNAVAILABLE,
                 ErrorClassification.RETRYABLE,
                 "Extraction provider is unavailable.",
@@ -439,13 +389,3 @@ class LlmReceiptExtractor:
             ErrorCode.IMAGE_PRIVACY_BLOCKED,
         )
 
-    @staticmethod
-    def _classified_error(
-        code: str,
-        classification: ErrorClassification,
-        message: str,
-        status_code: int,
-        details: dict | None = None,
-    ) -> ApplicationError:
-        merged = {"classification": str(classification), **(details or {})}
-        return ApplicationError(code, message, status_code, merged)

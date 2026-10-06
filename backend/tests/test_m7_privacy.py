@@ -9,6 +9,7 @@ import pytest
 import zlib
 from fastapi.testclient import TestClient
 from langchain_core.exceptions import OutputParserException
+from PIL import Image
 from pydantic import BaseModel, Field
 
 from app.config import Settings
@@ -91,17 +92,21 @@ def _jpeg_segment(marker: bytes, payload: bytes) -> bytes:
 
 
 def _jpeg_bytes() -> bytes:
-    """A structurally valid JPEG carrying fake EXIF/GPS and a comment."""
+    """A real 4x4 JPEG with injected EXIF and comment segments.
+
+    The COM segment doubles as the mock-extractor category marker: the mock
+    reads the ORIGINAL content, while the provider receives the sanitized
+    image with the comment stripped.
+    """
+    buffer = BytesIO()
+    Image.new("RGB", (4, 4), (210, 205, 200)).save(buffer, format="JPEG")
+    base = buffer.getvalue()
     exif_payload = b"Exif\x00\x00" + b"II*\x00" + b"GPS:-6.2,106.8 Device:PhoneX"
     return (
-        b"\xff\xd8"
-        + _jpeg_segment(b"\xff\xe0", b"JFIF\x00" + b"\x01\x01\x00\x00\x01\x00\x01\x00\x00")
+        base[:2]  # SOI
         + _jpeg_segment(b"\xff\xe1", exif_payload)
-        + _jpeg_segment(b"\xff\xfe", b"handwritten-note")
-        + _jpeg_segment(b"\xff\xc0", b"\x08\x00\x10\x00\x10\x01\x01\x11\x00")  # SOF0
-        + b"\xff\xda\x00\x02"  # start of scan (length header only)
-        + b"\x11\x22\x33entropy-data CATEGORY:MEALS"
-        + b"\xff\xd9"
+        + _jpeg_segment(b"\xff\xfe", b"handwritten-note CATEGORY:MEALS")
+        + base[2:]
     )
 
 
@@ -115,13 +120,12 @@ def _png_chunk(chunk_type: bytes, payload: bytes) -> bytes:
 
 
 def _png_bytes() -> bytes:
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        + _png_chunk(b"IHDR", b"\x00" * 13)
-        + _png_chunk(b"tEXt", b"Comment\x00SECRET-GPS-DATA")
-        + _png_chunk(b"IDAT", b"pixel-data")
-        + _png_chunk(b"IEND", b"")
-    )
+    """A real 4x4 PNG with an injected tEXt metadata chunk after IHDR."""
+    buffer = BytesIO()
+    Image.new("RGB", (4, 4), (210, 205, 200)).save(buffer, format="PNG")
+    base = buffer.getvalue()
+    ihdr_end = 8 + 25  # signature + full IHDR chunk (12 + 13)
+    return base[:ihdr_end] + _png_chunk(b"tEXt", b"Comment\x00SECRET-GPS-DATA") + base[ihdr_end:]
 
 
 def _png_chunk_with_crc(chunk_type: bytes, payload: bytes, crc: int) -> bytes:
@@ -214,8 +218,9 @@ def test_outgoing_image_metadata_is_stripped_at_the_boundary() -> None:
     assert b"GPS" not in image
     assert b"Device:PhoneX" not in image
     assert b"handwritten-note" not in image  # COM comment
+    assert b"CATEGORY:MEALS" not in image  # marker rides the stripped COM
     assert image.startswith(b"\xff\xd8")
-    assert b"entropy-data" in image  # pixels survive
+    assert Image.open(BytesIO(image)).size == (4, 4)  # pixels survive, decodable
 
 
 def test_outgoing_png_text_chunks_are_stripped_at_the_boundary() -> None:
@@ -230,7 +235,7 @@ def test_outgoing_png_text_chunks_are_stripped_at_the_boundary() -> None:
 
     image = _outgoing_image_bytes(stub)
     assert b"SECRET-GPS-DATA" not in image
-    assert b"pixel-data" in image  # critical IDAT survives
+    assert Image.open(BytesIO(image)).size == (4, 4)  # critical chunks survive
 
 
 @pytest.mark.parametrize(
@@ -253,8 +258,27 @@ def test_outgoing_png_text_chunks_are_stripped_at_the_boundary() -> None:
         + _png_chunk(b"IDAT", b"pixels")
         + _png_chunk(b"IEND", b"")
         + b"trailing-junk",  # payload after IEND
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(
+            b"IHDR", b"\x00\x00\x00\x04\x00\x00\x00\x04\x08\x00\x00\x00\x00"
+        )
+        + _png_chunk(b"IDAT", zlib.compress(b"\x00\x01\x02short-scan"))
+        + _png_chunk(b"IEND", b""),  # valid CRCs but the scan cannot decode
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(
+            b"IHDR", b"\x00\x00\x27\x10\x00\x00\x27\x10\x08\x00\x00\x00\x00"
+        )
+        + _png_chunk(b"IDAT", zlib.compress(b"\x00\x00"))
+        + _png_chunk(b"IEND", b""),  # 10000x10000 exceeds the pixel guard
     ],
-    ids=["no-idat", "ihdr-not-first", "corrupt-crc", "trailing-after-iend"],
+    ids=[
+        "no-idat",
+        "ihdr-not-first",
+        "corrupt-crc",
+        "trailing-after-iend",
+        "undecodable-scan",
+        "dimension-bomb",
+    ],
 )
 def test_corrupt_pngs_fail_closed(content) -> None:
     extractor, stub = _extractor(
@@ -307,7 +331,7 @@ def test_jpeg_bytes_after_end_of_image_are_discarded() -> None:
     image = _outgoing_image_bytes(stub)
     assert b"SMUGGLED-TRAILING-PAYLOAD" not in image
     assert image.endswith(b"\xff\xd9"), "output must stop at end-of-image"
-    assert b"entropy-data" in image, "legitimate scan data survives"
+    assert Image.open(BytesIO(image)).size == (4, 4), "legitimate pixels survive"
 
 
 @pytest.mark.parametrize(
@@ -465,6 +489,36 @@ def test_fallback_never_masks_langchain_parse_errors() -> None:
         )
 
     assert excinfo.value.code == "malformed_extraction"
+
+
+def test_error_details_never_carry_raw_output_text() -> None:
+    def unparseable(_messages):
+        raise OutputParserException("RAW-MODEL-RESPONSE vendor+receipt text")
+
+    extractor, _ = _extractor(
+        _settings(provider_fallback="none"), structured=unparseable
+    )
+    with pytest.raises(ApplicationError) as parse_error:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+    assert "RAW-MODEL-RESPONSE" not in str(parse_error.value.details)
+    assert parse_error.value.details["exception_type"] == "OutputParserException"
+
+    def bad_output(_messages):
+        return {"vendor": "x", "receipt_date": "2026-10-04", "total": "-5",
+                "currency": "IDR", "category": "meals", "confidence": "0.9"}
+
+    validator, _ = _extractor(
+        _settings(provider_fallback="none"), structured=bad_output
+    )
+    with pytest.raises(ApplicationError) as validation_error:
+        validator.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+    assert "-5" not in str(validation_error.value.details)
 
 
 # --- Image privacy gate (pixel disclosure control) -----------------------------------

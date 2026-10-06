@@ -56,4 +56,4 @@ Do not commit real receipts, personal information, API keys, or other secrets. U
 
 ## Project status
 
-The repository foundation is ready. OCR, policy retrieval, anomaly detection, persistence, and external LLM integration are planned in later changes.
+The backend pipeline (M0–M6: intake, extraction, validation, policy, duplicate and anomaly signals, decisions, clarification/review, persistence, and audit) is merged. M7 — sensitive-data masking plus LangChain vision extraction (GLM-4.5V via Z.ai) with bounded retry, provider fallback, and an image privacy gate — is implemented and in review (PR #11); `PROVIDER_MODE=mock` remains the default and needs no API key. Still planned: LangGraph orchestration (M7.5), RAG policy retrieval and ML anomaly scoring (M7.6), and reporting/export (M8).

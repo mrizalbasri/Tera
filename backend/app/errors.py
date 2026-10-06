@@ -13,6 +13,7 @@ class ErrorCode(StrEnum):
     RECEIPT_REQUIRED = "receipt_required"
     DUPLICATE_RECEIPT = "duplicate_receipt"
     MALFORMED_EXTRACTION = "malformed_extraction"
+    IMAGE_SANITIZATION_FAILED = "image_sanitization_failed"
     RECEIPT_CONTENT_UNAVAILABLE = "receipt_content_unavailable"
     EXTRACTION_CONFIDENCE_LOW = "extraction_confidence_low"
     POLICY_UNAVAILABLE = "policy_unavailable"

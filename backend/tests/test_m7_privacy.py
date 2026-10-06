@@ -81,6 +81,40 @@ def _valid_output() -> LlmExtractionOutput:
     )
 
 
+def _jpeg_segment(marker: bytes, payload: bytes) -> bytes:
+    return marker + (len(payload) + 2).to_bytes(2, "big") + payload
+
+
+def _jpeg_bytes() -> bytes:
+    """A structurally valid JPEG carrying fake EXIF/GPS and a comment."""
+    exif_payload = b"Exif\x00\x00" + b"II*\x00" + b"GPS:-6.2,106.8 Device:PhoneX"
+    return (
+        b"\xff\xd8"
+        + _jpeg_segment(b"\xff\xe0", b"JFIF\x00" + b"\x01\x01\x00\x00\x01\x00\x01\x00\x00")
+        + _jpeg_segment(b"\xff\xe1", exif_payload)
+        + _jpeg_segment(b"\xff\xfe", b"handwritten-note")
+        + b"\xff\xda\x00\x02"  # start of scan (length header only)
+        + b"\x11\x22\x33entropy-data"
+        + b"\xff\xd9"
+    )
+
+
+def _png_chunk(chunk_type: bytes, payload: bytes) -> bytes:
+    return (
+        len(payload).to_bytes(4, "big") + chunk_type + payload + b"\x00\x00\x00\x00"
+    )
+
+
+def _png_bytes() -> bytes:
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", b"\x00" * 13)
+        + _png_chunk(b"tEXt", b"Comment\x00SECRET-GPS-DATA")
+        + _png_chunk(b"IDAT", b"pixel-data")
+        + _png_chunk(b"IEND", b"")
+    )
+
+
 # --- Masker unit behaviour (FR-13) --------------------------------------------
 
 
@@ -119,7 +153,7 @@ def test_declared_amount_is_masked_before_crossing_the_boundary() -> None:
 
     extractor.extract(
         receipt=_receipt(),
-        content=b"\xff\xd8\xffimage",
+        content=_jpeg_bytes(),
         declared_amount=sensitive_amount,
         attempt=1,
     )
@@ -133,7 +167,7 @@ def test_prompt_carries_no_employee_identifiers() -> None:
     extractor, stub = _extractor(structured=lambda _m: _valid_output())
 
     extractor.extract(
-        receipt=_receipt(), content=b"\xff\xd8\xffimage", declared_amount=None, attempt=1
+        receipt=_receipt(), content=_jpeg_bytes(), declared_amount=None, attempt=1
     )
 
     prompt_text = stub.calls[0][0].content[0]["text"]
@@ -141,6 +175,67 @@ def test_prompt_carries_no_employee_identifiers() -> None:
     assert stub.calls[0][0].content[1]["image_url"]["url"].startswith(
         "data:image/jpeg;base64,"
     )
+
+
+# --- Image envelope sanitization (FR-13, image privacy design) ----------------
+
+
+def _outgoing_image_bytes(stub: StubStructured) -> bytes:
+    import base64
+
+    data_uri = stub.calls[0][0].content[1]["image_url"]["url"]
+    return base64.b64decode(data_uri.split(",", 1)[1])
+
+
+def test_outgoing_image_metadata_is_stripped_at_the_boundary() -> None:
+    extractor, stub = _extractor(structured=lambda _m: _valid_output())
+
+    extractor.extract(
+        receipt=_receipt(), content=_jpeg_bytes(), declared_amount=None, attempt=1
+    )
+
+    image = _outgoing_image_bytes(stub)
+    assert b"Exif" not in image
+    assert b"GPS" not in image
+    assert b"Device:PhoneX" not in image
+    assert b"handwritten-note" not in image  # COM comment
+    assert image.startswith(b"\xff\xd8")
+    assert b"entropy-data" in image  # pixels survive
+
+
+def test_outgoing_png_text_chunks_are_stripped_at_the_boundary() -> None:
+    extractor, stub = _extractor(structured=lambda _m: _valid_output())
+
+    extractor.extract(
+        receipt=_receipt("image/png"),
+        content=_png_bytes(),
+        declared_amount=None,
+        attempt=1,
+    )
+
+    image = _outgoing_image_bytes(stub)
+    assert b"SECRET-GPS-DATA" not in image
+    assert b"pixel-data" in image  # critical IDAT survives
+
+
+def test_unparseable_image_fails_closed_without_a_provider_call() -> None:
+    extractor, stub = _extractor(
+        _settings(provider_fallback="none"), structured=lambda _m: _valid_output()
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(),
+            content=b"\xff\xd8\xffbogus",
+            declared_amount=None,
+            attempt=1,
+        )
+
+    assert excinfo.value.code == "image_sanitization_failed"
+    assert (
+        excinfo.value.details["classification"] == ErrorClassification.NON_RETRYABLE
+    )
+    assert stub.calls == [], "corrupt image must never reach the provider"
 
 
 # --- Error taxonomy ---------------------------------------------------------------
@@ -158,7 +253,7 @@ def test_malformed_model_output_is_non_retryable() -> None:
 
     with pytest.raises(ApplicationError) as excinfo:
         extractor.extract(
-            receipt=_receipt(), content=b"\xff\xd8\xffimage",
+            receipt=_receipt(), content=_jpeg_bytes(),
             declared_amount=None, attempt=1,
         )
 
@@ -183,7 +278,7 @@ def test_provider_outage_is_retryable_and_bounded() -> None:
 
     with pytest.raises(ApplicationError) as excinfo:
         extractor.extract(
-            receipt=_receipt(), content=b"\xff\xd8\xffimage",
+            receipt=_receipt(), content=_jpeg_bytes(),
             declared_amount=None, attempt=1,
         )
 

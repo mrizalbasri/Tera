@@ -3,7 +3,11 @@
 Design invariants (spec M7 + FR-13):
 
 - Masking runs HERE, before any prompt leaves the boundary — proven by tests
-  that capture the outgoing payload.
+  that capture the outgoing payload. The receipt image itself is the source
+  document the vision model must see, so its pixels cannot be masked; instead
+  the image envelope (EXIF/XMP/IPTC/comments) is stripped here, and image
+  bytes are never logged or persisted beyond the receipt's own storage
+  reference.
 - Model output must satisfy the extraction schema; anything else is a
   classified non-retryable error, never a success-shaped fallback.
 - Timeouts and rate limits are retryable (bounded, with backoff); malformed
@@ -27,6 +31,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.config import Settings
 from app.domain.enums import ErrorClassification
 from app.errors import ApplicationError, ErrorCode
+from app.integrations.image_privacy import strip_image_metadata
 from app.integrations.masking import SensitiveDataMasker
 from app.integrations.mock import MockReceiptExtractor
 from app.schemas.core import (
@@ -196,15 +201,27 @@ class LlmReceiptExtractor:
     ) -> HumanMessage:
         # FR-13 choke point: sensitive text fields are masked here, before
         # the prompt leaves the process. The receipt image itself is the
-        # submitted source document and must be seen by the vision model.
+        # submitted source document and must be seen by the vision model;
+        # its metadata envelope is stripped, and parsing failures fail
+        # closed rather than send unsanitized bytes.
         prompt = _EXTRACTION_PROMPT
         if declared_amount is not None:
             masked_amount = self._masker.mask(str(declared_amount)).masked_text
             prompt += (
                 "\nDeclared amount submitted by the employee: " + masked_amount
             )
+        try:
+            sanitized = strip_image_metadata(content, receipt.media_type)
+        except ValueError as exc:
+            raise self._classified_error(
+                ErrorCode.IMAGE_SANITIZATION_FAILED,
+                ErrorClassification.NON_RETRYABLE,
+                "Receipt image could not be sanitized before the provider call.",
+                422,
+                {"reason": str(exc)},
+            ) from exc
         data_uri = (
-            f"data:{receipt.media_type};base64,{base64.b64encode(content).decode()}"
+            f"data:{receipt.media_type};base64,{base64.b64encode(sanitized).decode()}"
         )
         return HumanMessage(
             content=[

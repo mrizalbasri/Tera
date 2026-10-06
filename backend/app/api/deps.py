@@ -7,6 +7,8 @@ from fastapi import Depends
 from app.config import Settings, get_settings
 from app.integrations.anomaly import RuleBasedAnomalyScorer
 from app.integrations.duplicate import AttributeDuplicateDetector
+from app.integrations.llm import LlmReceiptExtractor
+from app.integrations.masking import SensitiveDataMasker
 from app.integrations.mock import MockReceiptExtractor
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
 from app.integrations.quality import FileQualityChecker
@@ -122,7 +124,20 @@ def get_quality_checker() -> ReceiptQualityChecker:
     return FileQualityChecker()
 
 
-def get_receipt_extractor() -> ReceiptExtractor:
+def get_sensitive_data_masker() -> SensitiveDataMasker:
+    return SensitiveDataMasker()
+
+
+def get_receipt_extractor(
+    settings: Settings = Depends(get_settings),
+    masker: SensitiveDataMasker = Depends(get_sensitive_data_masker),
+) -> ReceiptExtractor:
+    if settings.provider_mode == "live":
+        if not settings.llm_api_key:
+            raise RuntimeError(
+                "PROVIDER_MODE=live requires LLM_API_KEY in the environment."
+            )
+        return LlmReceiptExtractor(settings, masker)
     return MockReceiptExtractor()
 
 

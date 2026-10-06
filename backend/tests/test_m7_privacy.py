@@ -301,13 +301,83 @@ def test_fallback_mode_degrades_to_mock_with_marked_provider() -> None:
     )
 
     result = extractor.extract(
-        receipt=_receipt(), content=b"%PDF-1.7\nfallback\n%%EOF",
+        receipt=_receipt(), content=_jpeg_bytes(),
         declared_amount=Decimal("60000"), attempt=1,
     )
 
     assert result.provider.startswith("llm-fallback-mock:")
     assert "live_provider_unavailable" in result.warnings
     assert result.provider_degraded is True
+
+
+def test_pdf_receipt_degrades_to_mock_only_in_fallback_mode() -> None:
+    extractor, stub = _extractor(
+        _settings(provider_fallback="mock", llm_max_retries=0),
+        structured=lambda _m: _valid_output(),
+    )
+
+    result = extractor.extract(
+        receipt=_receipt("application/pdf"),
+        content=b"%PDF-1.7\nfallback\n%%EOF",
+        declared_amount=Decimal("60000"),
+        attempt=1,
+    )
+
+    assert result.provider.startswith("llm-fallback-mock:")
+    assert stub.calls == [], "unsupported media must never reach the provider"
+
+
+def test_fallback_never_masks_malformed_model_output() -> None:
+    def bad_output(_messages):
+        return {"vendor": "x", "receipt_date": "2026-10-04", "total": "-5",
+                "currency": "IDR", "category": "meals", "confidence": "0.9"}
+
+    extractor, _ = _extractor(
+        _settings(provider_fallback="mock"), structured=bad_output
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "malformed_extraction"
+    assert (
+        excinfo.value.details["classification"] == ErrorClassification.NON_RETRYABLE
+    )
+
+
+def test_fallback_never_masks_configuration_failures() -> None:
+    def unauthorized(_messages):
+        raise _provider_status_error(openai.AuthenticationError, 401)
+
+    extractor, _ = _extractor(
+        _settings(provider_fallback="mock", llm_max_retries=0),
+        structured=unauthorized,
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=_jpeg_bytes(),
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "provider_authentication_failed"
+
+
+def test_fallback_never_masks_sanitization_failures() -> None:
+    extractor, _ = _extractor(
+        _settings(provider_fallback="mock"), structured=lambda _m: _valid_output()
+    )
+
+    with pytest.raises(ApplicationError) as excinfo:
+        extractor.extract(
+            receipt=_receipt(), content=b"\xff\xd8\xffbogus",
+            declared_amount=None, attempt=1,
+        )
+
+    assert excinfo.value.code == "image_sanitization_failed"
 
 
 def test_fallback_after_live_failure_never_auto_approves() -> None:

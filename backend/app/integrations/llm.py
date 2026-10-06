@@ -12,9 +12,12 @@ Design invariants (spec M7 + FR-13):
   classified non-retryable error, never a success-shaped fallback.
 - Timeouts and rate limits are retryable (bounded, with backoff); malformed
   output and unsupported media are not.
-- With PROVIDER_FALLBACK=mock, any live failure degrades to the deterministic
-  mock extractor; the result's provider metadata marks the fallback so it is
-  always auditable.
+- With PROVIDER_FALLBACK=mock, transient provider failures — and only the
+  documented unsupported-media case — degrade to the deterministic mock
+  extractor. Malformed output, sanitization failures, and configuration
+  errors always surface: the mock must never turn a contract or privacy
+  violation into a success-shaped result. The fallback result's provider
+  metadata marks the degrade so it is always auditable.
 """
 
 import base64
@@ -156,7 +159,10 @@ class LlmReceiptExtractor:
         try:
             output = self._invoke_structured(receipt, content, declared_amount, attempt)
         except ApplicationError as exc:
-            if self._settings.provider_fallback == "mock":
+            if (
+                self._settings.provider_fallback == "mock"
+                and self._fallback_allowed(exc)
+            ):
                 logger.warning(
                     "live extraction failed (%s); degrading to mock extractor",
                     exc.code,
@@ -202,7 +208,7 @@ class LlmReceiptExtractor:
     ) -> LlmExtractionOutput:
         if receipt.media_type not in _IMAGE_MEDIA_TYPES:
             raise self._classified_error(
-                "unsupported_media_for_vision",
+                ErrorCode.UNSUPPORTED_MEDIA_FOR_VISION,
                 ErrorClassification.NON_RETRYABLE,
                 f"Live extraction supports JPG and PNG receipts, got "
                 f"{receipt.media_type}.",
@@ -355,6 +361,22 @@ class LlmReceiptExtractor:
             ),
             ErrorClassification.RETRYABLE,
         )
+
+    @staticmethod
+    def _fallback_allowed(exc: ApplicationError) -> bool:
+        """Decide whether a failed live extraction may degrade to the mock.
+
+        Only transient provider failures and the documented unsupported-media
+        case (PDF in live mode) may degrade. Malformed model output, image
+        sanitization failures, and credential/request-configuration errors
+        must re-raise: retrying the mock cannot fix them, and a fallback
+        result would mask a contract or privacy violation as success.
+        """
+        if exc.details and exc.details.get("classification") == str(
+            ErrorClassification.RETRYABLE
+        ):
+            return True
+        return exc.code == ErrorCode.UNSUPPORTED_MEDIA_FOR_VISION
 
     @staticmethod
     def _classified_error(

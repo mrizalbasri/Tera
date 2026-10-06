@@ -14,13 +14,18 @@ Entropy-coded JPEG data after SOS is copied verbatim up to the FIRST
 end-of-image marker; anything after EOI is discarded — trailing payloads
 must never cross the boundary. PNG chunks are validated fail-closed: every
 CRC must match, IHDR must come first, at least one IDAT must precede IEND,
-and IEND must end the stream exactly — a payload without real image data is
-rejected, not forwarded. An image that cannot be parsed fails closed: the
-caller raises a classified non-retryable error instead of sending
+and IEND must end the stream exactly. Structural validation alone cannot
+prove an image renders, so the sanitized bytes are then fully decoded with
+a trusted decoder (Pillow) under a pixel-count guard — a payload that does
+not decode is rejected, not forwarded. Any failure raises: the caller
+turns it into a classified non-retryable error instead of sending
 unsanitized bytes.
 """
 
 import zlib
+from io import BytesIO
+
+from PIL import Image
 
 _JPEG_SOI = b"\xff\xd8"
 _JPEG_EOI_BYTES = b"\xff\xd9"
@@ -44,14 +49,41 @@ _PNG_IDAT = b"IDAT"
 _PNG_IEND = b"IEND"
 _PNG_IHDR_LENGTH = 13
 
+# ~30 MP: phone-photo receipts are far below this; the guard bounds
+# decompression work (decompression-bomb protection) before full decode.
+_MAX_IMAGE_PIXELS = 30_000_000
+Image.MAX_IMAGE_PIXELS = _MAX_IMAGE_PIXELS
+
 
 def strip_image_metadata(content: bytes, media_type: str) -> bytes:
     """Return ``content`` without privacy-bearing metadata for its format."""
     if media_type == "image/jpeg":
-        return _strip_jpeg(content)
-    if media_type == "image/png":
-        return _strip_png(content)
-    raise ValueError(f"unsupported image media type: {media_type}")
+        sanitized = _strip_jpeg(content)
+    elif media_type == "image/png":
+        sanitized = _strip_png(content)
+    else:
+        raise ValueError(f"unsupported image media type: {media_type}")
+    _verify_decodable(sanitized)
+    return sanitized
+
+
+def _verify_decodable(sanitized: bytes) -> None:
+    """Fully decode the sanitized bytes with a trusted decoder.
+
+    Structural checks above cannot prove the image renders (e.g. a PNG with
+    valid CRCs but garbage IDAT), so decoding is the fail-closed backstop.
+    Failure messages are static — no payload content ever reaches them.
+    """
+    try:
+        with Image.open(BytesIO(sanitized)) as image:
+            width, height = image.size
+            if width <= 0 or height <= 0 or width * height > _MAX_IMAGE_PIXELS:
+                raise ValueError("image dimensions out of range")
+            image.load()
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError("image failed to decode") from exc
 
 
 def _strip_jpeg(data: bytes) -> bytes:

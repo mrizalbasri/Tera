@@ -53,8 +53,19 @@ class Severity(StrEnum):
 class SignalType(StrEnum):
     DUPLICATE = "duplicate"
     ANOMALY = "anomaly"
+    # Provenance signal: extraction fell back to the deterministic mock after
+    # a live provider failure. Forces escalation — a degraded-provenance
+    # result must never be auto-approved (M7 acceptance criteria).
+    PROVIDER_DEGRADED = "provider_degraded"
 
 
 class DuplicateMatchType(StrEnum):
     EXACT_HASH = "exact_hash"
     LIKELY_ATTRIBUTES = "likely_attributes"
+
+
+class ErrorClassification(StrEnum):
+    """Provider failure taxonomy (M7 reliability rules)."""
+
+    RETRYABLE = "retryable"
+    NON_RETRYABLE = "non_retryable"

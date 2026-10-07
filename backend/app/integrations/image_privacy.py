@@ -10,8 +10,8 @@ masking, before any bytes leave the process:
   colour transform) which carry no personal data but affect decoding.
 - PNG: ancillary text chunks (tEXt, zTXt, iTXt), eXIf, and tIME.
 
-Entropy-coded JPEG data after SOS is copied verbatim up to the FIRST
-end-of-image marker; anything after EOI is discarded — trailing payloads
+Entropy-coded JPEG data is copied verbatim within each scan; metadata markers
+between scans are stripped too. Anything after EOI is discarded — trailing payloads
 must never cross the boundary. PNG chunks are validated fail-closed: every
 CRC must match, IHDR must come first, at least one IDAT must precede IEND,
 and IEND must end the stream exactly. Structural validation alone cannot
@@ -28,7 +28,6 @@ from io import BytesIO
 from PIL import Image
 
 _JPEG_SOI = b"\xff\xd8"
-_JPEG_EOI_BYTES = b"\xff\xd9"
 _JPEG_STANDALONE_MARKERS = {0x01, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7}
 _JPEG_SOS_MARKER = 0xDA
 _JPEG_EOI_MARKER = 0xD9
@@ -127,16 +126,29 @@ def _strip_jpeg(data: bytes) -> bytes:
             saw_scan = True
             if not saw_frame:
                 raise ValueError("JPEG scan without frame data")
-            # Entropy-coded scan data carries no metadata; copy up to the
-            # first end-of-image marker. A raw 0xFFD9 cannot occur inside a
-            # legal scan (byte stuffing turns 0xFF into 0xFF 0x00, restart
-            # markers are FFD0-FFD7), so the first hit is the true EOI.
+            # Progressive JPEGs have multiple scans with marker segments
+            # between them. Copy only this scan, preserving stuffed bytes
+            # and restart markers, then resume normal segment sanitization.
             out += data[segment_start:segment_end]
-            eoi = data.find(_JPEG_EOI_BYTES, segment_end)
-            if eoi == -1:
-                raise ValueError("truncated JPEG scan")
-            out += data[segment_end : eoi + 2]
-            break
+            scan_start = segment_end
+            i = segment_end
+            while True:
+                marker_start = data.find(b"\xff", i)
+                if marker_start == -1:
+                    raise ValueError("truncated JPEG scan")
+                marker_end = marker_start + 1
+                while marker_end < size and data[marker_end] == 0xFF:
+                    marker_end += 1
+                if marker_end >= size:
+                    raise ValueError("truncated JPEG scan marker")
+                scan_marker = data[marker_end]
+                if scan_marker == 0x00 or 0xD0 <= scan_marker <= 0xD7:
+                    i = marker_end + 1
+                    continue
+                out += data[scan_start:marker_start]
+                i = marker_start
+                break
+            continue
         keeps_metadata = (
             marker == _JPEG_COM_MARKER or marker in _JPEG_METADATA_APP_MARKERS
         )

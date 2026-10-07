@@ -1,6 +1,7 @@
 """M7 tests: masking boundary (FR-13), LangChain adapter, error taxonomy."""
 
 from decimal import Decimal
+import json
 from io import BytesIO
 
 import httpx
@@ -9,6 +10,7 @@ import pytest
 import zlib
 from fastapi.testclient import TestClient
 from langchain_core.exceptions import OutputParserException
+from langchain_openai import ChatOpenAI
 from PIL import Image
 from pydantic import BaseModel, Field
 
@@ -23,6 +25,88 @@ from app.main import app
 from app.schemas.core import Receipt
 
 client = TestClient(app)
+
+
+def test_json_mode_request_includes_output_contract() -> None:
+    requests = []
+
+    def respond(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        return httpx.Response(200, json={
+            "id": "local-test", "object": "chat.completion", "created": 0,
+            "model": "local-vision", "choices": [{"index": 0,
+                "finish_reason": "stop", "message": {
+                    "role": "assistant", "content": _valid_output().model_dump_json()
+                }}],
+        })
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        model = ChatOpenAI(model="local-vision", api_key="synthetic-key",
+                           base_url="http://localhost:1234/v1", http_client=client,
+                           max_retries=0)
+        extractor = LlmReceiptExtractor(_settings(), SensitiveDataMasker(), model=model)
+        result = extractor.extract(receipt=_receipt(), content=_jpeg_bytes(),
+                                   declared_amount=None, attempt=1)
+    assert result.total.value == Decimal("60000")
+    assert len(requests) == 1
+    payload = requests[0]
+    assert payload["response_format"] == {"type": "json_object"}
+    prompt = payload["messages"][0]["content"][0]["text"]
+    assert "JSON" in prompt
+    for field in LlmExtractionOutput.model_fields:
+        assert field in prompt
+    assert "YYYY-MM-DD" in prompt
+
+
+@pytest.mark.parametrize("marker", [b"\xff\xfe", b"\xff\xe1", b"\xff\xed"])
+def test_progressive_jpeg_metadata_between_scans_never_leaves(marker) -> None:
+    buffer = BytesIO()
+    Image.new("RGB", (16, 16), (210, 205, 200)).save(
+        buffer, format="JPEG", progressive=True
+    )
+    base = buffer.getvalue()
+    scan_offsets = [i for i in range(len(base) - 1) if base[i:i + 2] == b"\xff\xda"]
+    assert len(scan_offsets) > 1
+    secret = b"GPS:-6.2,106.8 synthetic@example.test"
+    content = base
+    for offset in reversed(scan_offsets[1:]):
+        content = content[:offset] + _jpeg_segment(marker, secret) + content[offset:]
+    with Image.open(BytesIO(content)) as original:
+        original.load()
+        pixels = original.tobytes()
+    extractor, stub = _extractor(structured=lambda _m: _valid_output())
+    extractor.extract(receipt=_receipt(), content=content, declared_amount=None, attempt=1)
+    sanitized = _outgoing_image_bytes(stub)
+    assert secret not in sanitized
+    assert sanitized == base
+    with Image.open(BytesIO(sanitized)) as image:
+        image.load()
+        assert image.tobytes() == pixels
+
+
+@pytest.mark.parametrize("exception_type,status,code", [
+    (openai.BadRequestError, 400, "provider_invalid_request"),
+    (openai.RateLimitError, 429, "provider_rate_limited"),
+])
+def test_provider_logs_never_include_response_or_credentials(caplog, exception_type, status, code):
+    secret = "synthetic@example.test sk-synthetic-secret"
+
+    def failing(_messages):
+        request = httpx.Request("POST", "http://localhost:1234/v1/chat/completions")
+        raise exception_type(secret, response=httpx.Response(status, request=request),
+                             body={"error": {"message": secret}})
+
+    extractor, _ = _extractor(_settings(llm_max_retries=0, provider_fallback="none"),
+                              structured=failing)
+    with caplog.at_level("WARNING", logger="app.integrations.llm"):
+        with pytest.raises(ApplicationError):
+            extractor.extract(receipt=_receipt(), content=_jpeg_bytes(),
+                              declared_amount=None, attempt=1)
+    assert secret not in caplog.text
+    assert code in caplog.text
+    assert exception_type.__name__ in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 def _settings(**overrides) -> Settings:

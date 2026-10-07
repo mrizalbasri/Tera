@@ -247,11 +247,10 @@ class LlmReceiptExtractor:
             except Exception as exc:
                 error, classification = self._classify_provider_error(exc)
                 logger.warning(
-                    "live extraction provider error attempt=%s retry=%s: %s: %s",
-                    attempt,
-                    retry,
+                    "live extraction provider error code=%s classification=%s type=%s",
+                    error.code,
+                    classification,
                     type(exc).__name__,
-                    exc,
                 )
                 if classification is ErrorClassification.NON_RETRYABLE:
                     raise error
@@ -389,4 +388,3 @@ class LlmReceiptExtractor:
             ErrorCode.UNSUPPORTED_MEDIA_FOR_VISION,
             ErrorCode.IMAGE_PRIVACY_BLOCKED,
         )
-

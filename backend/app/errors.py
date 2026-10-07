@@ -31,7 +31,8 @@ class ErrorCode(StrEnum):
     INVALID_STATE_TRANSITION = "invalid_state_transition"
 
 
-@dataclass(frozen=True)
+# Exception machinery/context managers must be able to attach traceback notes.
+@dataclass
 class ApplicationError(Exception):
     code: str
     message: str

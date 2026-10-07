@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:5173"
     storage_backend: Literal["memory", "sql"] = "memory"
     database_url: str = "sqlite:///./expense_agent.db"
+    graph_checkpoint_path: str = "./expense_agent_checkpoints.db"
     provider_mode: Literal["mock", "live"] = "mock"
     max_receipt_size_bytes: int = 10 * 1024 * 1024
     auto_approve_amount_limit: int = 500_000

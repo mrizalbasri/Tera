@@ -1,19 +1,38 @@
+import tempfile
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api import deps
 from app.config import Settings, get_settings
+
+# Disable dotenv before app.main creates its module-level settings at collection.
+# Individual tests still supply their own isolated settings and providers.
+Settings.model_config["env_file"] = None
+
 from app.main import app
+from app.integrations.claim_graph import close_graph_resources
 
 
 @pytest.fixture(autouse=True)
-def isolated_stores():
-    """Give every test a fresh storage backend so tests stay order-independent."""
+def isolated_stores(monkeypatch):
+    """No local .env/provider calls; independent domain and graph stores."""
+    close_graph_resources()
     deps._memory_repositories.cache_clear()
     deps._sql_repositories.cache_clear()
-    yield
-    deps._memory_repositories.cache_clear()
-    deps._sql_repositories.cache_clear()
+    get_settings.cache_clear()
+    with tempfile.TemporaryDirectory(prefix="tera-graph-test-") as directory:
+        monkeypatch.setenv("GRAPH_CHECKPOINT_PATH", f"{directory}/checkpoints.db")
+        settings = Settings(_env_file=None, storage_backend="memory", provider_mode="mock")
+        app.dependency_overrides[get_settings] = lambda: settings
+        try:
+            yield
+        finally:
+            app.dependency_overrides.pop(get_settings, None)
+            close_graph_resources()
+            deps._memory_repositories.cache_clear()
+            deps._sql_repositories.cache_clear()
+            get_settings.cache_clear()
 
 
 @pytest.fixture

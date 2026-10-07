@@ -45,7 +45,7 @@ from app.schemas.core import (
 from app.schemas.core import TimelineEntry
 from app.services.clarification import ClarificationService
 from app.services.timeline import TimelineService
-from app.services.extraction import ExtractionService
+from app.services.processing import ClaimProcessingService
 from app.services.intake import IntakeService, ReceiptUpload, parse_declared_amount
 
 router = APIRouter(prefix="/claims", tags=["claims"])
@@ -167,7 +167,7 @@ def get_claim(
 def process_claim(
     claim_id: UUID,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    service: ExtractionService = Depends(get_extraction_service),
+    service: ClaimProcessingService = Depends(get_extraction_service),
 ) -> ProcessClaimResponse:
     outcome = service.process_claim(claim_id, idempotency_key=idempotency_key)
     return ProcessClaimResponse(

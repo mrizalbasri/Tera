@@ -6,13 +6,13 @@ from fastapi import Depends
 
 from app.config import Settings, get_settings
 from app.integrations.anomaly import RuleBasedAnomalyScorer
+from app.integrations.claim_graph import graph_resources
 from app.integrations.duplicate import AttributeDuplicateDetector
 from app.integrations.llm import LlmReceiptExtractor
 from app.integrations.masking import SensitiveDataMasker
 from app.integrations.mock import MockReceiptExtractor
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
 from app.integrations.quality import FileQualityChecker
-from app.integrations.storage import InMemoryFileStorage
 from app.repositories.memory import InMemoryRepositories
 from app.repositories.sql import SqlRepositories
 from app.repositories.protocols import (
@@ -40,7 +40,7 @@ from app.repositories.protocols import (
 )
 from app.services.clarification import ClarificationService
 from app.services.decision import DecisionEngine
-from app.services.extraction import ExtractionService
+from app.services.processing import ClaimProcessingService
 from app.services.intake import IntakeService
 from app.services.review import ReviewService
 from app.services.timeline import TimelineService
@@ -208,8 +208,8 @@ def get_extraction_service(
     policy_retriever: PolicyRetriever = Depends(get_policy_retriever),
     policy_evaluator: PolicyEvaluator = Depends(get_policy_evaluator),
     decider: DecisionEngine = Depends(get_decision_engine),
-) -> ExtractionService:
-    return ExtractionService(
+) -> ClaimProcessingService:
+    return ClaimProcessingService(
         claims,
         receipts,
         storage,
@@ -232,7 +232,10 @@ def get_extraction_service(
         policy_evaluator,
         decider,
         settings,
+        graph_resources=graph_resources(_backend(settings), settings),
     )
+
+
 def get_conversation_context_repository(settings: Settings = Depends(get_settings)) -> ConversationContextRepository:
     return _backend(settings).context
 
@@ -244,7 +247,7 @@ def get_clarification_service(
         get_conversation_context_repository
     ),
     audit: AuditRepository = Depends(get_audit_repository),
-    extraction_service: ExtractionService = Depends(get_extraction_service),
+    extraction_service: ClaimProcessingService = Depends(get_extraction_service),
 ) -> ClarificationService:
     return ClarificationService(
         claims,
@@ -291,6 +294,7 @@ def get_review_service(
     reviews: ReviewRepository = Depends(get_review_repository),
     signals: SignalRepository = Depends(get_signal_repository),
     audit: AuditRepository = Depends(get_audit_repository),
+    processing: ClaimProcessingService = Depends(get_extraction_service),
 ) -> ReviewService:
-    return ReviewService(claims, decisions, reviews, signals, audit)
+    return ReviewService(claims, decisions, reviews, signals, audit, processing)
 

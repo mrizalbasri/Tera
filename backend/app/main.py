@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -9,6 +10,7 @@ from app.api.claims import router as claims_router
 from app.api.reviews import router as reviews_router
 from app.config import get_settings
 from app.errors import ApplicationError
+from app.integrations.claim_graph import close_graph_resources
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,7 +20,17 @@ logger = logging.getLogger("expense_agent")
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        yield
+    finally:
+        close_graph_resources()
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title=settings.app_name,
     version="0.1.0",
     description="API foundation for the Expense Reimbursement Agent.",

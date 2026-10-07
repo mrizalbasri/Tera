@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
-	import { getClaim, getClaimTimeline, listClarifications } from '$lib/api/claims';
+	import { getClaim, getClaimTimeline, listClaims, listClarifications } from '$lib/api/claims';
 	import { ApiError } from '$lib/api/client';
 	import { shortClaimRef } from '$lib/formatters/claim';
 	import { formatDate, formatDateTime } from '$lib/formatters/date';
@@ -15,13 +15,14 @@
 		timelineGlyph,
 		timelineTone
 	} from '$lib/formatters/timeline';
-	import type { ClaimDetailResponse, Clarification, TimelineEntry } from '$lib/types/claim';
+	import type { Claim, ClaimDetailResponse, Clarification, TimelineEntry } from '$lib/types/claim';
 
 	let id = $derived(page.params.id);
 
 	let detail = $state<ClaimDetailResponse | null>(null);
 	let clarifications = $state<Clarification[]>([]);
 	let timeline = $state<TimelineEntry[]>([]);
+	let employeeHistory = $state<Claim[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let notFound = $state(false);
@@ -43,6 +44,10 @@
 
 		try {
 			detail = await getClaim(id as string);
+			const historyResponse = await listClaims(detail.claim.employee_id);
+			employeeHistory = historyResponse.items
+				.filter((item) => item.id !== detail?.claim.id)
+				.sort((a, b) => b.submitted_at.localeCompare(a.submitted_at));
 			// FR-15: konteks percakapan hanya dari respons API yang diotorisasi
 			const clarificationResponse = await listClarifications(id as string);
 			clarifications = clarificationResponse.items;
@@ -319,6 +324,27 @@
 						</ol>
 					</div>
 				{/if}
+
+				<div class="glass-panel">
+					<h3>Riwayat Klaim Karyawan (FR-15)</h3>
+					<p class="scope-note">
+						Hanya klaim lain milik karyawan yang sama, dikirim oleh API berotorisasi. Riwayat ini
+						tidak mengubah konteks klaim saat ini.
+					</p>
+					{#if employeeHistory.length}
+						<ul class="history-list">
+							{#each employeeHistory as item (item.id)}
+								<li class="history-item">
+									<a href={`/riwayat/${item.id}`}>{shortClaimRef(item.id)}</a>
+									<span>{formatDateTime(item.submitted_at)}</span>
+									<StatusBadge status={item.status} size="sm" />
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="scope-note">Belum ada klaim historis lain untuk karyawan ini.</p>
+					{/if}
+				</div>
 			</div>
 		</div>
 	{/if}
@@ -785,6 +811,40 @@
 	.scope-note {
 		margin: -0.6rem 0 0.9rem;
 		font-size: 0.7rem;
+		color: var(--color-text-muted);
+	}
+
+	.history-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.65rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.history-item {
+		display: grid;
+		grid-template-columns: 1fr auto auto;
+		align-items: center;
+		gap: 0.75rem;
+		padding-bottom: 0.6rem;
+		border-bottom: 1px dashed rgba(26, 107, 92, 0.15);
+		font-size: 0.78rem;
+	}
+
+	.history-item:last-child {
+		border-bottom: none;
+		padding-bottom: 0;
+	}
+
+	.history-item a {
+		color: var(--color-primary);
+		font-weight: 700;
+		text-decoration: none;
+	}
+
+	.history-item > span {
 		color: var(--color-text-muted);
 	}
 

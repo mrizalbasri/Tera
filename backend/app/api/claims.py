@@ -57,6 +57,11 @@ class ClaimResponse(BaseModel):
     idempotent_replay: bool = False
 
 
+class ReplacementReceiptResponse(BaseModel):
+    claim: Claim
+    receipt: Receipt
+
+
 class ClaimListResponse(BaseModel):
     items: list[Claim]
     total: int
@@ -126,6 +131,28 @@ async def create_claim(
     return ClaimResponse(claim=claim, receipts=receipts, idempotent_replay=replay)
 
 
+@router.post(
+    "/{claim_id}/receipts",
+    response_model=ReplacementReceiptResponse,
+    status_code=201,
+)
+async def replace_claim_receipt(
+    claim_id: UUID,
+    file: UploadFile = File(...),
+    settings: Settings = Depends(get_settings),
+    service: IntakeService = Depends(get_intake_service),
+) -> ReplacementReceiptResponse:
+    claim, receipt = service.replace_receipt(
+        claim_id=claim_id,
+        upload=ReceiptUpload(
+            filename=file.filename,
+            media_type=file.content_type,
+            content=await file.read(settings.max_receipt_size_bytes + 1),
+        ),
+    )
+    return ReplacementReceiptResponse(claim=claim, receipt=receipt)
+
+
 @router.get("", response_model=ClaimListResponse)
 def list_claims(
     employee_id: str | None = Query(None),
@@ -167,9 +194,14 @@ def get_claim(
 def process_claim(
     claim_id: UUID,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    resume: bool = Query(False),
     service: ClaimProcessingService = Depends(get_extraction_service),
 ) -> ProcessClaimResponse:
-    outcome = service.process_claim(claim_id, idempotency_key=idempotency_key)
+    outcome = service.process_claim(
+        claim_id,
+        resume=resume,
+        idempotency_key=idempotency_key,
+    )
     return ProcessClaimResponse(
         claim=outcome.claim,
         extractions=outcome.extractions,

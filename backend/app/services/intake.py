@@ -4,12 +4,12 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import PurePath
 import time
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from app.audit.events import record_audit_event
 from app.config import Settings
 from app.domain.enums import ActorType, ClaimStatus
-from app.errors import ApplicationError, ErrorCode
+from app.errors import ApplicationError, ErrorCode, NotFoundError
 from app.repositories.protocols import (
     AuditRepository,
     ClaimRepository,
@@ -178,6 +178,74 @@ class IntakeService:
             if existing is not None:
                 return existing
         return None
+
+    def replace_receipt(
+        self,
+        *,
+        claim_id: UUID,
+        upload: ReceiptUpload,
+    ) -> tuple[Claim, Receipt]:
+        """Append a clearer receipt to an existing non-terminal claim."""
+        claim = self._claims.get(claim_id)
+        if claim is None:
+            raise NotFoundError("Claim", str(claim_id))
+
+        current_status = ClaimStatus(claim.status)
+        if current_status not in (
+            ClaimStatus.PROCESSING,
+            ClaimStatus.NEEDS_CLARIFICATION,
+            ClaimStatus.ESCALATED,
+        ):
+            raise ApplicationError(
+                ErrorCode.INVALID_CLAIM,
+                "Claim cannot accept a replacement receipt in its current state.",
+                409,
+            )
+
+        candidate = self._prepare_receipt(upload, set())
+        if self._receipts.find_claim_id_by_content_hash(candidate.content_hash):
+            raise ApplicationError(
+                ErrorCode.DUPLICATE_RECEIPT,
+                "A receipt with the same content has already been submitted.",
+                409,
+            )
+
+        now = datetime.now(UTC)
+        if current_status is not ClaimStatus.PROCESSING:
+            claim = claim.model_copy(
+                update={"status": ClaimStatus.PROCESSING, "updated_at": now}
+            )
+            self._claims.save(claim)
+
+        reference = self._storage.put(
+            candidate.content,
+            filename=candidate.filename,
+            media_type=candidate.media_type,
+        )
+        receipt = Receipt(
+            id=uuid4(),
+            claim_id=claim_id,
+            original_filename=candidate.filename,
+            media_type=candidate.media_type,
+            storage_reference=reference,
+            content_hash=candidate.content_hash,
+            quality_score=Decimal(str(candidate.quality_score)),
+            quality_findings=candidate.quality_findings,
+            created_at=now,
+        )
+        self._receipts.save(receipt)
+        record_audit_event(
+            self._audit,
+            aggregate_type="claim",
+            aggregate_id=claim_id,
+            event_type="receipt.replaced",
+            actor_type=ActorType.EMPLOYEE,
+            safe_payload={
+                "receipt_id": str(receipt.id),
+                "media_type": receipt.media_type,
+            },
+        )
+        return claim, receipt
 
     def _prepare_receipt(
         self, upload: ReceiptUpload, seen_hashes: set[str]

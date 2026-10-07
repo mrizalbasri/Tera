@@ -11,7 +11,8 @@
 		listClarifications,
 		MAX_RECEIPT_SIZE_BYTES,
 		ALLOWED_RECEIPT_TYPES,
-		processClaim
+		processClaim,
+		replaceClaimReceipt
 	} from '$lib/api/claims';
 	import { showToast } from '$lib/stores/toast.svelte';
 	import { shortClaimRef } from '$lib/formatters/claim';
@@ -186,7 +187,37 @@
 			}
 			scrollToBottom();
 			await sleep(400);
-			await runProcessing(stepsId, claimId);
+			try {
+				const replacement = await replaceClaimReceipt({ claimId, file });
+				updateMessage(stepsId, {
+					steps: [
+						{
+							label: 'Mengunggah nota pengganti ke server',
+							detail: `Nota "${replacement.receipt.original_filename}" tersimpan pada klaim ${shortClaimRef(claimId)}.`,
+							status: 'done'
+						},
+						{ label: 'Membaca nota (OCR)', status: 'active' }
+					]
+				});
+				await runProcessing(stepsId, claimId, true);
+			} catch (error) {
+				submitPhase = 'idle';
+				const message = error instanceof Error ? error.message : 'Gagal mengunggah nota pengganti.';
+				updateMessage(stepsId, {
+					steps: [
+						{ label: 'Mengunggah nota pengganti ke server', detail: message, status: 'failed' },
+						{ label: 'Membaca nota (OCR)', status: 'skipped' }
+					]
+				});
+				messages.push({
+					id: nextId++,
+					from: 'agent',
+					text: `❌ ${message} Klaim lama tetap tersimpan — coba upload ulang.`,
+					isError: true,
+					timestamp: formatClock()
+				});
+				scrollToBottom();
+			}
 			return;
 		}
 
@@ -257,7 +288,7 @@
 		}
 	}
 
-	async function runProcessing(stepsId: number, claimId: string) {
+	async function runProcessing(stepsId: number, claimId: string, resume = false) {
 		updateMessage(stepsId, {
 			steps: [
 				{ label: 'Mengunggah nota ke server', status: 'done' },
@@ -267,7 +298,7 @@
 
 		let result: ProcessClaimResponse;
 		try {
-			result = await processClaim(claimId);
+			result = await processClaim(claimId, crypto.randomUUID(), resume);
 		} catch (error) {
 			submitPhase = 'idle';
 			retryableClaimId = claimId;

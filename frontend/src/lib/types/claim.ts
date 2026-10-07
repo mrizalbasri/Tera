@@ -163,6 +163,11 @@ export interface CreateClaimResponse {
 	idempotent_replay: boolean;
 }
 
+export interface ReplacementReceiptResponse {
+	claim: Claim;
+	receipt: Receipt;
+}
+
 /** Satu langkah terurut & redacted dalam kisah pemrosesan klaim (FR-12). */
 export interface TimelineEntry {
 	sequence: number;

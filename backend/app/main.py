@@ -11,6 +11,7 @@ from app.api.reviews import router as reviews_router
 from app.config import get_settings
 from app.errors import ApplicationError
 from app.integrations.claim_graph import close_graph_resources
+from app.api.deps import close_sql_repositories
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +28,7 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         close_graph_resources()
+        close_sql_repositories()
 
 
 app = FastAPI(

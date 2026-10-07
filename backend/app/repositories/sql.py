@@ -12,16 +12,22 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
-    BLOB,
+    BigInteger,
+    Identity,
+    LargeBinary,
     String,
     UniqueConstraint,
     create_engine,
+    inspect,
     func,
     select,
     text,
 )
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.schema import CreateColumn
 
 from app.errors import ApplicationError, ErrorCode
 from app.schemas.core import (
@@ -47,7 +53,25 @@ class Base(DeclarativeBase):
     pass
 
 
-class ClaimRow(Base):
+class OrderedRecord:
+    # PostgreSQL has no SQLite rowid. Identity preserves insertion order even
+    # when timestamps match. SQLite keeps its existing rowid ordering.
+    insertion_order: Mapped[int] = mapped_column(BigInteger, Identity())
+
+
+@compiles(CreateColumn, "sqlite")
+def _sqlite_order_column(element, compiler, **kwargs):
+    if element.element.name == "insertion_order":
+        # SQLite ignores Identity; this compatibility column must allow NULL.
+        return "insertion_order BIGINT"
+    return compiler.visit_create_column(element, **kwargs)
+
+
+def _record_order(session: Session, model):
+    return text("rowid") if session.get_bind().dialect.name == "sqlite" else model.insertion_order
+
+
+class ClaimRow(OrderedRecord, Base):
     __tablename__ = "claims"
     id: Mapped[str] = mapped_column(String(_ID_LENGTH), primary_key=True)
     employee_id: Mapped[str] = mapped_column(String(100), index=True)
@@ -55,7 +79,7 @@ class ClaimRow(Base):
     payload: Mapped[dict] = mapped_column(JSON)
 
 
-class ReceiptRow(Base):
+class ReceiptRow(OrderedRecord, Base):
     __tablename__ = "receipts"
     id: Mapped[str] = mapped_column(String(_ID_LENGTH), primary_key=True)
     claim_id: Mapped[str] = mapped_column(String(_ID_LENGTH), index=True)
@@ -66,17 +90,17 @@ class ReceiptRow(Base):
 class ReceiptContentRow(Base):
     __tablename__ = "file_storage"
     reference: Mapped[str] = mapped_column(String(200), primary_key=True)
-    content: Mapped[bytes] = mapped_column(BLOB)
+    content: Mapped[bytes] = mapped_column(LargeBinary)
 
 
-class ProcessingRunRow(Base):
+class ProcessingRunRow(OrderedRecord, Base):
     __tablename__ = "processing_runs"
     id: Mapped[str] = mapped_column(String(_ID_LENGTH), primary_key=True)
     claim_id: Mapped[str] = mapped_column(String(_ID_LENGTH), index=True)
     payload: Mapped[dict] = mapped_column(JSON)
 
 
-class ChildRow(Base):
+class ChildRow(OrderedRecord, Base):
     """Shared shape for per-claim child records keyed by their own id."""
 
     __tablename__ = "domain_records"
@@ -133,12 +157,26 @@ class SqlRepositories:
     """Bundle of SQL-backed repositories behind the same protocols."""
 
     def __init__(self, database_url: str) -> None:
+        url = make_url(database_url)
+        if url.get_backend_name() == "postgresql":
+            url = url.set(drivername="postgresql+psycopg")
         self._engine = create_engine(
-            database_url,
+            url,
             future=True,
-            connect_args={"check_same_thread": False},
+            connect_args={"check_same_thread": False} if url.get_backend_name() == "sqlite" else {},
+            pool_pre_ping=True,
         )
         Base.metadata.create_all(self._engine)
+        if url.get_backend_name() == "sqlite":
+            # Old M6/M7 SQLite records remain readable after this additive change.
+            inspector = inspect(self._engine)
+            with self._engine.begin() as connection:
+                for model in (ClaimRow, ReceiptRow, ProcessingRunRow, ChildRow):
+                    columns = {column["name"] for column in inspector.get_columns(model.__tablename__)}
+                    if "insertion_order" not in columns:
+                        connection.execute(text(
+                            f'ALTER TABLE "{model.__tablename__}" ADD COLUMN insertion_order BIGINT'
+                        ))
         self._session_factory = sessionmaker(self._engine, expire_on_commit=False)
         self.claims = SqlClaimRepository(self._session_factory)
         self.receipts = SqlReceiptRepository(self._session_factory)
@@ -167,6 +205,9 @@ class SqlRepositories:
         self.audit = SqlAuditRepository(self._session_factory)
         self.context = SqlConversationRepository(self._session_factory)
         self.history = SqlClaimHistoryRepository(self._session_factory)
+
+    def close(self) -> None:
+        self._engine.dispose()
 
 
 
@@ -201,7 +242,7 @@ class SqlClaimRepository:
 
     def list(self, *, employee_id: str | None = None) -> Sequence[Claim]:
         with self._sessions() as session:
-            statement = select(ClaimRow).order_by(text("rowid"))
+            statement = select(ClaimRow).order_by(_record_order(session, ClaimRow))
             if employee_id is not None:
                 statement = statement.where(ClaimRow.employee_id == employee_id)
             return tuple(
@@ -252,7 +293,7 @@ class SqlReceiptRepository:
             statement = (
                 select(ReceiptRow)
                 .where(ReceiptRow.claim_id == str(claim_id))
-                .order_by(text("rowid"))
+                .order_by(_record_order(session, ReceiptRow))
             )
             return tuple(
                 Receipt.model_validate(row.payload) for row in session.scalars(statement)
@@ -263,7 +304,7 @@ class SqlReceiptRepository:
             statement = (
                 select(ReceiptRow)
                 .where(ReceiptRow.content_hash == content_hash)
-                .order_by(text("rowid"))
+                .order_by(_record_order(session, ReceiptRow))
                 .limit(1)
             )
             row = session.scalars(statement).first()
@@ -300,7 +341,7 @@ class SqlProcessingRunRepository:
             statement = (
                 select(ProcessingRunRow)
                 .where(ProcessingRunRow.claim_id == str(claim_id))
-                .order_by(text("rowid"))
+                .order_by(_record_order(session, ProcessingRunRow))
             )
             return tuple(
                 ProcessingRun.model_validate(row.payload)
@@ -379,7 +420,7 @@ class SqlChildRepository:
                 select(ChildRow)
                 .where(ChildRow.claim_id == str(claim_id))
                 .where(ChildRow.kind == self._kind)
-                .order_by(text("rowid"))
+                .order_by(_record_order(session, ChildRow))
             )
             return tuple(
                 self._schema.model_validate(row.payload)
@@ -395,7 +436,7 @@ class SqlChildRepository:
             statement = (
                 select(ChildRow)
                 .where(ChildRow.kind == self._kind)
-                .order_by(text("rowid"))
+                .order_by(_record_order(session, ChildRow))
             )
             return tuple(
                 self._schema.model_validate(row.payload)
@@ -417,7 +458,7 @@ class SqlClaimHistoryRepository:
             statement = (
                 select(ClaimRow)
                 .where(ClaimRow.employee_id == employee_id)
-                .order_by(text("rowid"))
+                .order_by(_record_order(session, ClaimRow))
             )
             claims = [
                 Claim.model_validate(row.payload) for row in session.scalars(statement)
@@ -435,7 +476,7 @@ class SqlClaimHistoryRepository:
         matched: list[Claim] = []
         with self._sessions() as session:
             claim_rows = session.scalars(
-                select(ClaimRow).order_by(text("rowid"))
+                select(ClaimRow).order_by(_record_order(session, ClaimRow))
             ).all()
             for row in claim_rows:
                 if exclude_claim_id is not None and row.id == str(exclude_claim_id):
@@ -482,7 +523,7 @@ class SqlReviewRepository(SqlChildRepository):
             rows = session.scalars(
                 select(ChildRow)
                 .where(ChildRow.kind == self._kind)
-                .order_by(text("rowid"))
+                .order_by(_record_order(session, ChildRow))
             ).all()
         return tuple(
             Review.model_validate(row.payload)

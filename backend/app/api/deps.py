@@ -1,6 +1,7 @@
 """FastAPI dependency wiring for the storage backend and services."""
 
 from functools import lru_cache
+from weakref import WeakSet
 
 from fastapi import Depends
 
@@ -52,9 +53,21 @@ def _memory_repositories() -> InMemoryRepositories:
     return InMemoryRepositories()
 
 
+_sql_bundles: WeakSet[SqlRepositories] = WeakSet()
+
+
 @lru_cache
 def _sql_repositories(database_url: str) -> SqlRepositories:
-    return SqlRepositories(database_url)
+    repositories = SqlRepositories(database_url)
+    _sql_bundles.add(repositories)
+    return repositories
+
+
+def close_sql_repositories() -> None:
+    for repositories in list(_sql_bundles):
+        repositories.close()
+    _sql_bundles.clear()
+    _sql_repositories.cache_clear()
 
 
 def _backend(settings: Settings):

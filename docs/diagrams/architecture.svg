@@ -72,10 +72,10 @@
   <text x="728.6545" y="349.01666666666665" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="728.6545" dy="-3.9000000000000012">FastAPI API</tspan><tspan x="728.6545" dy="16.900000000000002">(routes + Pydantic schemas)</tspan></text>
 </g>
 <g class="node" data-id="EXT" data-label="LLM / OCR Adapter
-LangChain, GLM vision via Z.ai
+LangChain, OpenAI-compatible vision
 (PROVIDER_MODE = mock | live)" data-shape="rectangle">
   <rect x="2201.122" y="230.0333333333334" width="230.90499999999992" height="70.7" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="2316.5744999999997" y="265.3833333333334" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="2316.5744999999997" dy="-12.350000000000001">LLM / OCR Adapter</tspan><tspan x="2316.5744999999997" dy="16.900000000000002">LangChain, GLM vision via Z.ai</tspan><tspan x="2316.5744999999997" dy="16.900000000000002">(PROVIDER_MODE = mock | live)</tspan></text>
+  <text x="2316.5744999999997" y="265.3833333333334" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="2316.5744999999997" dy="-12.350000000000001">LLM / OCR Adapter</tspan><tspan x="2316.5744999999997" dy="16.900000000000002">LangChain, OpenAI-compatible vision</tspan><tspan x="2316.5744999999997" dy="16.900000000000002">(PROVIDER_MODE = mock | live)</tspan></text>
 </g>
 <g class="node" data-id="DB" data-label="SQL Database
 SQLite dev/demo,
@@ -97,13 +97,13 @@ receipt JPG/PNG/PDF" data-shape="cylinder">
   <text x="2074.5685" y="333.58333333333337" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="2074.5685" dy="-3.9000000000000012">File Storage</tspan><tspan x="2074.5685" dy="16.900000000000002">receipt JPG/PNG/PDF</tspan></text>
 </g>
 <g class="node" data-id="CP" data-label="LangGraph Checkpointer
-(SQLite)" data-shape="cylinder">
+(PostgreSQL: langgraph)" data-shape="cylinder">
   <rect x="1988.0149999999999" y="57.09999999999998" width="192.37299999999996" height="53.80000000000001" fill="var(--_node-fill)" stroke="none" />
   <line x1="1988.0149999999999" y1="57.09999999999998" x2="1988.0149999999999" y2="110.89999999999999" stroke="var(--_node-stroke)" stroke-width="0.75" />
   <line x1="2180.388" y1="57.09999999999998" x2="2180.388" y2="110.89999999999999" stroke="var(--_node-stroke)" stroke-width="0.75" />
   <ellipse cx="2084.2014999999997" cy="110.89999999999999" rx="96.18649999999998" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
   <ellipse cx="2084.2014999999997" cy="57.09999999999998" rx="96.18649999999998" ry="7" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
-  <text x="2084.2014999999997" y="83.99999999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="2084.2014999999997" dy="-3.9000000000000012">LangGraph Checkpointer</tspan><tspan x="2084.2014999999997" dy="16.900000000000002">(SQLite)</tspan></text>
+  <text x="2084.2014999999997" y="83.99999999999999" text-anchor="middle" font-size="13" font-weight="500" fill="var(--_text)"><tspan x="2084.2014999999997" dy="-3.9000000000000012">LangGraph Checkpointer</tspan><tspan x="2084.2014999999997" dy="16.900000000000002">(PostgreSQL: langgraph)</tspan></text>
 </g>
 <g class="node" data-id="SVC" data-label="Claim Processing Service
 (use cases)" data-shape="rectangle">

@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 import subprocess
 import sys
+import os
 from threading import Barrier
 from uuid import UUID
 
@@ -17,12 +18,16 @@ from app.integrations.claim_graph import close_graph_resources, graph_resources
 from app.main import app
 
 
-@pytest.fixture(params=["memory", "sql"])
+@pytest.fixture(params=["memory", "sql", "postgres"])
 def graph_env(request, tmp_path):
+    database_url = (request.getfixturevalue("postgres_database_url") if request.param == "postgres"
+                    else f"sqlite:///{tmp_path / 'claims.db'}")
     settings = Settings(
-        _env_file=None, provider_mode="mock", storage_backend=request.param,
-        database_url=f"sqlite:///{tmp_path / 'claims.db'}",
+        _env_file=None, provider_mode="mock",
+        storage_backend="memory" if request.param == "memory" else "sql",
+        database_url=database_url,
         graph_checkpoint_path=str(tmp_path / "graph.db"),
+        llm_api_key="private-test-credential",
     )
     app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as client:
@@ -74,7 +79,7 @@ def restart(settings):
     if settings.storage_backend != "sql":
         return
     close_graph_resources()
-    deps._sql_repositories.cache_clear()
+    deps.close_sql_repositories()
 
 
 @pytest.mark.parametrize("amount,marker,outcome,stage", [
@@ -216,7 +221,7 @@ def test_checkpoint_history_contains_only_control_data(graph_env, kind):
         for key in ("claim_id", "run_id", "pipeline_version", "stage"):
             if key in values:
                 assert isinstance(values[key], str)
-    if settings.storage_backend == "sql":
+    if settings.storage_backend == "sql" and settings.database_url.startswith("sqlite"):
         raw = Path(settings.graph_checkpoint_path).read_bytes()
         assert b"private-" not in raw and b"%PDF" not in raw
 
@@ -268,10 +273,14 @@ def test_classified_errors_end_run_and_new_attempt_can_start(graph_env):
     assert [r.status for r in records(settings).runs.list_for_claim(UUID(claim_id))] == ["failed", "failed"]
 
 
+@pytest.mark.parametrize("backend", ["sqlite", "postgres"])
 @pytest.mark.parametrize("kind", ["clarification", "review"])
-def test_sqlite_resume_across_separate_python_processes(tmp_path, kind):
+def test_sql_resume_across_separate_python_processes(tmp_path, kind, backend, request):
+    database_url = (request.getfixturevalue("postgres_database_url") if backend == "postgres"
+                    else f"sqlite:///{tmp_path / 'claims.db'}")
     script = r'''
 import sys
+import os
 from pathlib import Path
 from app.config import Settings, get_settings
 Settings.model_config["env_file"] = None
@@ -281,7 +290,7 @@ from fastapi.testclient import TestClient
 directory, kind, phase, claim_id = sys.argv[1:]
 settings = Settings(
     _env_file=None, storage_backend="sql", provider_mode="mock",
-    database_url=f"sqlite:///{Path(directory) / 'claims.db'}",
+    database_url=os.environ["CLAIM_TEST_DATABASE_URL"],
     graph_checkpoint_path=str(Path(directory) / "graph.db"),
 )
 app.dependency_overrides[get_settings] = lambda: settings
@@ -318,6 +327,7 @@ with TestClient(app) as client:
             [sys.executable, "-c", script, str(tmp_path), kind, phase, claim_id],
             cwd=Path(__file__).resolve().parents[1], capture_output=True,
             text=True, timeout=30,
+            env=dict(os.environ, CLAIM_TEST_DATABASE_URL=database_url),
         )
         assert result.returncode == 0, result.stderr
         return result.stdout.strip()

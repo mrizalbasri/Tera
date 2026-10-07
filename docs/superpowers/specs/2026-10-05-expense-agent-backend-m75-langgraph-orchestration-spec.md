@@ -33,7 +33,7 @@ START
 - Conditional edges mirror the FR-08 precedence exactly; the graph does not
   add, reorder, or soften precedence.
 - Clarification and review resume via `interrupt()` + `Command(resume=...)`
-  with the LangGraph checkpointer (SQLite), keyed by claim id.
+  with the LangGraph checkpointer (`PostgresSaver`), keyed by claim id.
 - A resumed run still creates a NEW ProcessingRun; graph checkpoints
   complement, never replace, ProcessingRun/AuditEvent persistence.
 - Decision persistence, clarification creation and review creation happen
@@ -73,12 +73,21 @@ START
 ## Local persistence and compatibility
 
 - `STORAGE_BACKEND=memory`: memory domain repositories plus `InMemorySaver`.
-- `STORAGE_BACKEND=sql`: SQL repositories plus `SqliteSaver` in a separate file.
-  `DATABASE_URL=sqlite:///./expense_agent.db` stores domain data;
-  `GRAPH_CHECKPOINT_PATH=./expense_agent_checkpoints.db` stores checkpoints.
-- Paths are relative to the server working directory. Use `backend/` consistently
-  and keep both files when restarting. Saver resources are shared per repository
-  bundle, opened lazily and closed by the FastAPI lifespan at shutdown.
+- `STORAGE_BACKEND=sql`: SQLAlchemy/psycopg repositories plus `PostgresSaver`.
+  `DATABASE_URL=postgresql+psycopg://postgres:YOUR_PASSWORD@127.0.0.1:5432/tera`
+  selects the application database. Domain tables use the default public schema;
+  `GRAPH_CHECKPOINT_SCHEMA=langgraph` isolates checkpoint table names.
+- The PostgreSQL database must exist. Repositories create missing domain tables;
+  saver setup creates its schema/tables on first processing use. Credentials stay
+  in local environment configuration. No Docker installation is required when a
+  PostgreSQL server is already installed; CI uses a PostgreSQL 18 service.
+- Saver resources are shared per repository bundle, opened lazily and closed
+  by the FastAPI lifespan at shutdown. Repository pools are also disposed.
+- PostgreSQL identity columns provide deterministic insertion ordering instead
+  of SQLite rowid; receipt bytes use PostgreSQL BYTEA through LargeBinary.
+- Legacy SQLite repository/checkpoint support remains for old databases/tests.
+  GRAPH_CHECKPOINT_PATH applies only to SQLite. There is no automatic data copy
+  from SQLite to PostgreSQL; old files remain intact.
 - Local development uses SQL storage while the example and isolated tests keep
   memory/mock defaults. Provider/model/key settings are independent of storage.
 - Completed M7 claims replay from stored domain records. Waiting M7 claims with
@@ -101,11 +110,15 @@ START
 ## Tests
 
 Run the original behavioural suite and `tests/test_m75_graph.py` with mocks.
-The graph tests cover memory and SQLite routing, low confidence, classified
+The graph tests cover memory, PostgreSQL and legacy SQLite routing, low confidence, classified
 failures, clarification/review resume, restart, old waiting claims, duplicate
 requests, concurrent answers/reviews, isolation between claims and checkpoint
 privacy. Existing decision/fallback tests continue to verify rejected outcomes,
 conservative precedence and degraded providers. Tests disable local dotenv reads.
+PostgreSQL cases use TEST_POSTGRES_URL with a CREATEDB account to create/drop only
+unique tera_test_* databases. Separate Python processes test persisted waits and
+resume. GitHub CI supplies the PostgreSQL service and test credentials; local
+application databases and personal data are never test fixtures.
 
 Run a separate synthetic image smoke test against the developer's configured
 OpenAI-compatible endpoint after upgrading dependencies. It must use no fallback;
@@ -120,6 +133,8 @@ langchain-openai==1.6.7
 langgraph==1.2.14
 langgraph-checkpoint==4.2.0
 langgraph-checkpoint-sqlite==3.1.1
+langgraph-checkpoint-postgres==3.1.2
+psycopg[binary]==3.3.6
 ```
 
 JSON mode and the OpenAI-compatible adapter remain in use. M7 is merged in

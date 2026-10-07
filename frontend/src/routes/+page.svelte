@@ -78,6 +78,9 @@
 	// FR-03: retry proses hanya lewat tombol (bounded, tidak otomatis)
 	let retryableClaimId = $state<string | null>(null);
 
+	// FR-03: id klaim lama saat retake receipt agar konteks tidak hilang
+	let retakeClaimId = $state<string | null>(null);
+
 	function scrollToBottom() {
 		setTimeout(() => {
 			if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -147,21 +150,50 @@
 		retryableClaimId = null;
 
 		const file = selectedFile;
-		submitPhase = 'uploading';
+		const isRetake = retakeClaimId !== null;
+		const existingClaimId = retakeClaimId;
+		retakeClaimId = null;
+		submitPhase = isRetake ? 'processing' : 'uploading';
 
 		const stepsId = nextId++;
 		messages.push({
 			id: stepsId,
 			from: 'agent',
-			stepsTitle: 'Mengirim nota...',
-			steps: [{ label: 'Mengunggah nota ke server', status: 'active' }],
+			stepsTitle: isRetake ? 'Mengganti nota...' : 'Mengirim nota...',
+			steps: [{ label: isRetake ? 'Mengunggah nota pengganti ke server' : 'Mengunggah nota ke server', status: 'active' }],
 			timestamp: formatClock()
 		});
 		scrollToBottom();
 
 		let claimId: string;
+		if (isRetake && existingClaimId) {
+			// FR-03: retake melanjutkan klaim yang sama — tidak membuat klaim baru
+			claimId = existingClaimId;
+			const uploadDetail = `Nota pengganti "${file.name}" diproses ulang untuk klaim ${shortClaimRef(claimId)}.`;
+			updateMessage(stepsId, {
+				claimRef: shortClaimRef(claimId),
+				claimId,
+				stepsTitle: 'Memproses ulang nota...',
+				steps: [
+					{ label: 'Mengunggah nota pengganti ke server', detail: uploadDetail, status: 'done' },
+					{ label: 'Membaca nota (OCR)', status: 'active' }
+				]
+			});
+			selectedFile = null;
+			if (pendingFileMessageId != null) {
+				updateMessage(pendingFileMessageId, { removable: false });
+				pendingFileMessageId = null;
+			}
+			scrollToBottom();
+			await sleep(400);
+			await runProcessing(stepsId, claimId);
+			return;
+		}
+
 		try {
-			const response = await createClaim({ file });
+			// FR-04: idempotency key per-submit mencegah duplikasi klaim saat retry jaringan
+			const idempotencyKey = crypto.randomUUID();
+			const response = await createClaim({ file, idempotencyKey });
 			claimId = response.claim.id;
 			const quality = response.receipts[0]?.quality_score;
 			const uploadDetail =
@@ -361,6 +393,8 @@
 		if (action.kind === 'retry-process' && message.claimId) {
 			retryProcess(message.claimId, message.id);
 		} else if (action.kind === 'retake') {
+			// FR-03: simpan claimId lama agar retake melanjutkan klaim yg sama
+			if (message.claimId) retakeClaimId = message.claimId;
 			openFilePicker();
 		}
 		// kind 'detail' berupa <a>, ditangani browser

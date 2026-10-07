@@ -4,7 +4,8 @@ import type {
 	ClaimListResponse,
 	ClarificationListResponse,
 	CreateClaimResponse,
-	ProcessClaimResponse
+	ProcessClaimResponse,
+	TimelineResponse
 } from '$lib/types/claim';
 
 /**
@@ -59,6 +60,11 @@ export async function listClarifications(claimId: string): Promise<Clarification
 	return apiRequest<ClarificationListResponse>(
 		`/claims/${encodeURIComponent(claimId)}/clarifications`
 	);
+}
+
+/** FR-12: urutan kerja agent sesuai API, sudah redacted oleh backend. */
+export async function getClaimTimeline(claimId: string): Promise<TimelineResponse> {
+	return apiRequest<TimelineResponse>(`/claims/${encodeURIComponent(claimId)}/timeline`);
 }
 
 /**

@@ -3,18 +3,25 @@
 	import { onMount } from 'svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
-	import { getClaim, listClarifications } from '$lib/api/claims';
+	import { getClaim, getClaimTimeline, listClarifications } from '$lib/api/claims';
 	import { ApiError } from '$lib/api/client';
 	import { shortClaimRef } from '$lib/formatters/claim';
 	import { formatDate, formatDateTime } from '$lib/formatters/date';
 	import { formatCurrency, formatConfidence, confidenceLevel, toNumber } from '$lib/formatters/currency';
 	import { describeReasonCode } from '$lib/formatters/reasonCodes';
-	import type { ClaimDetailResponse, Clarification } from '$lib/types/claim';
+	import {
+		describeTimelineStep,
+		formatDuration,
+		timelineGlyph,
+		timelineTone
+	} from '$lib/formatters/timeline';
+	import type { ClaimDetailResponse, Clarification, TimelineEntry } from '$lib/types/claim';
 
 	let id = $derived(page.params.id);
 
 	let detail = $state<ClaimDetailResponse | null>(null);
 	let clarifications = $state<Clarification[]>([]);
+	let timeline = $state<TimelineEntry[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let notFound = $state(false);
@@ -39,6 +46,9 @@
 			// FR-15: konteks percakapan hanya dari respons API yang diotorisasi
 			const clarificationResponse = await listClarifications(id as string);
 			clarifications = clarificationResponse.items;
+			// FR-12: urutan kerja agent dari endpoint timeline backend
+			const timelineResponse = await getClaimTimeline(id as string);
+			timeline = timelineResponse.items;
 		} catch (error) {
 			if (error instanceof ApiError && (error.status === 404 || error.code === 'not_found')) {
 				notFound = true;
@@ -195,6 +205,11 @@
 								{/each}
 							</div>
 						{/if}
+						{#if extraction.provider_degraded}
+							<div class="warning-box degraded">
+								<p>⚠️ Hasil dari penyedia cadangan — klaim ini tidak akan disetujui otomatis.</p>
+							</div>
+						{/if}
 						{#if extraction.line_items.length}
 							<h4>Rincian Item</h4>
 							<ul class="line-items">
@@ -227,6 +242,34 @@
 								</div>
 							{/each}
 						</div>
+					</div>
+				{/if}
+
+				{#if timeline.length}
+					<div class="glass-panel">
+						<h3>Timeline Pemrosesan Agent (FR-12)</h3>
+						<p class="scope-note">Urutan sesuai endpoint timeline backend · detail sudah disaring</p>
+						<ol class="timeline-list">
+							{#each timeline as entry (entry.sequence)}
+								{@const tone = timelineTone(entry.status)}
+								<li class="timeline-entry">
+									<span class="timeline-glyph {tone}" aria-hidden="true">{timelineGlyph(tone)}</span>
+									<div class="timeline-body">
+										<div class="timeline-head">
+											<strong>{describeTimelineStep(entry.step_name).label}</strong>
+											<span class="timeline-status {tone}">{entry.status}</span>
+										</div>
+										<p class="timeline-summary">{entry.summary}</p>
+										<div class="timeline-meta">
+											<span>#{entry.sequence}</span>
+											{#if entry.timestamp}<span>{formatDateTime(entry.timestamp)}</span>{/if}
+											{#if formatDuration(entry.duration_ms)}<span>{formatDuration(entry.duration_ms)}</span>{/if}
+											{#if entry.error_code}<span class="timeline-error">{describeReasonCode(entry.error_code).label}</span>{/if}
+										</div>
+									</div>
+								</li>
+							{/each}
+						</ol>
 					</div>
 				{/if}
 
@@ -628,6 +671,114 @@
 		background: var(--color-primary-light);
 		transform: translateY(-1px);
 		box-shadow: 0 4px 12px rgba(26, 107, 92, 0.2);
+	}
+
+	.warning-box.degraded {
+		background: rgba(239, 68, 68, 0.07);
+		border-color: rgba(239, 68, 68, 0.3);
+	}
+
+	.warning-box.degraded p {
+		color: #b91c1c;
+	}
+
+	/* Timeline pemrosesan (FR-12) */
+	.timeline-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.timeline-entry {
+		display: flex;
+		gap: 0.7rem;
+		padding: 0.55rem 0;
+		position: relative;
+	}
+
+	.timeline-entry:not(:last-child)::after {
+		content: '';
+		position: absolute;
+		left: 12px;
+		top: 34px;
+		width: 1px;
+		height: calc(100% - 10px);
+		background: rgba(26, 107, 92, 0.15);
+	}
+
+	.timeline-glyph {
+		width: 26px;
+		height: 26px;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.72rem;
+		font-weight: 800;
+		flex-shrink: 0;
+		position: relative;
+		z-index: 1;
+	}
+
+	.timeline-glyph.success { background: rgba(34, 197, 94, 0.14); color: #16a34a; }
+	.timeline-glyph.danger { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
+	.timeline-glyph.warn { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+	.timeline-glyph.info { background: rgba(59, 130, 246, 0.12); color: #1d4ed8; }
+	.timeline-glyph.neutral { background: rgba(100, 116, 139, 0.1); color: #64748b; }
+
+	.timeline-body {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.timeline-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.timeline-head strong {
+		font-size: 0.82rem;
+		color: var(--color-text);
+	}
+
+	.timeline-status {
+		font-size: 0.66rem;
+		font-weight: 700;
+		padding: 0.1rem 0.5rem;
+		border-radius: 20px;
+		font-family: monospace;
+	}
+
+	.timeline-status.success { background: rgba(34, 197, 94, 0.12); color: #16a34a; }
+	.timeline-status.danger { background: rgba(239, 68, 68, 0.1); color: #dc2626; }
+	.timeline-status.warn { background: rgba(245, 158, 11, 0.12); color: #b45309; }
+	.timeline-status.info { background: rgba(59, 130, 246, 0.1); color: #1d4ed8; }
+	.timeline-status.neutral { background: rgba(100, 116, 139, 0.1); color: #64748b; }
+
+	.timeline-summary {
+		margin: 0.15rem 0 0;
+		font-size: 0.76rem;
+		color: var(--color-text-muted);
+		line-height: 1.5;
+	}
+
+	.timeline-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem 0.8rem;
+		margin-top: 0.25rem;
+		font-size: 0.68rem;
+		color: var(--color-text-muted);
+	}
+
+	.timeline-error {
+		color: #dc2626;
+		font-weight: 600;
 	}
 
 	/* Clarification history (FR-15) */

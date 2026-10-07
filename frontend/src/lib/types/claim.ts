@@ -75,6 +75,8 @@ export interface ExtractionResult {
 	line_items: ExtractedLineItem[];
 	warnings: string[];
 	provider: string;
+	/** True bila hasil berasal dari fallback deterministik — tidak pernah auto-approve. */
+	provider_degraded?: boolean;
 	created_at: string;
 }
 
@@ -159,6 +161,25 @@ export interface CreateClaimResponse {
 	claim: Claim;
 	receipts: Receipt[];
 	idempotent_replay: boolean;
+}
+
+/** Satu langkah terurut & redacted dalam kisah pemrosesan klaim (FR-12). */
+export interface TimelineEntry {
+	sequence: number;
+	timestamp: string | null;
+	step_name: string;
+	status: string;
+	summary: string;
+	processing_run_id: string | null;
+	duration_ms: number | null;
+	error_code: string | null;
+	detail: Record<string, unknown>;
+	related_ids: Record<string, string>;
+}
+
+export interface TimelineResponse {
+	items: TimelineEntry[];
+	total: number;
 }
 
 export interface ClaimListResponse {

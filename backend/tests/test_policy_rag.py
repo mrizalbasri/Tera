@@ -15,9 +15,9 @@ import pytest
 from app.api import deps
 from app.config import Settings
 from app.errors import ApplicationError
-from app.integrations.policy_corpus import CATEGORY_DESCRIPTIONS, policy_documents
+from app.integrations.rag.corpus import CATEGORY_DESCRIPTIONS, policy_documents
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
-from app.integrations.policy_rag import (
+from app.integrations.rag.policy import (
     RagPolicyRetriever, chroma_client, collection_name, seed_index,
     SentenceEmbedder, MODEL_NAME, MODEL_REVISION,
 )
@@ -59,7 +59,7 @@ def test_unavailable_local_policy_remains_error(rag, category, day):
 
 
 def test_missing_index_does_not_create_files_or_load_model(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.integrations.policy_rag.SentenceEmbedder", lambda *a: pytest.fail("must not load"))
+    monkeypatch.setattr("app.integrations.rag.policy.SentenceEmbedder", lambda *a: pytest.fail("must not load"))
     path = tmp_path / "absent"
     selection = RagPolicyRetriever(str(path), "absent").retrieve_with_provenance(category="fuel", effective_date=date.today())
     assert selection.reason == "index_unavailable" and selection.source == "local"
@@ -70,7 +70,7 @@ def test_missing_model_falls_back_without_exception_text(rag, monkeypatch, caplo
     rag._embedder = None
     def unavailable(*a):
         raise RuntimeError("secret-receipt@example.test api-key-secret")
-    monkeypatch.setattr("app.integrations.policy_rag.SentenceEmbedder", unavailable)
+    monkeypatch.setattr("app.integrations.rag.policy.SentenceEmbedder", unavailable)
     selection = rag.retrieve_with_provenance(category="meals", effective_date=date.today())
     assert selection.reason == "model_unavailable"
     assert "secret" not in repr(selection.audit_payload()) + caplog.text
@@ -136,8 +136,8 @@ def test_index_reopens_in_separate_process(rag):
     script = """
 import sys
 from datetime import date
-from app.integrations.policy_corpus import CATEGORY_DESCRIPTIONS
-from app.integrations.policy_rag import RagPolicyRetriever
+from app.integrations.rag.corpus import CATEGORY_DESCRIPTIONS
+from app.integrations.rag.policy import RagPolicyRetriever
 class FakeEmbedder:
     def embed(self, texts):
         return [[1.0, (sum(text.encode()) % 97 + 1) / 100.0, 0.5] for text in texts]
@@ -177,7 +177,7 @@ def test_missing_model_fallback_is_audited_in_pipeline(rag, monkeypatch):
     rag._embedder = None
     def unavailable(*args):
         raise RuntimeError("sensitive-receipt@example.test credential-secret")
-    monkeypatch.setattr("app.integrations.policy_rag.SentenceEmbedder", unavailable)
+    monkeypatch.setattr("app.integrations.rag.policy.SentenceEmbedder", unavailable)
     app.dependency_overrides[deps.get_policy_retriever] = lambda: rag
     try:
         with TestClient(app) as client:

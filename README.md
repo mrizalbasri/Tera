@@ -121,6 +121,10 @@ The web interface is available at the URL printed by SvelteKit.
 
 ## RAG policy retrieval (M7.6, first PR)
 
+RAG code lives in `backend/app/integrations/rag/`: `corpus.py` builds the
+versioned policy documents and `policy.py` owns embeddings, Chroma seed and
+retrieval. `backend/app/seed_policy.py` remains the CLI entry point.
+
 From `backend/`, seed the BRD section 9 category policies explicitly:
 
 ```powershell

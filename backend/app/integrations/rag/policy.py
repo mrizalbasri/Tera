@@ -6,7 +6,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Protocol
 
-from app.integrations.policy_corpus import (
+from app.integrations.rag.corpus import (
     CATEGORY_DESCRIPTIONS, PolicyDocument, index_fingerprint, policy_documents,
 )
 from app.integrations.policy_local import LocalPolicyRetriever

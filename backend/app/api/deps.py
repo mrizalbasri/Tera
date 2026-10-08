@@ -14,7 +14,7 @@ from app.integrations.llm import LlmReceiptExtractor
 from app.integrations.masking import SensitiveDataMasker
 from app.integrations.mock import MockReceiptExtractor
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
-from app.integrations.policy_rag import RagPolicyRetriever
+from app.integrations.rag.policy import RagPolicyRetriever
 from app.integrations.quality import FileQualityChecker
 from app.repositories.memory import InMemoryRepositories
 from app.repositories.sql import SqlRepositories

@@ -3,8 +3,8 @@
 import argparse
 
 from app.config import Settings
-from app.integrations.policy_corpus import policy_documents
-from app.integrations.policy_rag import RagPolicyRetriever, SentenceEmbedder, seed_index
+from app.integrations.rag.corpus import policy_documents
+from app.integrations.rag.policy import RagPolicyRetriever, SentenceEmbedder, seed_index
 
 
 def main() -> None:

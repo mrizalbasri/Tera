@@ -27,9 +27,10 @@ def isolated_stores(monkeypatch):
     deps._memory_repositories.cache_clear()
     deps._sql_repositories.cache_clear()
     get_settings.cache_clear()
+    deps._rag_policy_retriever.cache_clear()
     with tempfile.TemporaryDirectory(prefix="tera-graph-test-") as directory:
         monkeypatch.setenv("GRAPH_CHECKPOINT_PATH", f"{directory}/checkpoints.db")
-        settings = Settings(_env_file=None, storage_backend="memory", provider_mode="mock")
+        settings = Settings(_env_file=None, storage_backend="memory", provider_mode="mock", policy_mode="local")
         app.dependency_overrides[get_settings] = lambda: settings
         try:
             yield
@@ -40,6 +41,7 @@ def isolated_stores(monkeypatch):
             deps._memory_repositories.cache_clear()
             deps._sql_repositories.cache_clear()
             get_settings.cache_clear()
+            deps._rag_policy_retriever.cache_clear()
 
 
 @pytest.fixture

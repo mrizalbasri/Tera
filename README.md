@@ -119,6 +119,39 @@ pnpm dev
 
 The web interface is available at the URL printed by SvelteKit.
 
+## RAG policy retrieval (M7.6, first PR)
+
+From `backend/`, seed the BRD section 9 category policies explicitly:
+
+```powershell
+python -m app.seed_policy --verify
+```
+
+The seed command downloads the public multilingual Sentence Transformers model
+at an immutable revision and writes the policy-only Chroma index. It requires
+internet access on the first run, but no LLM API key. Set `POLICY_MODE=rag` in
+`.env` after verification; the default `local` retains deterministic retrieval.
+`POLICY_INDEX_PATH=./data/local/policy_index` and
+`POLICY_MODEL_CACHE=./data/local/policy_model` are relative to the backend working
+directory and ignored by Git. Reseed after changing the corpus or model revision,
+then restart the API to release the shared adapter. Seeding is an offline admin
+operation: stop the API before rebuilding an index.
+
+Requests load cached model files only, never download or seed. Missing index,
+missing model, retrieval errors or invalid candidates fall back to the local
+policy store and produce a `policy.retrieved` audit/timeline event with safe
+provenance. If no local policy applies, the existing policy-unavailable behavior
+remains. Retrieval selects complete validated policy records; deterministic
+evaluation and decision precedence remain authoritative. Claims/checkpoints stay
+in PostgreSQL; Chroma stores policy embeddings only and disables telemetry.
+
+Tests use temporary real Chroma indexes with fake embeddings; no model downloads
+or API access are needed. The explicit `--verify` command exercises the real
+embedding model and checks all five categories against the local policies.
+The corpus preserves existing policy behavior, including limits evaluated per
+claim; aggregation per day/night is not introduced in this PR. ML anomaly
+scoring is a separate M7.6 PR.
+
 ## Documentation in Obsidian
 
 Open the `docs/` directory as an Obsidian vault. Start at [`docs/README.md`](docs/README.md). Documents use Obsidian wikilinks and Mermaid diagrams so the relationships can be explored in Graph View.
@@ -138,7 +171,8 @@ provider logging privacy fixes. M7 provides LangChain vision extraction through
 an OpenAI-compatible endpoint, bounded retry, fallback and an image privacy gate.
 M7.5 adds LangGraph orchestration and PostgreSQL checkpoint persistence for
 development and deployment, with memory and legacy SQLite compatibility.
-`PROVIDER_MODE=mock` remains the default and needs no API key. Still planned:
-RAG policy retrieval and ML anomaly scoring (M7.6), and reporting/export (M8).
+`PROVIDER_MODE=mock` remains the default and needs no API key. M7.6's first PR
+adds optional local RAG policy selection; ML anomaly scoring and reporting/export
+(M8) remain planned.
 OCR, frontend work and the large-number validation bug tracked in
 [issue #12](https://github.com/mrizalbasri/Tera/issues/12) are outside M7.5.

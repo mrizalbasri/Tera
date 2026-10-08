@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     graph_checkpoint_path: str = "./expense_agent_checkpoints.db"
     graph_checkpoint_schema: str = "langgraph"
     provider_mode: Literal["mock", "live"] = "mock"
+    policy_mode: Literal["local", "rag"] = "local"
+    policy_index_path: str = "./data/local/policy_index"
+    policy_model_cache: str = "./data/local/policy_model"
     max_receipt_size_bytes: int = 10 * 1024 * 1024
     auto_approve_amount_limit: int = 500_000
     auto_approve_min_confidence: float = 0.8

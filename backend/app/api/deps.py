@@ -1,6 +1,7 @@
 """FastAPI dependency wiring for the storage backend and services."""
 
 from functools import lru_cache
+from threading import RLock
 from weakref import WeakSet
 
 from fastapi import Depends
@@ -13,6 +14,7 @@ from app.integrations.llm import LlmReceiptExtractor
 from app.integrations.masking import SensitiveDataMasker
 from app.integrations.mock import MockReceiptExtractor
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
+from app.integrations.policy_rag import RagPolicyRetriever
 from app.integrations.quality import FileQualityChecker
 from app.repositories.memory import InMemoryRepositories
 from app.repositories.sql import SqlRepositories
@@ -160,7 +162,18 @@ def get_validation_service(
     return ValidationService(settings)
 
 
-def get_policy_retriever() -> PolicyRetriever:
+@lru_cache
+def _rag_policy_retriever(index_path: str, model_cache: str) -> RagPolicyRetriever:
+    return RagPolicyRetriever(index_path, model_cache)
+
+
+_policy_adapter_lock = RLock()
+
+
+def get_policy_retriever(settings: Settings = Depends(get_settings)) -> PolicyRetriever:
+    if settings.policy_mode == "rag":
+        with _policy_adapter_lock:
+            return _rag_policy_retriever(settings.policy_index_path, settings.policy_model_cache)
     return LocalPolicyRetriever()
 
 

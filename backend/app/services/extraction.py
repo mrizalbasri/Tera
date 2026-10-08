@@ -1,5 +1,4 @@
 import logging
-import time
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -19,7 +18,7 @@ from app.domain.enums import (
     SignalType,
 )
 from app.domain.transitions import apply_transition
-from app.errors import ApplicationError, ErrorCode, NotFoundError
+from app.errors import ApplicationError, ErrorCode
 from app.repositories.protocols import (
     AnomalyScorer,
     AuditRepository,
@@ -73,7 +72,7 @@ _DECISION_RUN_STATUS = {
 
 logger = logging.getLogger(__name__)
 
-PIPELINE_VERSION = "0.1.0"
+PIPELINE_VERSION = "0.2.0"
 _EXTRACTION_USER_MESSAGE = (
     "Receipt extraction failed; please upload a clearer receipt."
 )
@@ -84,6 +83,8 @@ _CONFIDENCE_FIELDS = ("vendor", "receipt_date", "total", "currency", "category")
 
 
 class ExtractionService:
+    """Repository-backed pipeline steps; orchestration lives in processing.py."""
+
     def __init__(
         self,
         claims: ClaimRepository,
@@ -132,113 +133,7 @@ class ExtractionService:
         self._decider = decider
         self._settings = settings
 
-    def process_claim(
-        self,
-        claim_id: UUID,
-        *,
-        resume: bool = False,
-        idempotency_key: str | None = None,
-    ) -> ProcessingOutcome:
-        claim = self._claims.get(claim_id)
-        if claim is None:
-            raise NotFoundError("Claim", str(claim_id))
-
-        run_key = f"run:{claim_id}:{idempotency_key}" if idempotency_key else None
-
-        latest_run = self._runs.latest_for_claim(claim_id)
-        if (
-            not resume
-            and latest_run is not None
-            and latest_run.status
-            in (
-                ProcessingRunStatus.SUCCEEDED,
-                ProcessingRunStatus.NEEDS_CLARIFICATION,
-                ProcessingRunStatus.ESCALATED,
-            )
-        ):
-            # Repetition without new input replays the recorded run instead of
-            # creating a conflicting one (M6 reliability rule).
-            return self._replay(claim_id, latest_run)
-
-        if run_key:
-            keyed_run = self._runs.get_run_by_key(run_key)
-            if keyed_run is not None:
-                self._await_terminal(keyed_run)
-                return self._keyed_result(claim_id, keyed_run)
-
-        run_id = uuid4()
-        if run_key and not self._runs.reserve_run_key(run_key, run_id):
-            winner = self._runs.get_run_by_key(run_key)
-            if winner is None:
-                raise ApplicationError(
-                    ErrorCode.IDEMPOTENCY_IN_PROGRESS,
-                    "A request with this Idempotency-Key is still in progress.",
-                    409,
-                )
-            self._await_terminal(winner)
-            return self._keyed_result(claim_id, winner)
-
-        if latest_run is not None and latest_run.status == ProcessingRunStatus.RUNNING:
-            raise ApplicationError(
-                ErrorCode.INVALID_CLAIM,
-                "A processing run is already in progress.",
-                409,
-            )
-
-        current_status = ClaimStatus(claim.status)
-        if current_status is ClaimStatus.RECEIVED:
-            claim = self._transition_claim(claim, ClaimStatus.PROCESSING)
-        elif current_status is ClaimStatus.PROCESSING and (
-            resume
-            or (
-                latest_run is not None
-                and latest_run.status == ProcessingRunStatus.FAILED
-            )
-        ):
-            pass
-        else:
-            raise ApplicationError(
-                ErrorCode.INVALID_CLAIM,
-                "Claim cannot be processed in its current state.",
-                409,
-            )
-
-        run = ProcessingRun(
-            id=run_id,
-            claim_id=claim_id,
-            status=ProcessingRunStatus.QUEUED,
-            pipeline_version=PIPELINE_VERSION,
-            started_at=None,
-            completed_at=None,
-            retry_count=len(self._runs.list_for_claim(claim_id)),
-            error_code=None,
-        )
-        self._runs.save(run)
-        logger.info("processing run %s queued for claim %s", run.id, claim_id)
-        return self._execute_run(claim, run)
-
-    def _keyed_result(self, claim_id: UUID, run: ProcessingRun) -> ProcessingOutcome:
-        """Idempotent result for a keyed repeat: replay, or re-raise failures."""
-        if run.status == ProcessingRunStatus.FAILED:
-            raise ApplicationError(
-                run.error_code or ErrorCode.MALFORMED_EXTRACTION,
-                "Receipt extraction failed; please upload a clearer receipt.",
-                502,
-            )
-        return self._replay(claim_id, run)
-
-    def _await_terminal(self, run: ProcessingRun) -> ProcessingRun:
-        """Wait briefly for a concurrent winner's run to reach a final state."""
-        for _ in range(40):
-            if run.status != ProcessingRunStatus.RUNNING:
-                return run
-            time.sleep(0.05)
-            refreshed = self._runs.get(run.id)
-            if refreshed is not None:
-                run = refreshed
-        return run
-
-    def _execute_run(self, claim: Claim, run: ProcessingRun) -> ProcessingOutcome:
+    def extract_receipts(self, claim: Claim, run: ProcessingRun) -> None:
         started_at = datetime.now(UTC)
         run = run.model_copy(
             update={"status": ProcessingRunStatus.RUNNING, "started_at": started_at}
@@ -308,69 +203,44 @@ class ExtractionService:
             )
             threshold = Decimal(str(self._settings.extraction_confidence_threshold))
             if all(value >= threshold for value in confidence.values()):
-                saved = [
+                for result in attempt_results:
                     self._extractions.save(
                         result.model_copy(update={"processing_run_id": run.id})
                     )
-                    for result in attempt_results
-                ]
-                findings = self._validate_extraction(claim, saved)
-                participants, _answered = self._answered_participants(claim.id)
-                evaluations = self._evaluate_policy(
-                    claim, saved, run, attempts, participants
-                )
-                total = max(
-                    (
-                        _as_decimal(result.total.value) or Decimal("0")
-                        for result in saved
-                    ),
-                    default=Decimal("0"),
-                )
-                signals = self._detect_signals(claim, receipts, total, run, saved)
-                decision = self._decider.decide(
-                    claim=claim,
-                    total=total,
-                    confidence=min(confidence.values()) if confidence else None,
-                    findings=findings,
-                    evaluations=evaluations,
-                    signals=signals,
-                    policy_version=(
-                        evaluations[0].policy_version if evaluations else None
-                    ),
-                    processing_run_id=run.id,
-                    answered_codes=self._answered_codes(claim.id),
-                )
-                self._decisions.save(decision)
-                claim = self._transition_claim(
-                    claim, _DECISION_CLAIM_STATUS[decision.outcome]
-                )
-                claim = self._claims.save(
-                    claim.model_copy(update={"current_decision_id": decision.id})
-                )
-                clarification = None
-                if decision.outcome == DecisionOutcome.NEEDS_CLARIFICATION:
-                    clarification = self._record_data_clarification(
-                        claim, decision, run
-                    )
-                elif decision.outcome == DecisionOutcome.ESCALATED:
-                    self._open_review(claim, run)
-                self._complete_run(
-                    run,
-                    _DECISION_RUN_STATUS[decision.outcome],
-                    attempts,
-                    error_code=None,
-                )
-                return ProcessingOutcome(
-                    claim=claim,
-                    extractions=saved,
-                    attempts=attempts,
-                    clarification=clarification,
-                    validation_findings=findings,
-                    policy_evaluations=evaluations,
-                    decision=decision,
-                )
+                return
 
-        return self._request_clarification(claim, run, attempts, confidence)
+        self._request_clarification(claim, run, attempts, confidence)
+
+    def decide_claim(self, claim: Claim, run: ProcessingRun) -> None:
+        outcome = self._replay(claim.id, run)
+        saved = outcome.extractions
+        confidence = _min_confidence_map(saved)
+        signals = [s for s in self._signals.list_for_claim(claim.id)
+                   if s.processing_run_id == run.id]
+        decision = self._decider.decide(
+            claim=claim, total=self.extracted_total(saved),
+            confidence=min(confidence.values()) if confidence else None,
+            findings=outcome.validation_findings,
+            evaluations=outcome.policy_evaluations, signals=signals,
+            policy_version=(outcome.policy_evaluations[0].policy_version
+                            if outcome.policy_evaluations else None),
+            processing_run_id=run.id, answered_codes=self._answered_codes(claim.id),
+        )
+        self._decisions.save(decision)
+        claim = self._transition_claim(claim, _DECISION_CLAIM_STATUS[decision.outcome])
+        claim = self._claims.save(claim.model_copy(update={"current_decision_id": decision.id}))
+        if decision.outcome == DecisionOutcome.NEEDS_CLARIFICATION:
+            self._record_data_clarification(claim, decision, run)
+        elif decision.outcome == DecisionOutcome.ESCALATED:
+            self._open_review(claim, run)
+        self._complete_run(run, _DECISION_RUN_STATUS[decision.outcome],
+                           outcome.attempts, error_code=None)
+
+    @staticmethod
+    def extracted_total(results: list[ExtractionResult]) -> Decimal:
+        # Preserve the existing multi-receipt decision semantics.
+        return max((_as_decimal(r.total.value) or Decimal("0") for r in results),
+                   default=Decimal("0"))
 
     def _validate_extraction(
         self, claim: Claim, saved: list[ExtractionResult]
@@ -472,35 +342,23 @@ class ExtractionService:
             processing_run_id=run.id,
         )
 
-    def _detect_signals(
-        self,
-        claim: Claim,
-        receipts: list,
-        total: Decimal,
-        run: ProcessingRun,
-        extractions: list[ExtractionResult],
-    ) -> list[Signal]:
-        signals: list[Signal] = self._duplicate_detector.find_matches(
-            claim=claim, receipts=receipts, processing_run_id=run.id
-        )
-        for signal in signals:
+    def detect_duplicates(self, claim: Claim, run: ProcessingRun) -> None:
+        for signal in self._duplicate_detector.find_matches(
+            claim=claim, receipts=list(self._receipts.list_for_claim(claim.id)),
+            processing_run_id=run.id,
+        ):
             self._signals.save(signal)
-        history = self._history.list_for_employee(
-            claim.employee_id, exclude_claim_id=claim.id
-        )
-        anomaly = self._anomaly_scorer.score(
-            claim=claim, total=total, history=history, processing_run_id=run.id
-        )
-        self._signals.save(anomaly)
-        signals.append(anomaly)
-        degraded = next(
-            (result for result in extractions if result.provider_degraded), None
-        )
+
+    def score_anomaly(self, claim: Claim, run: ProcessingRun) -> None:
+        extractions = self._replay(claim.id, run).extractions
+        history = self._history.list_for_employee(claim.employee_id, exclude_claim_id=claim.id)
+        self._signals.save(self._anomaly_scorer.score(
+            claim=claim, total=self.extracted_total(extractions), history=history,
+            processing_run_id=run.id,
+        ))
+        degraded = next((r for r in extractions if r.provider_degraded), None)
         if degraded is not None:
-            degraded_signal = self._provider_degraded_signal(claim, run, degraded)
-            self._signals.save(degraded_signal)
-            signals.append(degraded_signal)
-        return signals
+            self._signals.save(self._provider_degraded_signal(claim, run, degraded))
 
     @staticmethod
     def _provider_degraded_signal(
@@ -700,8 +558,9 @@ class ExtractionService:
         ]
         clarification: ClarificationRequest | None = None
         if run.status == ProcessingRunStatus.NEEDS_CLARIFICATION:
-            stored = self._clarifications.latest_for_claim(claim_id)
-            if stored is not None and stored.processing_run_id == run.id:
+            stored = next((item for item in reversed(self._clarifications.list_for_claim(claim_id))
+                           if item.processing_run_id == run.id), None)
+            if stored is not None:
                 clarification = ClarificationRequest(
                     code=stored.code,
                     message=stored.question,

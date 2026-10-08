@@ -27,12 +27,12 @@ flowchart LR
     end
 
     API --> SVC
-    MASK -->|"data termasking"| EXT["LLM / OCR Adapter<br/>LangChain, GLM vision via Z.ai<br/>(PROVIDER_MODE = mock | live)"]
+    MASK -->|"data termasking"| EXT["LLM / OCR Adapter<br/>LangChain, OpenAI-compatible vision<br/>(PROVIDER_MODE = mock | live)"]
 
-    REPO --> DB[("SQL Database<br/>SQLite dev/demo,<br/>PostgreSQL-ready")]
+    REPO --> DB[("SQL Database<br/>PostgreSQL<br/>schema public")]
     REPO --> FS[("File Storage<br/>receipt JPG/PNG/PDF")]
     AUD --> DB
-    LG --> CP[("LangGraph Checkpointer<br/>(SQLite)")]
+    LG --> CP[("LangGraph Checkpointer<br/>(PostgreSQL: langgraph)")]
 ```
 
 📄 Sumber: [`docs/diagrams/architecture.mmd`](../diagrams/architecture.mmd) · Hasil render: [`architecture.svg`](../diagrams/architecture.svg)
@@ -46,9 +46,9 @@ flowchart LR
 | Services | Use case klaim: intake, pemrosesan, klarifikasi, review, laporan; orkestrasi pipeline via LangGraph (M7.5) dengan interrupt + checkpointer | Python |
 | Domain | Aturan bisnis deterministik: transisi status, precedence keputusan konservatif, reason codes | Python murni (tanpa dependensi transport/DB) |
 | Repositories | Menyembunyikan detail persistensi di balik protocol; implementasi SQL (SQLAlchemy) dan memory (untuk test) | SQLAlchemy 2.0 |
-| Integrations | Satu-satunya tempat yang mengenal provider eksternal: LLM/OCR (LangChain, GLM vision via Z.ai), RAG policy (ChromaDB + sentence-transformers), anomali ML (scikit-learn), file storage, masking | Adapter di balik protocol (`ReceiptExtractor`, `PolicyRetriever`, `AnomalyScorer`, `SensitiveDataMasker`, `FileStorage`, dst.) |
+| Integrations | Satu-satunya tempat yang mengenal provider eksternal: LLM/OCR (LangChain, OpenAI-compatible vision), RAG policy (ChromaDB + sentence-transformers), anomali ML (scikit-learn), file storage, masking | Adapter di balik protocol (`ReceiptExtractor`, `PolicyRetriever`, `AnomalyScorer`, `SensitiveDataMasker`, `FileStorage`, dst.) |
 | Audit | Pencatatan event append-only dengan sequence per aggregate; tidak pernah mengubah keputusan | SQLAlchemy + unique constraint |
-| Database & storage | Persistensi klaim, run, signal, decision, audit; file nota | SQLite (dev/demo) via `DATABASE_URL`, siap PostgreSQL; file storage BLOB/memory |
+| Database & storage | Persistensi klaim, run, signal, decision, audit; file nota | PostgreSQL via `DATABASE_URL`; checkpoint pada schema `langgraph`; file storage BYTEA/memory |
 
 **Justifikasi pilihan teknologi** (kenapa bukan alternatif lain):
 
@@ -60,16 +60,16 @@ flowchart LR
 | LangChain + GLM vision via Z.ai (OpenAI-compatible) | SDK provider spesifik, provider lain | Structured output mengalir lewat boundary validasi Pydantic yang sama; endpoint OpenAI-compatible fleksibel; `PROVIDER_MODE=mock\|live` menjaga pengujian deterministik |
 | ChromaDB + sentence-transformers (multilingual MiniLM) | pgvector, FAISS, LLM-native retrieval | Lokal, mudah di-seed, multilingual; retrieval **hanya memilih** policy — evaluasi tetap deterministik; retrieval miss fallback ke local store |
 | Isolation Forest (scikit-learn) | Deep learning / library besar | Dataset sintetis kecil; deterministik (fixed random state); skor dapat dijelaskan beserta versi model pada setiap Signal |
-| SQLite → PostgreSQL via `DATABASE_URL` | PostgreSQL sejak awal | Nol-konfigurasi untuk demo dan CI; skema SQL portabel; naik kelas tanpa mengubah kode aplikasi |
+| PostgreSQL untuk development dan deployment | SQLite | Database lokal sesuai target deployment; checkpoint terpisah pada schema `langgraph`. SQLite dipertahankan untuk kompatibilitas dan test, tanpa migrasi data otomatis. |
 
 ## 2. Deployment & Environment
 
 | Environment | Tujuan | Lokasi/hosting | Akses |
 |-------------|--------|----------------|-------|
-| Development | Coding & unit test | Lokal: `uvicorn app.main:app --reload` + `pnpm dev`; SQLite; `PROVIDER_MODE=mock` | Developer |
+| Development | Coding & unit test | Lokal: `uvicorn app.main:app --reload` + `pnpm dev`; PostgreSQL lokal; `PROVIDER_MODE=mock` | Developer |
 | Demo/Production | Live link untuk juri GTNIC | PaaS publik berbasis container (kandidat: Render/Railway/Fly.io — **belum diputuskan**, wajib fix sebelum 4 Nov 2026); `PROVIDER_MODE=live` dengan kunci API di environment variable | Publik (data sintetis saja) |
 
-Status jujur per 2026-10-06: deploy belum dilakukan; backend M0–M7 teruji (96 test) di branch `feat/backend-privacy-integrations` menunggu review/merge — M7 mencakup masking FR-13, ekstraksi LLM LangChain (GLM-4.5V via Z.ai, `PROVIDER_MODE=mock|live`), dan fallback provider. Mode live hanya struk JPG/PNG (foto HP); struk PDF live ditunda dengan alasan di spec M7. Uji asli ke endpoint LLM (smoke test ber-key) belum pernah dilakukan. Orkestrasi LangGraph (M7.5), RAG+ML (M7.6), dan reporting (M8) dijadwalkan 19 Okt – 4 Nov sesuai rencana kerja [[05-brd|BRD]].
+Status per 2026-10-07: M7 sudah merged. Implementasi M7.5 menggunakan LangGraph dan PostgreSQL lokal, dengan 187 tes backend lulus termasuk restart saat menunggu klarifikasi/review. Provider OpenAI-compatible tetap dapat menggunakan endpoint lokal. Smoke test live sebelumnya terhalang endpoint yang tidak tersedia. OCR, RAG, ML anomaly, frontend, dan P2 issue #12 di luar lingkup M7.5.
 
 ## 3. Alur Data / Sequence (Alur Kritis)
 
@@ -143,7 +143,7 @@ stateDiagram-v2
 ## 5. Skala & Performa
 
 - **Estimasi beban:** beban target demo = ±1.800 klaim/bulan (perusahaan fiktif), single instance; klaim standar < 30 detik end-to-end; endpoint non-pipeline < 2 detik.
-- **Strategi jika tumbuh:** indeks pada kolom filter utama (status, employee_id, claim_id, content_hash, aggregate audit); idempotency keys mencegah duplikasi di bawah konkurensi; fallback provider + pemanggilan berbatas; migrasi SQLite → PostgreSQL via `DATABASE_URL` saat beban menuntut; arsip audit event tua bila tumbuh besar.
+- **Strategi jika tumbuh:** indeks pada kolom filter utama (status, employee_id, claim_id, content_hash, aggregate audit); idempotency keys mencegah duplikasi di bawah konkurensi; fallback provider + pemanggilan berbatas; koordinasi lintas worker sebelum menambah worker; lock klaim saat ini hanya berlaku dalam satu proses; arsip audit event tua bila tumbuh besar.
 
 ## 6. Keputusan Desain Penting (ADR Ringkas)
 

@@ -22,8 +22,8 @@ from app.repositories.protocols import (
     ClarificationRepository,
     ConversationContextRepository,
 )
-from app.schemas.core import Clarification, ClarificationRequest, ConversationEntry
-from app.services.extraction import ExtractionService
+from app.schemas.core import Clarification, ConversationEntry, ProcessingOutcome
+from app.services.processing import ClaimProcessingService
 
 
 class ClarificationService:
@@ -33,7 +33,7 @@ class ClarificationService:
         clarifications: ClarificationRepository,
         context: ConversationContextRepository,
         audit: AuditRepository,
-        processing: ExtractionService,
+        processing: ClaimProcessingService,
     ) -> None:
         self._claims = claims
         self._clarifications = clarifications
@@ -48,14 +48,20 @@ class ClarificationService:
             raise NotFoundError("Claim", str(claim_id))
         return list(self._clarifications.list_for_claim(claim_id))
 
-    def submit_answer(
+    def submit_answer(self, claim_id: UUID, clarification_id: UUID, *,
+                      answer: str, answered_by: str) -> tuple[Clarification, ProcessingOutcome, bool]:
+        with self._processing.claim_lock(claim_id):
+            return self._submit_answer(claim_id, clarification_id,
+                                       answer=answer, answered_by=answered_by)
+
+    def _submit_answer(
         self,
         claim_id: UUID,
         clarification_id: UUID,
         *,
         answer: str,
         answered_by: str,
-    ) -> tuple[Clarification, dict, bool]:
+    ) -> tuple[Clarification, ProcessingOutcome, bool]:
         """Store the answer and resume, or replay when already answered.
 
         Returns (clarification, processing outcome, replayed).
@@ -128,5 +134,5 @@ class ClarificationService:
                 }
             )
         )
-        outcome = self._processing.process_claim(claim_id, resume=True)
+        outcome = self._processing.resume_clarification(claim_id)
         return answered, outcome, False

@@ -20,6 +20,7 @@ from app.repositories.protocols import (
     SignalRepository,
 )
 from app.schemas.core import Claim, Decision, Review
+from app.services.processing import ClaimProcessingService
 
 _DECISION_CLAIM_STATUS = {
     DecisionOutcome.APPROVED: ClaimStatus.APPROVED,
@@ -35,12 +36,14 @@ class ReviewService:
         reviews: ReviewRepository,
         signals: SignalRepository,
         audit: AuditRepository,
+        processing: ClaimProcessingService,
     ) -> None:
         self._claims = claims
         self._decisions = decisions
         self._reviews = reviews
         self._signals = signals
         self._audit = audit
+        self._processing = processing
 
     def list_open(self) -> list[dict]:
         items: list[dict] = []
@@ -59,14 +62,18 @@ class ReviewService:
             )
         return items
 
-    def decide(
-        self,
-        claim_id: UUID,
-        *,
-        action: Literal["approve", "reject"],
-        reason: str,
-        reviewer_reference: str,
-    ) -> tuple[Claim, Decision, Review]:
+    def decide(self, claim_id: UUID, *, action: Literal["approve", "reject"],
+               reason: str, reviewer_reference: str) -> tuple[Claim, Decision, Review]:
+        with self._processing.claim_lock(claim_id):
+            self._pending_review(claim_id)
+            return self._processing.resume_review(
+                claim_id, lambda run_id: self._apply_decision(
+                    claim_id, action=action, reason=reason,
+                    reviewer_reference=reviewer_reference, processing_run_id=run_id,
+                ),
+            )
+
+    def _pending_review(self, claim_id: UUID) -> tuple[Claim, Review]:
         claim = self._claims.get(claim_id)
         if claim is None:
             raise NotFoundError("Claim", str(claim_id))
@@ -93,6 +100,13 @@ class ReviewService:
                 409,
             )
 
+        return claim, review
+
+    def _apply_decision(self, claim_id: UUID, *, action: Literal["approve", "reject"],
+                        reason: str, reviewer_reference: str,
+                        processing_run_id: UUID) -> tuple[Claim, Decision, Review]:
+        claim, review = self._pending_review(claim_id)
+        current_status = ClaimStatus(claim.status)
         outcome = (
             DecisionOutcome.APPROVED if action == "approve" else DecisionOutcome.REJECTED
         )
@@ -101,11 +115,7 @@ class ReviewService:
         decision = Decision(
             id=uuid4(),
             claim_id=claim_id,
-            processing_run_id=(
-                latest_decision.processing_run_id
-                if latest_decision is not None
-                else uuid4()
-            ),
+            processing_run_id=processing_run_id,
             outcome=outcome,
             reason_codes=[f"reviewer_{action}"],
             explanation=reason.strip(),

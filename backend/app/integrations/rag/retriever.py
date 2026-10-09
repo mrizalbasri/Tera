@@ -15,6 +15,7 @@ from app.integrations.rag.reranker import (
     RERANK_MODEL_IDENTITY, CrossEncoderReranker, Reranker, rerank_candidates,
 )
 from app.integrations.rag.search import PolicySearch
+from app.integrations.rag.vector_store import PolicyVectorStore
 from app.schemas.core import Policy
 
 
@@ -42,16 +43,17 @@ class PolicySelection:
 
 class RagPolicyRetriever:
     def __init__(
-        self, index_path: str, model_cache: str, *, embedder: Embedder | None = None,
+        self, database_url: str, model_cache: str, *, embedder: Embedder | None = None,
         documents: list[PolicyDocument] | None = None, model_identity: str = MODEL_IDENTITY,
         top_k: int = 8, top_n: int = 3, rerank_mode: Literal["none", "cross_encoder"] = "none",
         reranker_cache: str = "./data/local/policy_reranker", reranker: Reranker | None = None,
+        index_schema: str = "rag", store: PolicyVectorStore | None = None,
     ) -> None:
         if not (1 <= top_n <= top_k <= 50) or rerank_mode not in ("none", "cross_encoder"):
             raise ValueError("invalid_retrieval_configuration")
         documents = documents if documents is not None else policy_documents()
-        self.index_path, self.model_cache = index_path, model_cache
-        self._index = PolicyIndex(index_path, documents, model_identity)
+        self.model_cache = model_cache
+        self._index = PolicyIndex(database_url, documents, model_identity, schema=index_schema, store=store)
         self.fingerprint = self._index.fingerprint
         self._search = PolicySearch(self._index, model_cache, embedder)
         self.top_k, self.top_n = top_k, top_n

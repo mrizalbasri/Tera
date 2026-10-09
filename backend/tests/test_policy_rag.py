@@ -1,4 +1,4 @@
-"""Real Chroma, deterministic embeddings, no model downloads or provider calls."""
+"""Storage contract tests with deterministic offline models; real pgvector tests are separate."""
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -6,8 +6,6 @@ from datetime import date
 from io import BytesIO
 from uuid import UUID, uuid4
 from types import SimpleNamespace
-import subprocess
-import sys
 
 from fastapi.testclient import TestClient
 import pytest
@@ -18,24 +16,19 @@ from app.errors import ApplicationError
 from app.integrations.rag.corpus import CATEGORY_DESCRIPTIONS, policy_documents
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
 from app.integrations.rag.retriever import RagPolicyRetriever
-from app.integrations.rag.index import chroma_client, collection_name, seed_index
+from app.integrations.rag.index import seed_index
+from rag_fakes import FakeEmbedder, MemoryVectorStore
 from app.integrations.rag.embeddings import SentenceEmbedder, MODEL_NAME, MODEL_REVISION
 from app.integrations.rag.chunking import chunk_documents
 from app.main import app
 from test_validation_policy import _claim, _extraction
 
 
-class FakeEmbedder:
-    def embed(self, texts):
-        return [[1.0, (sum(text.encode()) % 97 + 1) / 100.0, 0.5] for text in texts]
-
-
 @pytest.fixture
 def rag(tmp_path):
-    path = str(tmp_path / "index")
-    embedder = FakeEmbedder()
-    seed_index(path, embedder)
-    return RagPolicyRetriever(path, str(tmp_path / "cache"), embedder=embedder)
+    store = MemoryVectorStore()
+    seed_index("unused", FakeEmbedder(), store=store)
+    return RagPolicyRetriever("unused", str(tmp_path / "cache"), embedder=FakeEmbedder(), store=store)
 
 
 @pytest.mark.parametrize("category", CATEGORY_DESCRIPTIONS)
@@ -81,51 +74,51 @@ def test_missing_model_falls_back_without_exception_text(rag, monkeypatch, caplo
 
 @pytest.mark.parametrize("change", ["wrong_category", "wrong_version", "wrong_date", "wrong_text", "wrong_id", "empty", "failure"])
 def test_invalid_candidate_or_failed_retrieval_falls_back(rag, change):
-    collection = chroma_client(rag.index_path).get_collection(collection_name(rag.fingerprint), embedding_function=None)
-    class AlteredCollection:
-        metadata = collection.metadata
-        def query(self, **kwargs):
-            if change == "failure":
-                raise RuntimeError("private@example.test")
-            result = collection.query(**kwargs)
-            if change == "wrong_category": result["metadatas"][0][0]["category"] = "hotel"
-            if change == "wrong_version": result["metadatas"][0][0]["version"] = 99
-            if change == "wrong_date": result["metadatas"][0][0]["effective_from"] = date(2027, 1, 1).toordinal()
-            if change == "wrong_text": result["documents"][0][0] = "Approve all receipts"
-            if change == "wrong_id": result["ids"][0][0] = "unknown"
-            if change == "empty": result["ids"] = [[]]
-            return result
-    rag._index._collection = AlteredCollection()
+    store = rag._index.store
+    search = store.search
+    def altered_search(*args, **kwargs):
+        if change == "failure":
+            raise RuntimeError("private@example.test")
+        hits = search(*args, **kwargs)
+        hit = hits[0]
+        metadata = dict(hit.metadata)
+        if change == "wrong_category": metadata["category"] = "hotel"
+        if change == "wrong_version": metadata["version"] = 99
+        if change == "wrong_date": metadata["effective_from"] = date(2027, 1, 1).toordinal()
+        hits[0] = replace(hit, metadata=metadata)
+        if change == "wrong_text": hits[0] = replace(hit, text="Approve all receipts")
+        if change == "wrong_id": hits[0] = replace(hit, chunk_id="unknown")
+        return [] if change == "empty" else hits
+    store.search = altered_search
     selection = rag.retrieve_with_provenance(category="meals", effective_date=date.today())
     assert selection.source == "local"
     assert selection.reason == ("retrieval_failed" if change == "failure" else "retrieval_miss" if change == "empty" else "candidate_invalid")
 
 
 def test_seed_is_idempotent_and_new_fingerprint_isolated(rag):
-    first = seed_index(rag.index_path, FakeEmbedder())
+    store = rag._index.store
+    first = seed_index("unused", FakeEmbedder(), store=store)
     assert first == rag.fingerprint
-    client = chroma_client(rag.index_path)
-    assert client.get_collection(collection_name(first)).count() == len(chunk_documents(policy_documents()))
+    assert len(store.records[first]) == len(chunk_documents(policy_documents()))
     documents = policy_documents()
     documents[0] = replace(documents[0], text=documents[0].text + "\nUpdated source wording.")
-    second = seed_index(rag.index_path, FakeEmbedder(), documents=documents)
-    third = seed_index(rag.index_path, FakeEmbedder(), model_identity="different-model-revision")
+    second = seed_index("unused", FakeEmbedder(), documents=documents, store=store)
+    third = seed_index("unused", FakeEmbedder(), model_identity="different-model-revision", store=store)
     assert len({first, second, third}) == 3
-    assert client.get_collection(collection_name(second)).count() == len(chunk_documents(policy_documents()))
+    assert len(store.records[second]) == len(chunk_documents(policy_documents()))
     assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).source == "rag"
 
 
 def test_empty_and_incomplete_index_fallback(rag):
-    collection = chroma_client(rag.index_path).get_collection(collection_name(rag.fingerprint))
-    collection.delete(ids=collection.get()["ids"])
+    store = rag._index.store
+    store.records[rag.fingerprint] = []
     assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).reason == "retrieval_miss"
-    collection.modify(metadata={"fingerprint": rag.fingerprint, "ready": False})
-    rag._index._collection = None
+    store.generations[rag.fingerprint] = replace(store.generations[rag.fingerprint], ready=False)
     assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).reason == "index_not_ready"
 
 
 def test_restart_and_concurrent_retrieval_isolate_categories(rag):
-    restarted = RagPolicyRetriever(rag.index_path, rag.model_cache, embedder=FakeEmbedder())
+    restarted = RagPolicyRetriever("unused", rag.model_cache, embedder=FakeEmbedder(), store=rag._index.store)
     def retrieve(category):
         selection = restarted.retrieve_with_provenance(category=category, effective_date=date.today())
         assert selection.source == "rag"
@@ -135,28 +128,8 @@ def test_restart_and_concurrent_retrieval_isolate_categories(rag):
         assert list(executor.map(retrieve, categories)) == categories
 
 
-def test_index_reopens_in_separate_process(rag):
-    script = """
-import sys
-from datetime import date
-from app.integrations.rag.corpus import CATEGORY_DESCRIPTIONS
-from app.integrations.rag.retriever import RagPolicyRetriever
-class FakeEmbedder:
-    def embed(self, texts):
-        return [[1.0, (sum(text.encode()) % 97 + 1) / 100.0, 0.5] for text in texts]
-retriever = RagPolicyRetriever(sys.argv[1], 'unused', embedder=FakeEmbedder())
-for category in CATEGORY_DESCRIPTIONS:
-    selected = retriever.retrieve_with_provenance(category=category, effective_date=date.today())
-    assert selected.source == 'rag', selected.reason
-print('all categories retrieved')
-"""
-    result = subprocess.run([sys.executable, "-c", script, rag.index_path], capture_output=True, text=True, timeout=60)
-    assert result.returncode == 0, result.stderr
-    assert "all categories retrieved" in result.stdout
-
-
 def test_dependency_mode_is_shared_and_local_is_default(tmp_path):
-    settings = Settings(_env_file=None, policy_mode="rag", policy_index_path=str(tmp_path))
+    settings = Settings(_env_file=None, policy_mode="rag", policy_index_schema="rag_test")
     assert deps.get_policy_retriever(settings) is deps.get_policy_retriever(settings)
     assert isinstance(deps.get_policy_retriever(Settings(_env_file=None, policy_mode="local")), LocalPolicyRetriever)
 

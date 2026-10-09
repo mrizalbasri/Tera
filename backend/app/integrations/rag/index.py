@@ -1,23 +1,13 @@
-"""Explicit index ingestion and cached opening of immutable Chroma generations."""
+"""Trusted corpus boundary and explicit pgvector ingestion."""
 
 from datetime import date
-from pathlib import Path
 
 from app.integrations.rag.chunking import PolicyChunk, chunk_documents
 from app.integrations.rag.corpus import PolicyDocument, index_fingerprint, policy_documents
 from app.integrations.rag.embeddings import MODEL_IDENTITY, Embedder
 from app.integrations.rag.errors import RetrievalError
-
-
-def chroma_client(path: str):
-    import chromadb
-    from chromadb.config import Settings
-
-    return chromadb.PersistentClient(path=path, settings=Settings(anonymized_telemetry=False))
-
-
-def collection_name(fingerprint: str) -> str:
-    return f"policies-{fingerprint}"
+from app.integrations.rag.pgvector import PgPolicyStore, vector_literal
+from app.integrations.rag.vector_store import Generation, PolicyVectorStore, VectorRecord
 
 
 def chunk_metadata(chunk: PolicyChunk, document: PolicyDocument, fingerprint: str) -> dict:
@@ -32,50 +22,50 @@ def chunk_metadata(chunk: PolicyChunk, document: PolicyDocument, fingerprint: st
 
 
 def seed_index(
-    path: str, embedder: Embedder, *, documents: list[PolicyDocument] | None = None,
-    model_identity: str = MODEL_IDENTITY,
+    database_url: str, embedder: Embedder, *, schema: str = "rag",
+    documents: list[PolicyDocument] | None = None, model_identity: str = MODEL_IDENTITY,
+    store: PolicyVectorStore | None = None,
 ) -> str:
-    """Run with the API stopped; interrupted seeds leave a non-ready generation."""
+    """Explicit admin operation. Failed seeds preserve the last committed generation."""
     documents = documents if documents is not None else policy_documents()
     chunks = chunk_documents(documents)
     known = {document.id: document for document in documents}
     fingerprint = index_fingerprint(documents, model_identity)
-    collection = chroma_client(path).get_or_create_collection(
-        name=collection_name(fingerprint), embedding_function=None,
-        configuration={"hnsw": {"space": "cosine"}},
-        metadata={"fingerprint": fingerprint, "model": model_identity, "ready": False},
-    )
-    collection.modify(metadata={"fingerprint": fingerprint, "model": model_identity, "ready": False})
-    if chunks:
-        collection.upsert(
-            ids=[chunk.id for chunk in chunks], documents=[chunk.text for chunk in chunks],
-            embeddings=embedder.embed([chunk.text for chunk in chunks]),
-            metadatas=[chunk_metadata(chunk, known[chunk.document_id], fingerprint) for chunk in chunks],
-        )
-    collection.modify(metadata={"fingerprint": fingerprint, "model": model_identity, "ready": True})
+    embeddings = embedder.embed([chunk.text for chunk in chunks]) if chunks else []
+    if len(embeddings) != len(chunks):
+        raise ValueError("invalid_embedding_count")
+    dimensions = len(embeddings[0]) if embeddings else 384
+    for embedding in embeddings:
+        vector_literal(embedding, dimensions)
+    adapter = store if store is not None else PgPolicyStore(database_url, schema)
+    try:
+        adapter.seed(Generation(fingerprint, model_identity, dimensions, True), [
+            VectorRecord(chunk.id, chunk.text, chunk_metadata(chunk, known[chunk.document_id], fingerprint), embedding)
+            for chunk, embedding in zip(chunks, embeddings, strict=True)
+        ])
+    finally:
+        if store is None:
+            adapter.close()
     return fingerprint
 
 
 class PolicyIndex:
-    def __init__(self, path: str, documents: list[PolicyDocument], model_identity: str) -> None:
-        self.path = path
+    def __init__(self, database_url: str, documents: list[PolicyDocument], model_identity: str,
+                 *, schema: str = "rag", store: PolicyVectorStore | None = None) -> None:
         self.model_identity = model_identity
         self.fingerprint = index_fingerprint(documents, model_identity)
         self.documents = {document.id: document for document in documents}
         self.chunks = {chunk.id: chunk for chunk in chunk_documents(documents)}
-        self._collection = None
+        self.store = store if store is not None else PgPolicyStore(database_url, schema)
 
-    def open(self):
-        if not (Path(self.path) / "chroma.sqlite3").is_file():
+    def open(self) -> Generation:
+        try:
+            generation = self.store.generation(self.fingerprint)
+        except Exception:
+            raise RetrievalError("index_unavailable") from None
+        if generation is None:
             raise RetrievalError("index_unavailable")
-        if self._collection is None:
-            try:
-                self._collection = chroma_client(self.path).get_collection(
-                    collection_name(self.fingerprint), embedding_function=None,
-                )
-            except Exception:
-                raise RetrievalError("index_unavailable") from None
-        metadata = self._collection.metadata or {}
-        if metadata != {"fingerprint": self.fingerprint, "model": self.model_identity, "ready": True}:
+        if (generation.fingerprint != self.fingerprint or generation.model != self.model_identity
+            or not generation.ready or generation.dimensions < 1 or generation.dimensions > 16000):
             raise RetrievalError("index_not_ready")
-        return self._collection
+        return generation

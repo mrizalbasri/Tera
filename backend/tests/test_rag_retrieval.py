@@ -1,4 +1,4 @@
-"""Modular retrieval behavior using real temporary Chroma and fake local models."""
+"""Modular retrieval behavior using isolated storage/model fakes."""
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -19,7 +19,7 @@ from app.integrations.rag.chunking import chunk_documents
 from app.integrations.rag.corpus import index_fingerprint, policy_documents
 from app.integrations.rag.embeddings import MODEL_IDENTITY
 from app.integrations.rag.errors import RetrievalError
-from app.integrations.rag.index import chroma_client, collection_name, seed_index
+from app.integrations.rag.index import seed_index
 from app.integrations.rag.query import PolicyQueryContext, build_query
 from app.integrations.rag.reranker import (
     RERANK_MODEL_NAME, RERANK_MODEL_REVISION, CrossEncoderReranker, rerank_candidates,
@@ -28,7 +28,7 @@ from app.integrations.rag.retriever import RagPolicyRetriever
 from app.integrations.rag.search import Candidate
 from app.main import app
 from app.schemas.core import ExtractedLineItem
-from test_policy_rag import FakeEmbedder
+from rag_fakes import FakeEmbedder, MemoryVectorStore
 from test_validation_policy import _claim, _extraction
 
 
@@ -43,10 +43,10 @@ class FakeReranker:
 
 @pytest.fixture
 def reranked(tmp_path):
-    path = str(tmp_path / "index")
-    seed_index(path, FakeEmbedder())
-    return RagPolicyRetriever(path, str(tmp_path / "embedding"), embedder=FakeEmbedder(),
-                              rerank_mode="cross_encoder", reranker=FakeReranker(), top_n=1)
+    store = MemoryVectorStore()
+    seed_index("unused", FakeEmbedder(), store=store)
+    return RagPolicyRetriever("unused", str(tmp_path / "embedding"), embedder=FakeEmbedder(),
+                              rerank_mode="cross_encoder", reranker=FakeReranker(), top_n=1, store=store)
 
 
 def test_atomic_chunks_contain_all_rule_fields_and_stable_provenance():
@@ -107,24 +107,19 @@ def test_unrecognized_context_uses_fixed_category_query():
 
 
 def test_search_filters_top_k_and_reranks_contextual_candidates(reranked):
-    collection = reranked._index.open()
+    store = reranked._index.store
+    search = store.search
     captured = []
-    class RecordingCollection:
-        metadata = collection.metadata
-        def query(self, **kwargs):
-            captured.append(kwargs)
-            return collection.query(**kwargs)
-    reranked._index._collection = RecordingCollection()
+    def recording_search(*args, **kwargs):
+        captured.append(kwargs)
+        return search(*args, **kwargs)
+    store.search = recording_search
     selection = reranked.retrieve_with_provenance(
         category="meals", effective_date=date(2026, 1, 1), context=PolicyQueryContext(("alkohol",)),
     )
     assert selection.source == "rag" and selection.rule_ids == ("prohibited_items",)
     assert selection.candidate_count == 3 and len(selection.chunk_ids) == 1
-    assert captured[0]["n_results"] == 8
-    assert captured[0]["where"]["$and"] == [
-        {"category": "meals"}, {"effective_from": {"$lte": date(2026, 1, 1).toordinal()}},
-        {"effective_to": {"$gte": date(2026, 1, 1).toordinal()}},
-    ]
+    assert captured[0] == {"top_k": 8, "category": "meals", "effective_date": date(2026, 1, 1)}
     assert len(reranked._reranker.calls[0][1]) == 3
     assert "alkohol" in reranked._reranker.calls[0][0]
 
@@ -172,14 +167,13 @@ def test_rerank_failure_uses_local_policy_and_safe_audit(reranked, monkeypatch, 
 
 
 def test_candidate_tampering_is_rejected_before_reranking(reranked):
-    collection = reranked._index.open()
-    class Tampered:
-        metadata = collection.metadata
-        def query(self, **kwargs):
-            result = collection.query(**kwargs)
-            result["metadatas"][0][-1]["rule_id"] = "forged"
-            return result
-    reranked._index._collection = Tampered()
+    store = reranked._index.store
+    search = store.search
+    def tampered(*args, **kwargs):
+        hits = search(*args, **kwargs)
+        hits[-1].metadata["rule_id"] = "forged"
+        return hits
+    store.search = tampered
     selection = reranked.retrieve_with_provenance(category="meals", effective_date=date.today())
     assert selection.reason == "candidate_invalid"
     assert reranked._reranker.calls == []
@@ -187,23 +181,17 @@ def test_candidate_tampering_is_rejected_before_reranking(reranked):
 
 @pytest.mark.parametrize("change", ["duplicates", "nan", "missing_metadata", "different_policy", "wrong_parent"])
 def test_malformed_search_results_cannot_enter_reranker(reranked, change):
-    collection = reranked._index.open()
-    class Tampered:
-        metadata = collection.metadata
-        def query(self, **kwargs):
-            result = collection.query(**kwargs)
-            if change == "duplicates":
-                result["ids"][0][1] = result["ids"][0][0]
-            elif change == "nan":
-                result["distances"][0][0] = float("nan")
-            elif change == "missing_metadata":
-                result["metadatas"] = [[]]
-            elif change == "wrong_parent":
-                result["metadatas"][0][0]["document_id"] = "unknown"
-            else:
-                result["metadatas"][0][0]["version"] = 99
-            return result
-    reranked._index._collection = Tampered()
+    store = reranked._index.store
+    search = store.search
+    def tampered(*args, **kwargs):
+        hits = search(*args, **kwargs)
+        if change == "duplicates": hits[1] = hits[0]
+        elif change == "nan": hits[0] = replace(hits[0], distance=float("nan"))
+        elif change == "missing_metadata": hits[0] = replace(hits[0], metadata={})
+        elif change == "wrong_parent": hits[0].metadata["document_id"] = "unknown"
+        else: hits[0].metadata["version"] = 99
+        return hits
+    store.search = tampered
     selection = reranked.retrieve_with_provenance(category="meals", effective_date=date.today())
     assert selection.source == "local" and selection.reason == "candidate_invalid"
     assert reranked._reranker.calls == []
@@ -241,7 +229,7 @@ def test_invalid_retrieval_settings_fail_at_startup(settings):
 
 
 def test_shared_adapter_cache_accounts_for_retrieval_configuration(tmp_path):
-    base = Settings(_env_file=None, policy_mode="rag", policy_index_path=str(tmp_path))
+    base = Settings(_env_file=None, policy_mode="rag", policy_index_schema="rag_test")
     first = deps.get_policy_retriever(base)
     changed = base.model_copy(update={"policy_rerank_mode": "cross_encoder"})
     assert deps.get_policy_retriever(changed) is not first
@@ -258,7 +246,7 @@ def test_reranked_queries_do_not_cross_claims_and_index_persists(reranked):
         results = list(executor.map(retrieve, contexts))
     assert [r.policy.category for r in results] == [pair[0] for pair in contexts]
     assert all(r.source == "rag" for r in results)
-    restarted = RagPolicyRetriever(reranked.index_path, "unused", embedder=FakeEmbedder(),
+    restarted = RagPolicyRetriever("unused", "unused", embedder=FakeEmbedder(), store=reranked._index.store,
                                   rerank_mode="cross_encoder", reranker=FakeReranker())
     assert restarted.retrieve(category="meals", effective_date=date.today()) == results[0].policy
 
@@ -284,8 +272,8 @@ def test_pipeline_reranking_is_contextual_replay_safe_and_query_is_not_audited(r
             assert len(deps._memory_repositories().audit.list_for_aggregate("claim", UUID(claim_id))) == len(audit)
     finally:
         app.dependency_overrides.pop(deps.get_policy_retriever, None)
-    stored = chroma_client(reranked.index_path).get_collection(collection_name(reranked.fingerprint)).get(include=["documents"])
-    assert all("konteks:" not in text for text in stored["documents"])
+    stored = reranked._index.store.records[reranked.fingerprint]
+    assert all("konteks:" not in record.text for record in stored)
 
 
 def test_explicit_seed_cli_prepares_reranker_and_verifies_offline(tmp_path, monkeypatch, capsys):
@@ -297,7 +285,9 @@ def test_explicit_seed_cli_prepares_reranker_and_verifies_offline(tmp_path, monk
     def fake_reranker(cache, *, download=False):
         calls.append(("reranker", download))
         return FakeReranker()
-    settings = Settings(_env_file=None, policy_index_path=str(tmp_path / "index"))
+    settings = Settings(_env_file=None)
+    store = MemoryVectorStore()
+    monkeypatch.setattr("app.integrations.rag.index.PgPolicyStore", lambda *args: store)
     monkeypatch.setattr(cli, "Settings", lambda: settings)
     monkeypatch.setattr(cli, "SentenceEmbedder", fake_embedder)
     monkeypatch.setattr(cli, "CrossEncoderReranker", fake_reranker)

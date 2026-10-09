@@ -24,13 +24,13 @@ def main() -> None:
         reranker = CrossEncoderReranker(settings.policy_reranker_cache, download=True)
         del reranker
     embedder = SentenceEmbedder(settings.policy_model_cache, download=True)
-    fingerprint = seed_index(settings.policy_index_path, embedder)
+    fingerprint = seed_index(settings.database_url, embedder, schema=settings.policy_index_schema)
     print(f"Policy index seeded: {fingerprint}")
     if args.verify:
         # Exercise the same offline model loader that API requests use.
         del embedder
         retriever = RagPolicyRetriever(
-            settings.policy_index_path, settings.policy_model_cache,
+            settings.database_url, settings.policy_model_cache, index_schema=settings.policy_index_schema,
             rerank_mode=rerank_mode, reranker_cache=settings.policy_reranker_cache,
             top_k=settings.policy_top_k, top_n=settings.policy_top_n,
         )
@@ -49,7 +49,8 @@ def main() -> None:
         from app.integrations.rag.search import PolicySearch
 
         # A new adapter exercises the offline runtime path for each model.
-        search = PolicySearch(PolicyIndex(settings.policy_index_path, policy_documents(), MODEL_IDENTITY),
+        search = PolicySearch(PolicyIndex(settings.database_url, policy_documents(), MODEL_IDENTITY,
+                                         schema=settings.policy_index_schema),
                               settings.policy_model_cache)
         reranker = CrossEncoderReranker(settings.policy_reranker_cache)
         print(json.dumps(benchmark(search, reranker, top_k=settings.policy_top_k, top_n=settings.policy_top_n),
@@ -60,4 +61,8 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        raise SystemExit(f"Policy setup failed ({type(exc).__name__}); check model cache/index configuration.") from None
+        raise SystemExit(f"Policy setup failed ({type(exc).__name__}); check PostgreSQL connection, vector extension, schema permissions and model caches.") from None
+    finally:
+        from app.integrations.rag.pgvector import close_policy_indexes
+
+        close_policy_indexes()

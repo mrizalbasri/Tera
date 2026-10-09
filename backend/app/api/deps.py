@@ -164,9 +164,9 @@ def get_validation_service(
 
 @lru_cache
 def _rag_policy_retriever(
-    index_path: str, model_cache: str, reranker_cache: str, rerank_mode: str, top_k: int, top_n: int,
+    database_url: str, index_schema: str, model_cache: str, reranker_cache: str, rerank_mode: str, top_k: int, top_n: int,
 ) -> RagPolicyRetriever:
-    return RagPolicyRetriever(index_path, model_cache, reranker_cache=reranker_cache,
+    return RagPolicyRetriever(database_url, model_cache, index_schema=index_schema, reranker_cache=reranker_cache,
                               rerank_mode=rerank_mode, top_k=top_k, top_n=top_n)
 
 
@@ -177,7 +177,7 @@ def get_policy_retriever(settings: Settings = Depends(get_settings)) -> PolicyRe
     if settings.policy_mode == "rag":
         with _policy_adapter_lock:
             return _rag_policy_retriever(
-                settings.policy_index_path, settings.policy_model_cache,
+                settings.database_url, settings.policy_index_schema, settings.policy_model_cache,
                 settings.policy_reranker_cache, settings.policy_rerank_mode,
                 settings.policy_top_k, settings.policy_top_n,
             )

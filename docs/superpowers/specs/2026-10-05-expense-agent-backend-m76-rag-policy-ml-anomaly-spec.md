@@ -2,8 +2,9 @@
 
 ## Purpose
 
-Delivery is split into two PRs: RAG policy selection first, ML anomaly scoring
-second. M7.5 is merged; PostgreSQL remains the domain/checkpoint backend.
+Delivery starts with RAG policy selection (PR #17), followed by its modular
+retrieval extension approved by the owner, then ML anomaly scoring in a separate
+PR. M7.5 is merged; PostgreSQL remains the domain/checkpoint backend.
 
 Upgrade two provider implementations behind existing protocols — turning the
 BRD's innovation claim ("kepatuhan kebijakan (RAG), deteksi anomali (ML)")
@@ -31,20 +32,33 @@ FR-05 (policy retrieval via RAG) and FR-07 (anomaly scoring with ML).
 - Corpus documents are generated from the existing validated local policy records
   with BRD section 9 descriptions/source references. ID/version/effective date and
   complete rules remain identical; this PR does not introduce daily aggregation.
-- Query uses a fixed category description; extracted keywords are deferred because
-  the existing protocol does not accept them. No protocol or HTTP contract changes.
-- Chroma uses cosine similarity and category/effective-date filters. Returned IDs,
-  metadata and documents must match the trusted corpus/local record. Index text
-  is never interpreted by a generative model.
-- An immutable Hugging Face revision is pinned in code. Corpus/model fingerprint
+- The modular extension accepts optional internal typed context: canonical
+  allowlisted concepts recognized in extracted items/vendor and bounded participant
+  count. Arbitrary free text never becomes query text. Missing context uses the
+  fixed category description. The PolicyRetriever protocol and HTTP contract stay
+  unchanged; context is passed through the internal provenance method.
+- Rule-level chunking keeps every condition/limit/exclusion together, retaining
+  source and parent policy IDs. Chroma uses cosine similarity, top-k and
+  category/effective-date filters. All candidates' IDs, metadata and text must
+  match trusted chunks and complete local policies before optional reranking.
+  Ranked chunks never reduce the rules evaluated from the full selected Policy.
+- `POLICY_RERANK_MODE=none|cross_encoder` defaults to none. The pinned multilingual
+  `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` runs locally on CPU with safetensors,
+  validates finite scores, and returns top-n with stable tie breaking. Missing
+  reranker or failed/invalid scoring falls back to the full local policy.
+- Separate corpus, chunking, embedding, index, query, search, reranker and retrieval
+  modules support independent tests. `POLICY_TOP_K=8`, `POLICY_TOP_N=3` are bounded
+  to 1–50, with top-n <= top-k. The default corpus produces 15 atomic chunks.
+- Immutable Hugging Face revisions are pinned in code. Corpus/chunk/model fingerprint
   names each collection; stable document IDs make seed repeatable. Incomplete or
   missing generations fall back locally. Stop the API before reseeding, then restart.
 - `POLICY_MODE=local|rag` defaults to local; `POLICY_INDEX_PATH` and
-  `POLICY_MODEL_CACHE` default to ignored `./data/local/` directories. API requests
+  `POLICY_MODEL_CACHE` and `POLICY_RERANKER_CACHE` default to ignored `./data/local/` directories. API requests
   only load cached model files and never seed/download. Shared adapter is cleared
   on application shutdown. Chroma telemetry is disabled.
 - `policy.retrieved` audit/timeline provenance includes source, policy ID/version,
-  fingerprint and classified reason. No raw exception messages or receipt data.
+  fingerprint, trusted chunk/rule IDs, candidate count, model identities and
+  classified reason. No queries, raw exception messages or receipt data.
 
 ## Part 2 — ML anomaly scoring (FR-07)
 
@@ -86,3 +100,12 @@ Retrieval parity (local vs rag on seeded corpus), fallback on retrieval
 failure, anomaly determinism, threshold-boundary escalation parity with the
 rule scorer, and mock-first tests that never require model downloads at test
 time.
+
+The modular extension adds atomic chunk/fingerprint tests, contextual privacy,
+search filtering/candidate validation, reranking score validation/ties/top-n,
+model-unavailable fallback, concurrency/restart and replay-safe audit. Both
+search-only and reranked modes preserve policy/evaluation/decision parity.
+`python -m app.seed_policy --with-reranker --verify --benchmark` performs a
+separate real-model smoke and compares relevance/latency on synthetic rule queries.
+Local tests include isolated PostgreSQL databases; GitHub CI remains manually
+disabled at the owner's request. See [[2026-10-09-modular-policy-retrieval-design]].

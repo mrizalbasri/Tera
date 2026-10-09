@@ -42,8 +42,11 @@ def policy_documents() -> list[PolicyDocument]:
 
 
 def index_fingerprint(documents: list[PolicyDocument], model_identity: str) -> str:
+    from app.integrations.rag.chunking import CHUNKING_VERSION, chunk_documents
+
     content = json.dumps(
-        {"schema": 1, "model": model_identity,
+        {"schema": 2, "model": model_identity, "chunking": CHUNKING_VERSION,
+         "chunks": [{"id": chunk.id, "text": chunk.text} for chunk in chunk_documents(documents)],
          "documents": [{"id": d.id, "source": d.source, "text": d.text,
                         "policy": d.policy.model_dump(mode="json")} for d in documents]},
         sort_keys=True, ensure_ascii=False,

@@ -17,10 +17,10 @@ from app.config import Settings
 from app.errors import ApplicationError
 from app.integrations.rag.corpus import CATEGORY_DESCRIPTIONS, policy_documents
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
-from app.integrations.rag.policy import (
-    RagPolicyRetriever, chroma_client, collection_name, seed_index,
-    SentenceEmbedder, MODEL_NAME, MODEL_REVISION,
-)
+from app.integrations.rag.retriever import RagPolicyRetriever
+from app.integrations.rag.index import chroma_client, collection_name, seed_index
+from app.integrations.rag.embeddings import SentenceEmbedder, MODEL_NAME, MODEL_REVISION
+from app.integrations.rag.chunking import chunk_documents
 from app.main import app
 from test_validation_policy import _claim, _extraction
 
@@ -40,7 +40,10 @@ def rag(tmp_path):
 
 @pytest.mark.parametrize("category", CATEGORY_DESCRIPTIONS)
 @pytest.mark.parametrize("amount", ["1", "74999", "75000", "75001", "150000", "150001", "600000", "600001"])
-def test_policy_and_evaluation_parity(rag, category, amount):
+@pytest.mark.parametrize("rerank_mode", ["none", "cross_encoder"])
+def test_policy_and_evaluation_parity(rag, category, amount, rerank_mode):
+    rag.rerank_mode = rerank_mode
+    rag._reranker = SimpleNamespace(score=lambda query, texts: [0.0] * len(texts))
     day = date(2026, 1, 1)
     selection = rag.retrieve_with_provenance(category=category, effective_date=day)
     local = LocalPolicyRetriever().retrieve(category=category, effective_date=day)
@@ -59,7 +62,7 @@ def test_unavailable_local_policy_remains_error(rag, category, day):
 
 
 def test_missing_index_does_not_create_files_or_load_model(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.integrations.rag.policy.SentenceEmbedder", lambda *a: pytest.fail("must not load"))
+    monkeypatch.setattr("app.integrations.rag.search.SentenceEmbedder", lambda *a: pytest.fail("must not load"))
     path = tmp_path / "absent"
     selection = RagPolicyRetriever(str(path), "absent").retrieve_with_provenance(category="fuel", effective_date=date.today())
     assert selection.reason == "index_unavailable" and selection.source == "local"
@@ -67,10 +70,10 @@ def test_missing_index_does_not_create_files_or_load_model(tmp_path, monkeypatch
 
 
 def test_missing_model_falls_back_without_exception_text(rag, monkeypatch, caplog):
-    rag._embedder = None
+    rag._search._embedder = None
     def unavailable(*a):
         raise RuntimeError("secret-receipt@example.test api-key-secret")
-    monkeypatch.setattr("app.integrations.rag.policy.SentenceEmbedder", unavailable)
+    monkeypatch.setattr("app.integrations.rag.search.SentenceEmbedder", unavailable)
     selection = rag.retrieve_with_provenance(category="meals", effective_date=date.today())
     assert selection.reason == "model_unavailable"
     assert "secret" not in repr(selection.audit_payload()) + caplog.text
@@ -92,7 +95,7 @@ def test_invalid_candidate_or_failed_retrieval_falls_back(rag, change):
             if change == "wrong_id": result["ids"][0][0] = "unknown"
             if change == "empty": result["ids"] = [[]]
             return result
-    rag._collection = AlteredCollection()
+    rag._index._collection = AlteredCollection()
     selection = rag.retrieve_with_provenance(category="meals", effective_date=date.today())
     assert selection.source == "local"
     assert selection.reason == ("retrieval_failed" if change == "failure" else "retrieval_miss" if change == "empty" else "candidate_invalid")
@@ -102,13 +105,13 @@ def test_seed_is_idempotent_and_new_fingerprint_isolated(rag):
     first = seed_index(rag.index_path, FakeEmbedder())
     assert first == rag.fingerprint
     client = chroma_client(rag.index_path)
-    assert client.get_collection(collection_name(first)).count() == 5
+    assert client.get_collection(collection_name(first)).count() == len(chunk_documents(policy_documents()))
     documents = policy_documents()
     documents[0] = replace(documents[0], text=documents[0].text + "\nUpdated source wording.")
     second = seed_index(rag.index_path, FakeEmbedder(), documents=documents)
     third = seed_index(rag.index_path, FakeEmbedder(), model_identity="different-model-revision")
     assert len({first, second, third}) == 3
-    assert client.get_collection(collection_name(second)).count() == 5
+    assert client.get_collection(collection_name(second)).count() == len(chunk_documents(policy_documents()))
     assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).source == "rag"
 
 
@@ -117,7 +120,7 @@ def test_empty_and_incomplete_index_fallback(rag):
     collection.delete(ids=collection.get()["ids"])
     assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).reason == "retrieval_miss"
     collection.modify(metadata={"fingerprint": rag.fingerprint, "ready": False})
-    rag._collection = None
+    rag._index._collection = None
     assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).reason == "index_not_ready"
 
 
@@ -137,7 +140,7 @@ def test_index_reopens_in_separate_process(rag):
 import sys
 from datetime import date
 from app.integrations.rag.corpus import CATEGORY_DESCRIPTIONS
-from app.integrations.rag.policy import RagPolicyRetriever
+from app.integrations.rag.retriever import RagPolicyRetriever
 class FakeEmbedder:
     def embed(self, texts):
         return [[1.0, (sum(text.encode()) % 97 + 1) / 100.0, 0.5] for text in texts]
@@ -174,10 +177,10 @@ def test_runtime_model_loader_is_offline_and_revision_pinned(monkeypatch):
 
 
 def test_missing_model_fallback_is_audited_in_pipeline(rag, monkeypatch):
-    rag._embedder = None
+    rag._search._embedder = None
     def unavailable(*args):
         raise RuntimeError("sensitive-receipt@example.test credential-secret")
-    monkeypatch.setattr("app.integrations.rag.policy.SentenceEmbedder", unavailable)
+    monkeypatch.setattr("app.integrations.rag.search.SentenceEmbedder", unavailable)
     app.dependency_overrides[deps.get_policy_retriever] = lambda: rag
     try:
         with TestClient(app) as client:
@@ -202,7 +205,10 @@ def test_missing_model_fallback_is_audited_in_pipeline(rag, monkeypatch):
     ("TOLL_PARKING", "60000", ""), ("HOTEL", "600000", ""), ("HOTEL", "600001", ""),
     ("OTHER", "60000", ""),
 ])
-def test_pipeline_decision_parity_and_audit_replay(rag, category, amount, marker):
+@pytest.mark.parametrize("rerank_mode", ["none", "cross_encoder"])
+def test_pipeline_decision_parity_and_audit_replay(rag, category, amount, marker, rerank_mode):
+    rag.rerank_mode = rerank_mode
+    rag._reranker = SimpleNamespace(score=lambda query, texts: [0.0] * len(texts))
     with TestClient(app) as client:
         outputs = []
         for retriever in [LocalPolicyRetriever(), rag]:

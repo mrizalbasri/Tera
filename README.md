@@ -100,8 +100,8 @@ cd backend
 ```
 
 Tests use mock providers, isolated stores and settings that do not read the
-local `.env`. GitHub CI runs the same suite without provider credentials.
-CI starts PostgreSQL 18 and sets `TEST_POSTGRES_URL`. To run the PostgreSQL
+local `.env`. Tests currently run locally; the GitHub backend workflow is
+manually disabled at the owner's request. To run the PostgreSQL
 integration cases locally, set that variable to a PostgreSQL connection URL for
 a test-capable account before running pytest. The account must have `CREATEDB`:
 each case creates a unique `tera_test_*` database and removes only that database
@@ -119,39 +119,86 @@ pnpm dev
 
 The web interface is available at the URL printed by SvelteKit.
 
-## RAG policy retrieval (M7.6, first PR)
+## RAG policy retrieval (M7.6)
 
-RAG code lives in `backend/app/integrations/rag/`: `corpus.py` builds the
-versioned policy documents and `policy.py` owns embeddings, Chroma seed and
-retrieval. `backend/app/seed_policy.py` remains the CLI entry point.
+RAG code lives in `backend/app/integrations/rag/`, with separate modules:
+
+| Module | Responsibility |
+| --- | --- |
+| `corpus.py` | Trusted versioned policy records and source references |
+| `chunking.py` | One complete rule per chunk, stable IDs; summary for the no-rule category |
+| `embeddings.py` | Pinned multilingual SentenceTransformer, local CPU |
+| `index.py` | Explicit Chroma ingestion, persistence and generation readiness |
+| `query.py` | Bounded canonical concepts from extracted items/vendor, participant count |
+| `search.py` | Category/date filters, cosine top-k, trusted candidate validation |
+| `reranker.py` | Optional pinned local cross-encoder, top-n and score validation |
+| `retriever.py` | Shared adapter, orchestration, complete Policy and safe fallback |
+| `benchmark.py` | Explicit synthetic relevance and warmed latency comparison |
+
+Ingestion: policy documents → atomic rule chunks → embeddings → Chroma.
+Processing: safe contextual query → filtered top-k search → optional rerank →
+complete validated Policy → deterministic evaluation. Retrieved chunks are
+evidence; every rule in the selected policy is still evaluated.
+`backend/app/seed_policy.py` remains the CLI entry point.
 
 From `backend/`, seed the BRD section 9 category policies explicitly:
 
 ```powershell
 python -m app.seed_policy --verify
+# Prepare both models, verify full-policy parity, and measure retrieval relevance:
+python -m app.seed_policy --with-reranker --verify --benchmark
 ```
 
-The seed command downloads the public multilingual Sentence Transformers model
-at an immutable revision and writes the policy-only Chroma index. It requires
-internet access on the first run, but no LLM API key. Set `POLICY_MODE=rag` in
-`.env` after verification; the default `local` retains deterministic retrieval.
+The seed command downloads the public multilingual embedding model at an
+immutable revision and writes the policy-only Chroma index. `--with-reranker`
+also prepares `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` at a pinned revision.
+`--benchmark` prepares that model and compares both retrieval stages on fixed
+synthetic rule queries. Models run on CPU, with remote code disabled; reranking
+uses safetensors. First-time seeding requires internet access, but no LLM API key.
+With a complete cache, set `HF_HUB_OFFLINE=1` to verify entirely offline.
+
+Set these in `.env` after verification:
+
+```dotenv
+POLICY_MODE=rag
+POLICY_RERANK_MODE=cross_encoder
+POLICY_TOP_K=8
+POLICY_TOP_N=3
+```
+
+`POLICY_MODE=local` and `POLICY_RERANK_MODE=none` remain the defaults. Reranking
+is optional because it adds model memory and inference latency; compare benchmark
+results before enabling it. Both top-k and top-n must be in 1–50 and top-n must
+not exceed top-k. There may be fewer candidates after category/date filtering.
 `POLICY_INDEX_PATH=./data/local/policy_index` and
-`POLICY_MODEL_CACHE=./data/local/policy_model` are relative to the backend working
-directory and ignored by Git. Reseed after changing the corpus or model revision,
-then restart the API to release the shared adapter. Seeding is an offline admin
-operation: stop the API before rebuilding an index.
+`POLICY_MODEL_CACHE=./data/local/policy_model`, plus
+`POLICY_RERANKER_CACHE=./data/local/policy_reranker`, are relative to the backend
+working directory and ignored by Git. Reseed after changing corpus, chunking or
+embedding model; fingerprints select new immutable index generations. The earlier
+five-document index must be reseeded into 15 atomic rule/summary chunks. Old
+generations are retained. Restart after changing settings or reseeding to release
+the shared adapter. Stop the API before seeding.
 
 Requests load cached model files only, never download or seed. Missing index,
-missing model, retrieval errors or invalid candidates fall back to the local
+missing model, retrieval/reranking errors or invalid candidates/scores fall back to the local
 policy store and produce a `policy.retrieved` audit/timeline event with safe
 provenance. If no local policy applies, the existing policy-unavailable behavior
 remains. Retrieval selects complete validated policy records; deterministic
 evaluation and decision precedence remain authoritative. Claims/checkpoints stay
 in PostgreSQL; Chroma stores policy embeddings only and disables telemetry.
 
-Tests use temporary real Chroma indexes with fake embeddings; no model downloads
-or API access are needed. The explicit `--verify` command exercises the real
-embedding model and checks all five categories against the local policies.
+Query context recognizes canonical policy concepts such as alcohol, SPBU,
+business-trip evidence, meals, hotel, toll/parking and receipts. Unrecognized
+free text is excluded; missing context uses the fixed category description.
+Receipt text, names, account numbers, email addresses, answers and queries never
+enter the index or retrieval audit. Audit records contain validated policy/rule/
+chunk IDs, model identities, candidate count, fingerprint and reason codes only.
+
+Tests use temporary real Chroma indexes with fake embeddings and fake reranking;
+no model downloads or API access are needed. `--verify` checks all five categories
+against full local policies, using cached-only runtime loaders. `--benchmark`
+reports top-1, MRR at top-n, and mean warmed search/reranking latency. These measure
+evidence relevance, not approval accuracy; the full-policy evaluator is unchanged.
 The corpus preserves existing policy behavior, including limits evaluated per
 claim; aggregation per day/night is not introduced in this PR. ML anomaly
 scoring is a separate M7.6 PR.

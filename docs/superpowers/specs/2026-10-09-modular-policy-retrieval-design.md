@@ -18,8 +18,11 @@ scope. Tests run locally; the manually disabled GitHub workflow stays disabled.
   and chunk content participate in the corpus/model fingerprint.
 - `embeddings.py`: the existing pinned multilingual SentenceTransformer, CPU,
   cached-only in API requests.
-- `index.py`: explicit Chroma seed/upsert, immutable fingerprint generations,
+- `index.py`: explicit PostgreSQL/pgvector seed/upsert, immutable fingerprint generations,
   lazy read-only opening and readiness checks. No request-time seeding.
+- `vector_store.py` / `pgvector.py`: storage seam, bounded connection pool,
+  read-only runtime queries and atomic explicit seeds in `POLICY_INDEX_SCHEMA`.
+  Exact filtered cosine search, stable IDs and separate fingerprint generations.
 - `query.py`: immutable context built from recognized policy concepts in vendor
   and line-item descriptions, plus bounded participant count. Only allowlisted
   canonical labels enter the query; arbitrary receipt text, identities, amounts,
@@ -31,7 +34,7 @@ scope. Tests run locally; the manually disabled GitHub workflow stays disabled.
 - `retriever.py`: shared adapter/lock, orchestration and safe provenance. The
   final result is always the complete canonical Policy, never only ranked rules.
 
-Ingestion: documents -> atomic chunks -> embeddings -> persistent Chroma.
+Ingestion: documents -> atomic chunks -> embeddings -> persistent PostgreSQL/pgvector.
 Request: category/date + safe concepts -> embedding -> filtered top-k ->
 optional reranking -> validated full Policy -> unchanged deterministic evaluator.
 
@@ -52,7 +55,7 @@ and retrieval/reranking exceptions fall back to LocalPolicyRetriever with a
 classified reason. Local unavailability retains the existing 503 behavior.
 Audit records contain trusted policy/chunk/rule IDs, fingerprints, pinned model
 identities and reason codes only, never queries, receipt text or raw exceptions.
-Queries do not enter checkpoints or Chroma. Index text remains policy-only.
+Queries do not enter checkpoints or the vector index. Index text remains policy-only.
 
 Explicit seed can download public pinned models; API loaders use
 local_files_only=True and trust_remote_code=False. Corpus/chunk changes create a
@@ -66,8 +69,9 @@ Retain all baseline policy/evaluation/decision parity tests, updating seed count
 and module seams for rule chunks. Add coverage for complete rule chunks, stable
 IDs/fingerprints, contextual query privacy/bounds, top-k/filtering, top-n and ties,
 invalid candidates/scores, missing reranker, replay-safe audit, concurrency and
-persistent reopening. Routine tests use fake embeddings/reranker and temporary
-real Chroma without downloads or external APIs.
+persistent reopening. Routine tests use fake embeddings/reranker and
+injected memory vector storage without downloads or external APIs. Separate
+pgvector integration tests run against disposable PostgreSQL databases.
 
 An explicit real-model verification command seeds the index, verifies all five
 full policies, and reports search/reranked relevance plus warmed latency on a
@@ -82,7 +86,10 @@ backend suite including isolated PostgreSQL cases. No merge without user approva
 - https://huggingface.co/cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
 - https://sbert.net/docs/package_reference/cross_encoder/model.html
 
-## Local validation — 2026-10-09
+## Historical validation before pgvector migration — 2026-10-09
+
+The following results used Chroma and do not validate the replacement pgvector
+adapter. Rerun seed/verify/benchmark after installing the server extension.
 
 - Full backend suite: **339 passed** in 83.93 seconds, including isolated
   PostgreSQL cases, all previous 254 cases, and 85 additional cases. One Chroma
@@ -103,3 +110,13 @@ backend suite including isolated PostgreSQL cases. No merge without user approva
 - Default modes remain local/none; enabling rag/cross_encoder is explicit.
   Existing local provider settings were preserved. GitHub workflow state was
   verified as `disabled_manually`; all verification above ran locally.
+
+## PostgreSQL migration
+
+The owner selected pgvector for local development and hosting, replacing Chroma.
+`DATABASE_URL` also stores policy vectors in the separate `rag` schema. Legacy
+Chroma files are untouched and must be reseeded from canonical policies. The
+owner installs Windows C++ prerequisites/server extension; the repository supplies
+the adapter, tests and [[development/pgvector|setup guide]]. No automatic system
+installation or model downloads occur during requests. Real pgvector smoke and
+integration validation remain pending until the extension is available.

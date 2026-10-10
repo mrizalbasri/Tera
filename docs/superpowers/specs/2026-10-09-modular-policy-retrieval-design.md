@@ -118,5 +118,5 @@ The owner selected pgvector for local development and hosting, replacing Chroma.
 Chroma files are untouched and must be reseeded from canonical policies. The
 owner installs Windows C++ prerequisites/server extension; the repository supplies
 the adapter, tests and [[development/pgvector|setup guide]]. No automatic system
-installation or model downloads occur during requests. Real pgvector smoke and
-integration validation remain pending until the extension is available.
+installation or model downloads occur during requests. Real pgvector smoke and integration validation were completed on Docker on
+2026-10-10; see [[development/pgvector]] for current results.

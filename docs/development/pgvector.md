@@ -5,7 +5,53 @@ in `rag` (configurable with `POLICY_INDEX_SCHEMA`). pgvector is a **PostgreSQL
 server extension**, not a Python embedding model. This replaces the Chroma
 adapter in the modular RAG PR; existing local Chroma files are left untouched.
 
-## Native Windows / PostgreSQL 18
+## Docker local setup (selected for this project)
+
+Docker replaces native compilation for Tera development. Keep the native Windows
+PostgreSQL service on 5432; Compose creates a separate PostgreSQL 18 database on
+**127.0.0.1:5434**, using `pgvector/pgvector:0.8.7-pg18-bookworm`. No C++ Build
+Tools are needed. Existing native database contents are not copied automatically.
+
+Start Docker Desktop and wait for its engine to run. From the repository root,
+prepare credentials once (the actual setup already created this ignored file):
+
+```powershell
+New-Item -ItemType Directory -Force backend/data/local | Out-Null
+Copy-Item docker/postgres.env.example backend/data/local/postgres.env
+```
+
+Replace the placeholder password in `backend/data/local/postgres.env` before
+starting. On an already configured machine, preserve the existing file instead
+of copying the example over it. The initial local setup reuses the existing
+database password; credentials are not committed. Then run:
+
+```powershell
+docker compose up -d --wait --wait-timeout 90 postgres
+docker compose exec -T postgres psql -U postgres -d tera -c "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;"
+docker compose exec -T postgres psql -U postgres -d tera -c "SELECT extversion FROM pg_extension WHERE extname='vector';"
+```
+
+Set `DATABASE_URL` in `backend/.env` to
+`postgresql+psycopg://postgres:YOUR_URL_ENCODED_PASSWORD@127.0.0.1:5434/tera` and
+`STORAGE_BACKEND=sql`; preserve your extraction provider settings. Follow the
+seed/verify section below before enabling RAG. DBeaver uses host `127.0.0.1`,
+port `5434`, database `tera`, user `postgres` and the password from the ignored
+Docker credentials file. This is a new connection distinct from port 5432.
+
+The named Compose volume `tera_postgres_data` persists the PostgreSQL 18 data
+under `/var/lib/postgresql`. `docker compose stop` stops the database;
+`docker compose start` starts it again. `docker compose down` removes containers
+but retains the volume. **Do not use `down -v` for routine shutdown: it deletes
+the database volume.** Changing the password environment variable does not
+change credentials inside an existing initialized volume; use PostgreSQL role
+management for password rotation. The service binds only to IPv4 loopback.
+
+If Docker reports a missing `SOFTWARE\\Docker Inc.\\Docker Desktop` registry
+entry, start Docker Desktop from the Windows Start Menu and check engine status.
+If that also fails, repair/reinstall Docker Desktop before running Compose; the
+Compose configuration alone cannot run a stopped or broken engine.
+
+## Alternative: native Windows / PostgreSQL 18
 
 The owner installs system prerequisites. Install Visual Studio Build Tools with
 **Desktop development with C++**, including the MSVC x64 compiler and Windows SDK.
@@ -129,7 +175,7 @@ their own write needs). Include `rag` in database backups. Backend hosting must
 also have enough memory for the embedding/reranker models; storing vectors in
 managed PostgreSQL does not run those models there.
 
-## Migration validation — 2026-10-09
+## Historical native-server validation — 2026-10-09
 
 Local backend verification: **365 passed, 5 skipped**. The five skipped tests
 require pgvector, which is not yet installed on the native PostgreSQL 18 server.
@@ -141,3 +187,24 @@ the replacement adapter.
 
 References: [pgvector](https://github.com/pgvector/pgvector),
 [embedding model architecture](https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2#full-model-architecture).
+
+## Docker validation — 2026-10-10
+
+Docker Desktop was repaired using the official signed per-user installer and
+WSL 2. Compose is healthy on **127.0.0.1:5434**; port 5433 belongs to the existing
+prism-db project and is untouched. Runtime PostgreSQL is 18.6, vector extension
+0.8.7. The image digest used was
+`sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11`.
+
+Full local suite against isolated Docker PostgreSQL databases: **369 passed,
+1 skipped** in 115.58 seconds. All five formerly blocked pgvector cases passed.
+The missing-server-extension case skips because this server includes pgvector.
+Cached real-model seed/verify/benchmark passed with HF_HUB_OFFLINE=1 and no
+extraction API calls. All five policies match the canonical local policies.
+Nine synthetic queries produced search top-1 4/9 and reranked top-1 7/9;
+MRR@3 was 0.648 and 0.889. Mean warmed search was 62.65 ms, additional reranking
+278.07 ms during this laptop run. These are evidence-relevance measurements,
+not general accuracy guarantees. After restarting the container, all 15 chunks
+remained in the volume. Local backend configuration now uses sql/rag/cross_encoder
+on port 5434, with an ignored backup of prior settings and provider fields
+preserved. No native database data was migrated or deleted.

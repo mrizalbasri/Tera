@@ -142,7 +142,11 @@ complete validated Policy → deterministic evaluation. Retrieved chunks are
 evidence; every rule in the selected policy is still evaluated.
 `backend/app/seed_policy.py` remains the CLI entry point.
 
-Install the PostgreSQL `vector` extension first; see [the pgvector setup guide](docs/development/pgvector.md). From `backend/`, seed the BRD section 9 category policies explicitly:
+For local development, use `compose.yaml` to run PostgreSQL + pgvector on
+`127.0.0.1:5434`, with a persistent volume and ignored credentials. Native
+PostgreSQL on 5432 remains separate. See [the pgvector setup guide](docs/development/pgvector.md)
+for Docker startup, DBeaver and configuration. From `backend/`, seed the BRD
+section 9 category policies explicitly:
 
 ```powershell
 python -m app.seed_policy --verify

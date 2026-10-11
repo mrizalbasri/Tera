@@ -14,6 +14,7 @@ Settings.model_config["env_file"] = None
 
 from app.main import app
 from app.integrations.claim_graph import close_graph_resources
+from app.integrations.rag.pgvector import close_policy_indexes
 import psycopg
 from psycopg import sql
 from sqlalchemy.engine import make_url
@@ -23,6 +24,7 @@ from sqlalchemy.engine import make_url
 def isolated_stores(monkeypatch):
     """No local .env/provider calls; independent domain and graph stores."""
     close_graph_resources()
+    close_policy_indexes()
     deps.close_sql_repositories()
     deps._memory_repositories.cache_clear()
     deps._sql_repositories.cache_clear()
@@ -37,6 +39,7 @@ def isolated_stores(monkeypatch):
         finally:
             app.dependency_overrides.pop(get_settings, None)
             close_graph_resources()
+            close_policy_indexes()
             deps.close_sql_repositories()
             deps._memory_repositories.cache_clear()
             deps._sql_repositories.cache_clear()
@@ -58,6 +61,7 @@ def postgres_database_url():
             yield url.set(drivername="postgresql+psycopg", database=name).render_as_string(hide_password=False)
         finally:
             close_graph_resources()
+            close_policy_indexes()
             deps.close_sql_repositories()
             admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
 

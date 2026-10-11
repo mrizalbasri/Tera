@@ -14,7 +14,7 @@ from app.integrations.llm import LlmReceiptExtractor
 from app.integrations.masking import SensitiveDataMasker
 from app.integrations.mock import MockReceiptExtractor
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
-from app.integrations.rag.policy import RagPolicyRetriever
+from app.integrations.rag.retriever import RagPolicyRetriever
 from app.integrations.quality import FileQualityChecker
 from app.repositories.memory import InMemoryRepositories
 from app.repositories.sql import SqlRepositories
@@ -163,8 +163,11 @@ def get_validation_service(
 
 
 @lru_cache
-def _rag_policy_retriever(index_path: str, model_cache: str) -> RagPolicyRetriever:
-    return RagPolicyRetriever(index_path, model_cache)
+def _rag_policy_retriever(
+    database_url: str, index_schema: str, model_cache: str, reranker_cache: str, rerank_mode: str, top_k: int, top_n: int,
+) -> RagPolicyRetriever:
+    return RagPolicyRetriever(database_url, model_cache, index_schema=index_schema, reranker_cache=reranker_cache,
+                              rerank_mode=rerank_mode, top_k=top_k, top_n=top_n)
 
 
 _policy_adapter_lock = RLock()
@@ -173,7 +176,11 @@ _policy_adapter_lock = RLock()
 def get_policy_retriever(settings: Settings = Depends(get_settings)) -> PolicyRetriever:
     if settings.policy_mode == "rag":
         with _policy_adapter_lock:
-            return _rag_policy_retriever(settings.policy_index_path, settings.policy_model_cache)
+            return _rag_policy_retriever(
+                settings.database_url, settings.policy_index_schema, settings.policy_model_cache,
+                settings.policy_reranker_cache, settings.policy_rerank_mode,
+                settings.policy_top_k, settings.policy_top_n,
+            )
     return LocalPolicyRetriever()
 
 

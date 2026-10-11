@@ -197,7 +197,39 @@ export interface ClaimDetailResponse {
 	receipts: Receipt[];
 	extractions: ExtractionResult[];
 	attempts: ExtractionAttempt[];
+	validation_findings: ValidationFinding[];
+	policy_evaluations: PolicyEvaluation[];
+	signals: Signal[];
 	decisions: Decision[];
+}
+
+export interface ValidationFinding {
+	claim_id: string;
+	processing_run_id: string;
+	extraction_id: string | null;
+	rule_id: string;
+	passed: boolean;
+	severity: Severity;
+	actual: unknown;
+	expected: string | null;
+	reason_code: string | null;
+	explanation: string;
+}
+
+export interface PolicyEvaluation {
+	claim_id: string;
+	processing_run_id: string;
+	policy_id: string;
+	policy_version: number;
+	rule_id: string;
+	rule_type: string;
+	passed: boolean;
+	severity: Severity;
+	clarifiable: boolean;
+	actual_value: unknown;
+	limit: unknown;
+	reason_code: string | null;
+	explanation: string;
 }
 
 export interface ProcessClaimResponse {

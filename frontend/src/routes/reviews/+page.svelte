@@ -9,12 +9,16 @@
 	import { formatDateTime } from '$lib/formatters/date';
 	import { formatCurrency, formatConfidence } from '$lib/formatters/currency';
 	import { describeReasonCodes } from '$lib/formatters/reasonCodes';
+	import { downloadReport } from '$lib/api/reports';
 	import type { ReviewQueueItem, Signal } from '$lib/types/claim';
 
 	let queue = $state<ReviewQueueItem[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let searchQuery = $state('');
+	let statusFilter = $state<'all' | 'open' | 'decided'>('all');
+	let riskFilter = $state<'all' | 'high' | 'normal'>('all');
+	let ageFilter = $state<'all' | 'old'>('all');
 
 	// FR-10: keputusan reviewer selalu lewat konfirmasi + alasan eksplisit
 	let decisionTarget = $state<ReviewQueueItem | null>(null);
@@ -31,11 +35,16 @@
 	let filteredQueue = $derived(
 		queue.filter((item) => {
 			const q = searchQuery.trim().toLowerCase();
-			if (!q) return true;
-			return (
+			const matchesSearch = !q || (
 				shortClaimRef(item.claim.id).toLowerCase().includes(q) ||
 				item.claim.employee_id.toLowerCase().includes(q)
 			);
+			const matchesStatus = statusFilter === 'all' || item.review.status === statusFilter;
+			const hasHighRisk = item.signals.some((signal) => signal.severity === 'blocking' || signal.severity === 'warning');
+			const matchesRisk = riskFilter === 'all' || (riskFilter === 'high' ? hasHighRisk : !hasHighRisk);
+			const ageDays = Math.floor((Date.now() - new Date(item.claim.submitted_at).getTime()) / 86_400_000);
+			const matchesAge = ageFilter === 'all' || ageDays >= 3;
+			return matchesSearch && matchesStatus && matchesRisk && matchesAge;
 		})
 	);
 
@@ -106,32 +115,23 @@
 		return severity === 'blocking' ? 'Blocking' : severity === 'warning' ? 'Peringatan' : 'Info';
 	}
 
-	function exportToCSV() {
+	async function exportToCSV() {
 		if (loading || queue.length === 0) {
 			showToast('Tidak ada data untuk diekspor.', 'error');
 			return;
 		}
-		const headers = ['ID Klaim', 'Karyawan', 'Diajukan', 'Nominal', 'Status Klaim', 'Status Review', 'Alasan'];
-		const rows = queue.map((item) => [
-			item.claim.id,
-			item.claim.employee_id,
-			formatDateTime(item.claim.submitted_at),
-			item.claim.declared_amount ?? '',
-			item.claim.status,
-			item.review.status,
-			item.decision?.explanation ?? ''
-		]);
-		const csv = [
-			headers.join(','),
-			...rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
-		].join('\n');
-		const link = document.createElement('a');
-		link.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
-		link.download = `antrean-review-${new Date().toISOString().slice(0, 10)}.csv`;
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
-		showToast('Laporan CSV berhasil diunduh.', 'success');
+		try {
+			const blob = await downloadReport();
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `antrean-review-${new Date().toISOString().slice(0, 10)}.csv`;
+			link.click();
+			URL.revokeObjectURL(url);
+			showToast('Laporan CSV berhasil diunduh.', 'success');
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Export gagal.', 'error');
+		}
 	}
 </script>
 
@@ -182,6 +182,20 @@
 		<div class="search-box">
 			🔍 <input type="text" placeholder="Cari ID klaim atau nama karyawan..." bind:value={searchQuery} />
 		</div>
+		<select aria-label="Filter status review" bind:value={statusFilter}>
+			<option value="all">Semua status</option>
+			<option value="open">Open</option>
+			<option value="decided">Selesai</option>
+		</select>
+		<select aria-label="Filter risiko" bind:value={riskFilter}>
+			<option value="all">Semua risiko</option>
+			<option value="high">Risiko tinggi</option>
+			<option value="normal">Risiko normal</option>
+		</select>
+		<select aria-label="Filter usia klaim" bind:value={ageFilter}>
+			<option value="all">Semua usia</option>
+			<option value="old">Lebih dari 3 hari</option>
+		</select>
 	</div>
 
 	<!-- Tabel Antrean Review -->

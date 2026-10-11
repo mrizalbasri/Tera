@@ -71,6 +71,9 @@
 	const receipt = $derived(detail?.receipts[0] ?? null);
 	const extraction = $derived(detail?.extractions.at(-1) ?? null);
 	const attempts = $derived(detail?.attempts ?? []);
+	const validationFindings = $derived(detail?.validation_findings ?? []);
+	const policyEvaluations = $derived(detail?.policy_evaluations ?? []);
+	const signals = $derived(detail?.signals ?? []);
 	// FR-08: keputusan resmi terbaru dari backend (tidak pernah dihitung di klien)
 	const decision = $derived(detail?.decisions.at(-1) ?? null);
 
@@ -241,6 +244,61 @@
 									{:else}
 										<span class="attempt-status ok-glyph">Berhasil</span>
 									{/if}
+
+									<div class="glass-panel">
+										<h3>Validasi & Kebijakan (FR-04/05)</h3>
+										{#if validationFindings.length === 0 && policyEvaluations.length === 0}
+											<p class="scope-note">Belum ada temuan validasi atau evaluasi kebijakan dari backend.</p>
+										{:else}
+											<div class="evidence-list">
+												{#each validationFindings as finding (`validation-${finding.processing_run_id}-${finding.rule_id}`)}
+													<div class="evidence-row {finding.passed ? 'passed' : finding.severity}">
+														<div>
+															<strong>{finding.rule_id}</strong>
+															<p>{finding.explanation}</p>
+														</div>
+														<span>{finding.passed ? 'LULUS' : finding.severity.toUpperCase()}</span>
+													</div>
+												{/each}
+												{#each policyEvaluations as evaluation (`policy-${evaluation.processing_run_id}-${evaluation.rule_id}`)}
+													<div class="evidence-row {evaluation.passed ? 'passed' : evaluation.severity}">
+														<div>
+															<strong>{evaluation.rule_id}</strong>
+															<p>{evaluation.explanation}</p>
+															<small>
+																Nilai: {evaluation.actual_value == null ? '-' : String(evaluation.actual_value)}
+																· Batas: {evaluation.limit == null ? '-' : String(evaluation.limit)}
+															</small>
+														</div>
+														<span>{evaluation.passed ? 'LULUS' : evaluation.severity.toUpperCase()}</span>
+													</div>
+												{/each}
+											</div>
+										{/if}
+									</div>
+
+									<div class="glass-panel">
+										<h3>Duplikat & Risiko Anomali (FR-06/07)</h3>
+										{#if signals.length === 0}
+											<p class="scope-note">Tidak ada signal duplikat atau anomali dari backend.</p>
+										{:else}
+											<div class="evidence-list">
+												{#each signals as signal (signal.id)}
+													<div class="evidence-row {signal.severity}">
+														<div>
+															<strong>{signal.signal_type === 'duplicate' ? 'Duplikat' : 'Risiko anomali'} · {signal.severity}</strong>
+															<p>{signal.explanation}</p>
+															<small>
+																{#if signal.score != null}Skor: {formatConfidence(signal.score)} · {/if}
+																Confidence: {formatConfidence(signal.confidence)}
+															</small>
+														</div>
+														<span>{signal.severity.toUpperCase()}</span>
+													</div>
+												{/each}
+											</div>
+										{/if}
+									</div>
 									{#if attempt.preprocessing.length}
 										<span class="attempt-pre">{attempt.preprocessing.join(', ')}</span>
 									{/if}
@@ -846,6 +904,50 @@
 
 	.history-item > span {
 		color: var(--color-text-muted);
+	}
+
+	.evidence-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.65rem;
+	}
+
+	.evidence-row {
+		display: flex;
+		justify-content: space-between;
+		gap: 1rem;
+		padding: 0.75rem;
+		border-radius: var(--radius-sm);
+		background: rgba(245, 158, 11, 0.08);
+		border-left: 3px solid #d97706;
+	}
+
+	.evidence-row.passed {
+		background: rgba(34, 197, 94, 0.08);
+		border-left-color: #16a34a;
+	}
+
+	.evidence-row.blocking {
+		background: rgba(239, 68, 68, 0.08);
+		border-left-color: #dc2626;
+	}
+
+	.evidence-row strong,
+	.evidence-row span {
+		font-size: 0.75rem;
+		font-weight: 700;
+	}
+
+	.evidence-row span {
+		flex-shrink: 0;
+	}
+
+	.evidence-row p,
+	.evidence-row small {
+		margin: 0.25rem 0 0;
+		color: var(--color-text-muted);
+		font-size: 0.74rem;
+		line-height: 1.4;
 	}
 
 	.clarification-list {

@@ -43,16 +43,21 @@
 		busy = true; error = ''; success = '';
 		try {
 			await post(`/claims/${id}/process`);
-			if (page.params.claimId !== id) return;
-			success = 'Pemeriksaan selesai. Hasil terbaru sudah tersimpan.';
+			if (page.params.claimId === id) {
+				success = 'Pemeriksaan selesai. Hasil terbaru sudah tersimpan.';
+			}
 		} catch (err) {
-			if (page.params.claimId !== id) return;
-			error = message(err);
+			if (page.params.claimId === id) {
+				error = message(err);
+			}
+		} finally {
+			if (page.params.claimId === id) {
+				const actionError = error;
+				await load(id);
+				if (actionError) error = actionError;
+			}
+			busy = false;
 		}
-		const actionError = error;
-		await load(id);
-		if (actionError) error = actionError;
-		busy = false;
 	}
 	async function submitAnswer(event: SubmitEvent) {
 		event.preventDefault();
@@ -61,16 +66,21 @@
 		busy = true; error = ''; success = '';
 		try {
 			await post(`/claims/${id}/clarifications/${openQuestion.id}/answer`, { answer: answer.trim(), answered_by: detail.claim.employee_id });
-			if (page.params.claimId !== id) return;
-			answer = ''; success = 'Jawaban tersimpan dan klaim sudah diperiksa kembali.';
+			if (page.params.claimId === id) {
+				answer = ''; success = 'Jawaban tersimpan dan klaim sudah diperiksa kembali.';
+			}
 		} catch (err) {
-			if (page.params.claimId !== id) return;
-			error = message(err);
+			if (page.params.claimId === id) {
+				error = message(err);
+			}
+		} finally {
+			if (page.params.claimId === id) {
+				const actionError = error;
+				await load(id);
+				if (actionError) error = actionError;
+			}
+			busy = false;
 		}
-		const actionError = error;
-		await load(id);
-		if (actionError) error = actionError;
-		busy = false;
 	}
 	async function reviewed(id: string) {
 		if (page.params.claimId !== id) return;

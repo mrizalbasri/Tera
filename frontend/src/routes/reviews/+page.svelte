@@ -253,6 +253,7 @@
 								</div>
 							</td>
 							<td>
+								<a class="btn-inspect" href={`/reviews/${encodeURIComponent(item.claim.id)}`}>Buka detail reviewer</a>
 								{#if item.review.status === 'open'}
 									<div class="action-buttons">
 										<button class="btn-approve" onclick={() => openDecisionModal(item, 'approve')}>Setujui</button>

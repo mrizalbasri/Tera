@@ -119,6 +119,25 @@ pnpm dev
 
 The web interface is available at the URL printed by SvelteKit.
 
+The frontend now connects to FastAPI through a same-origin `/api` proxy.
+Copy `frontend/.env.example` to `frontend/.env` if the backend runs somewhere
+other than `http://127.0.0.1:8000`, then set the server-only `BACKEND_URL`.
+Restart the frontend after configuration changes. Run FastAPI separately.
+
+- `/`: save synthetic receipt files and employee reference.
+- `/riwayat`: search persisted claims by employee reference and status.
+- `/claims/{claim_id}`: explicitly start/retry processing, inspect extraction,
+  validation, policy evidence and timeline, answer clarification, or review an
+  escalated claim with a reason and confirmation.
+- `/review`: load the backend's open review queue.
+
+Intake and processing are separate steps so processing failures do not require
+resubmitting saved receipts. Retrying the unchanged upload form reuses its
+idempotency key. Employee/reviewer references are prototype identifiers, not
+authentication or authorization; the review queue is intended for trusted local
+development. No frontend receipt/identity data is saved in localStorage.
+Reports/export and ML anomaly scoring remain separate planned work.
+
 ## RAG policy retrieval (M7.6)
 
 RAG code lives in `backend/app/integrations/rag/`, with separate modules:

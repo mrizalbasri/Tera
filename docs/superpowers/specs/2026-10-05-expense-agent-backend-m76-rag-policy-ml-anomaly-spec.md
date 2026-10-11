@@ -29,6 +29,11 @@ FR-05 (policy retrieval via RAG) and FR-07 (anomaly scoring with ML).
   deterministic `LocalPolicyEvaluator`. A retrieval miss falls back to the
   local store and is audited — retrieval failure can never create an approval
   (FR-05 rule).
+- Only a genuine empty-result miss may continue to local evaluation. Index,
+  model, query, candidate-validation and reranker failures retain local policy
+  provenance for audit, but fail processing with `policy_unavailable` (HTTP 503)
+  before evaluation or decision creation. The direct `retrieve` interface also
+  rejects these failures.
 - Corpus documents are generated from the existing validated local policy records
   with BRD section 9 descriptions/source references. ID/version/effective date and
   complete rules remain identical; this PR does not introduce daily aggregation.

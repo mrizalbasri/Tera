@@ -51,50 +51,6 @@ entry, start Docker Desktop from the Windows Start Menu and check engine status.
 If that also fails, repair/reinstall Docker Desktop before running Compose; the
 Compose configuration alone cannot run a stopped or broken engine.
 
-## Alternative: native Windows / PostgreSQL 18
-
-The owner installs system prerequisites. Install Visual Studio Build Tools with
-**Desktop development with C++**, including the MSVC x64 compiler and Windows SDK.
-PostgreSQL must include its development headers/libraries. Docker is optional
-and is not required for this native installation.
-
-Open **x64 Native Tools Command Prompt for VS** as administrator. These commands
-use CMD syntax, not PowerShell. Choose a directory for the source checkout first:
-
-```bat
-set "PGROOT=C:\Program Files\PostgreSQL\18"
-git clone --branch v0.8.7 https://github.com/pgvector/pgvector.git
-cd pgvector
-nmake /F Makefile.win
-nmake /F Makefile.win install
-```
-
-Compile against the same PostgreSQL major version that runs the database.
-Do not copy binaries built against PostgreSQL 16 into PostgreSQL 18. If a build
-cannot find `postgres.h`, check the installed PostgreSQL headers and `PGROOT`.
-If `nmake` is unavailable, use the developer command prompt after installing C++
-Build Tools. Follow the [official Windows installation instructions](https://github.com/pgvector/pgvector#windows).
-
-In DBeaver, connect to the **tera** database and check availability:
-
-```sql
-SELECT name, default_version, installed_version
-FROM pg_available_extensions
-WHERE name = 'vector';
-```
-
-There must be a result row. Enable the extension in this database using an
-administrator/database role allowed to install extensions:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
-SELECT extversion FROM pg_extension WHERE extname = 'vector';
-```
-
-The adapter currently requires the vector type and operators in **public**.
-For an existing installation in another schema, have the database administrator
-adapt that installation; `IF NOT EXISTS` does not relocate an extension.
-
 ## Seed and enable RAG
 
 Keep the existing provider/model settings in `backend/.env`. Use the existing

@@ -33,10 +33,10 @@ from test_validation_policy import _claim, _extraction
 
 
 class FakeReranker:
-    def __init__(self):
-        self.calls = []
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[str]]] = []
 
-    def score(self, query, texts):
+    def score(self, query: str, texts: list[str]) -> list[float]:
         self.calls.append((query, texts))
         return [float('"rule_id":"prohibited_items"' in text) for text in texts]
 

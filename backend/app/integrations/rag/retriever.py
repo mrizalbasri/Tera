@@ -5,6 +5,7 @@ from datetime import date
 from threading import RLock
 from typing import Literal
 
+from app.errors import ApplicationError, ErrorCode
 from app.integrations.policy_local import LocalPolicyRetriever
 from app.integrations.rag.corpus import PolicyDocument, policy_documents
 from app.integrations.rag.embeddings import MODEL_IDENTITY, Embedder
@@ -31,7 +32,17 @@ class PolicySelection:
     embedding_model: str = MODEL_IDENTITY
     reranker_model: str | None = None
 
-    def audit_payload(self) -> dict:
+    def require_policy(self) -> Policy:
+        """Only successful retrieval or a genuine miss may reach evaluation."""
+        if self.reason not in {"retrieved", "retrieval_miss"}:
+            raise ApplicationError(
+                ErrorCode.POLICY_UNAVAILABLE,
+                "Policy retrieval failed; the claim cannot be approved automatically.",
+                503,
+            )
+        return self.policy
+
+    def audit_payload(self) -> dict[str, object]:
         return {
             "source": self.source, "policy_id": self.policy.policy_id,
             "policy_version": self.policy.version, "index_fingerprint": self.fingerprint,
@@ -63,7 +74,7 @@ class RagPolicyRetriever:
         self._local = LocalPolicyRetriever()
 
     def retrieve(self, *, category: str, effective_date: date) -> Policy:
-        return self.retrieve_with_provenance(category=category, effective_date=effective_date).policy
+        return self.retrieve_with_provenance(category=category, effective_date=effective_date).require_policy()
 
     def retrieve_with_provenance(
         self, *, category: str, effective_date: date, context: PolicyQueryContext | None = None,

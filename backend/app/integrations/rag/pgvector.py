@@ -7,7 +7,7 @@ import re
 from weakref import WeakSet
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import Engine, make_url
 
 from app.integrations.rag.vector_store import Generation, SearchHit, VectorRecord
 
@@ -41,10 +41,10 @@ class PgPolicyStore:
     def __init__(self, database_url: str, schema: str = "rag") -> None:
         self._database_url = database_url
         self.schema = validate_schema(schema)
-        self._pool = None
+        self._pool: Engine | None = None
         _stores.add(self)
 
-    def _engine(self):
+    def _engine(self) -> Engine:
         if self._pool is None:
             url = make_url(self._database_url)
             if url.get_backend_name() != "postgresql":

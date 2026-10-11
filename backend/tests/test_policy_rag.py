@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import date
 from io import BytesIO
+from pathlib import Path
+from typing import Any, Literal, NoReturn
 from uuid import UUID, uuid4
 from types import SimpleNamespace
 
@@ -20,12 +22,13 @@ from app.integrations.rag.index import seed_index
 from rag_fakes import FakeEmbedder, MemoryVectorStore
 from app.integrations.rag.embeddings import SentenceEmbedder, MODEL_NAME, MODEL_REVISION
 from app.integrations.rag.chunking import chunk_documents
+from app.integrations.rag.vector_store import SearchHit
 from app.main import app
 from test_validation_policy import _claim, _extraction
 
 
 @pytest.fixture
-def rag(tmp_path):
+def rag(tmp_path: Path) -> RagPolicyRetriever:
     store = MemoryVectorStore()
     seed_index("unused", FakeEmbedder(), store=store)
     return RagPolicyRetriever("unused", str(tmp_path / "cache"), embedder=FakeEmbedder(), store=store)
@@ -34,7 +37,10 @@ def rag(tmp_path):
 @pytest.mark.parametrize("category", CATEGORY_DESCRIPTIONS)
 @pytest.mark.parametrize("amount", ["1", "74999", "75000", "75001", "150000", "150001", "600000", "600001"])
 @pytest.mark.parametrize("rerank_mode", ["none", "cross_encoder"])
-def test_policy_and_evaluation_parity(rag, category, amount, rerank_mode):
+def test_policy_and_evaluation_parity(
+    rag: RagPolicyRetriever, category: str, amount: str,
+    rerank_mode: Literal["none", "cross_encoder"],
+) -> None:
     rag.rerank_mode = rerank_mode
     rag._reranker = SimpleNamespace(score=lambda query, texts: [0.0] * len(texts))
     day = date(2026, 1, 1)
@@ -48,13 +54,13 @@ def test_policy_and_evaluation_parity(rag, category, amount, rerank_mode):
 
 
 @pytest.mark.parametrize("category,day", [("unknown", date(2026, 1, 1)), ("meals", date(2025, 12, 31))])
-def test_unavailable_local_policy_remains_error(rag, category, day):
+def test_unavailable_local_policy_remains_error(rag: RagPolicyRetriever, category: str, day: date) -> None:
     with pytest.raises(ApplicationError) as caught:
         rag.retrieve(category=category, effective_date=day)
     assert caught.value.code == "policy_unavailable"
 
 
-def test_missing_index_does_not_create_files_or_load_model(tmp_path, monkeypatch):
+def test_missing_index_does_not_create_files_or_load_model(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.integrations.rag.search.SentenceEmbedder", lambda *a: pytest.fail("must not load"))
     path = tmp_path / "absent"
     selection = RagPolicyRetriever(str(path), "absent").retrieve_with_provenance(category="fuel", effective_date=date.today())
@@ -62,9 +68,11 @@ def test_missing_index_does_not_create_files_or_load_model(tmp_path, monkeypatch
     assert not path.exists()
 
 
-def test_missing_model_falls_back_without_exception_text(rag, monkeypatch, caplog):
+def test_missing_model_falls_back_without_exception_text(
+    rag: RagPolicyRetriever, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
     rag._search._embedder = None
-    def unavailable(*a):
+    def unavailable(*a: object) -> NoReturn:
         raise RuntimeError("secret-receipt@example.test api-key-secret")
     monkeypatch.setattr("app.integrations.rag.search.SentenceEmbedder", unavailable)
     selection = rag.retrieve_with_provenance(category="meals", effective_date=date.today())
@@ -72,11 +80,23 @@ def test_missing_model_falls_back_without_exception_text(rag, monkeypatch, caplo
     assert "secret" not in repr(selection.audit_payload()) + caplog.text
 
 
+def test_missing_model_cannot_return_usable_policy(rag: RagPolicyRetriever, monkeypatch: pytest.MonkeyPatch) -> None:
+    rag._search._embedder = None
+
+    def unavailable(*args: object) -> NoReturn:
+        raise RuntimeError("credential-secret")
+
+    monkeypatch.setattr("app.integrations.rag.search.SentenceEmbedder", unavailable)
+    with pytest.raises(ApplicationError) as caught:
+        rag.retrieve(category="meals", effective_date=date.today())
+    assert caught.value.code == "policy_unavailable"
+
+
 @pytest.mark.parametrize("change", ["wrong_category", "wrong_version", "wrong_date", "wrong_text", "wrong_id", "empty", "failure"])
-def test_invalid_candidate_or_failed_retrieval_falls_back(rag, change):
+def test_invalid_candidate_or_failed_retrieval_falls_back(rag: RagPolicyRetriever, change: str) -> None:
     store = rag._index.store
     search = store.search
-    def altered_search(*args, **kwargs):
+    def altered_search(*args: Any, **kwargs: Any) -> list[SearchHit]:
         if change == "failure":
             raise RuntimeError("private@example.test")
         hits = search(*args, **kwargs)
@@ -95,7 +115,7 @@ def test_invalid_candidate_or_failed_retrieval_falls_back(rag, change):
     assert selection.reason == ("retrieval_failed" if change == "failure" else "retrieval_miss" if change == "empty" else "candidate_invalid")
 
 
-def test_seed_is_idempotent_and_new_fingerprint_isolated(rag):
+def test_seed_is_idempotent_and_new_fingerprint_isolated(rag: RagPolicyRetriever) -> None:
     store = rag._index.store
     first = seed_index("unused", FakeEmbedder(), store=store)
     assert first == rag.fingerprint
@@ -109,7 +129,7 @@ def test_seed_is_idempotent_and_new_fingerprint_isolated(rag):
     assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).source == "rag"
 
 
-def test_empty_and_incomplete_index_fallback(rag):
+def test_empty_and_incomplete_index_fallback(rag: RagPolicyRetriever) -> None:
     store = rag._index.store
     store.records[rag.fingerprint] = []
     assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).reason == "retrieval_miss"
@@ -117,9 +137,9 @@ def test_empty_and_incomplete_index_fallback(rag):
     assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).reason == "index_not_ready"
 
 
-def test_restart_and_concurrent_retrieval_isolate_categories(rag):
+def test_restart_and_concurrent_retrieval_isolate_categories(rag: RagPolicyRetriever) -> None:
     restarted = RagPolicyRetriever("unused", rag.model_cache, embedder=FakeEmbedder(), store=rag._index.store)
-    def retrieve(category):
+    def retrieve(category: str) -> str:
         selection = restarted.retrieve_with_provenance(category=category, effective_date=date.today())
         assert selection.source == "rag"
         return selection.policy.category
@@ -128,15 +148,15 @@ def test_restart_and_concurrent_retrieval_isolate_categories(rag):
         assert list(executor.map(retrieve, categories)) == categories
 
 
-def test_dependency_mode_is_shared_and_local_is_default(tmp_path):
+def test_dependency_mode_is_shared_and_local_is_default() -> None:
     settings = Settings(_env_file=None, policy_mode="rag", policy_index_schema="rag_test")
     assert deps.get_policy_retriever(settings) is deps.get_policy_retriever(settings)
     assert isinstance(deps.get_policy_retriever(Settings(_env_file=None, policy_mode="local")), LocalPolicyRetriever)
 
 
-def test_runtime_model_loader_is_offline_and_revision_pinned(monkeypatch):
+def test_runtime_model_loader_is_offline_and_revision_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
-    def constructor(name, **kwargs):
+    def constructor(name: str, **kwargs: Any) -> object:
         calls.append((name, kwargs))
         return object()
     monkeypatch.setitem(__import__("sys").modules, "sentence_transformers", SimpleNamespace(SentenceTransformer=constructor))
@@ -149,11 +169,45 @@ def test_runtime_model_loader_is_offline_and_revision_pinned(monkeypatch):
     assert calls[0][1]["trust_remote_code"] is False
 
 
-def test_missing_model_fallback_is_audited_in_pipeline(rag, monkeypatch):
-    rag._search._embedder = None
-    def unavailable(*args):
+@pytest.mark.parametrize("failure,reason", [
+    ("model", "model_unavailable"),
+    ("index", "index_not_ready"),
+    ("missing_index", "index_unavailable"),
+    ("query", "retrieval_failed"),
+    ("candidate", "candidate_invalid"),
+    ("reranker", "rerank_failed"),
+    ("miss", "retrieval_miss"),
+])
+def test_retrieval_fallback_is_audited_and_failure_blocks_approval(
+    rag: RagPolicyRetriever, monkeypatch: pytest.MonkeyPatch, failure: str, reason: str,
+) -> None:
+    def unavailable(*args: object) -> NoReturn:
         raise RuntimeError("sensitive-receipt@example.test credential-secret")
-    monkeypatch.setattr("app.integrations.rag.search.SentenceEmbedder", unavailable)
+
+    store = rag._index.store
+    if failure == "model":
+        rag._search._embedder = None
+        monkeypatch.setattr("app.integrations.rag.search.SentenceEmbedder", unavailable)
+    elif failure == "index":
+        store.generations[rag.fingerprint] = replace(store.generations[rag.fingerprint], ready=False)
+    elif failure == "missing_index":
+        store.generations.pop(rag.fingerprint)
+    elif failure == "reranker":
+        rag.rerank_mode = "cross_encoder"
+        rag._reranker = SimpleNamespace(score=unavailable)
+    else:
+        search = store.search
+
+        def altered_search(*args: Any, **kwargs: Any) -> list[SearchHit]:
+            if failure == "query":
+                unavailable()
+            if failure == "miss":
+                return []
+            hits = search(*args, **kwargs)
+            hits[0] = replace(hits[0], text="Untrusted policy text")
+            return hits
+
+        monkeypatch.setattr(store, "search", altered_search)
     app.dependency_overrides[deps.get_policy_retriever] = lambda: rag
     try:
         with TestClient(app) as client:
@@ -161,13 +215,20 @@ def test_missing_model_fallback_is_audited_in_pipeline(rag, monkeypatch):
                 files={"files": ("synthetic.pdf", BytesIO(b"%PDF-1.7\nCATEGORY:MEALS\n%%EOF"), "application/pdf")})
             claim_id = created.json()["claim"]["id"]
             response = client.post(f"/claims/{claim_id}/process")
-            assert response.status_code == 200 and response.json()["decision"]["outcome"] == "approved"
+            if failure == "miss":
+                assert response.status_code == 200
+                assert response.json()["decision"]["outcome"] == "approved"
+            else:
+                assert response.status_code == 503
+                assert response.json()["code"] == "policy_unavailable"
+                assert not deps._memory_repositories().decisions.list_for_claim(UUID(claim_id))
             timeline = client.get(f"/claims/{claim_id}/timeline").json()
-            assert "model_unavailable" in str(timeline)
+            assert reason in str(timeline)
             assert "credential-secret" not in str(timeline) and "sensitive-receipt" not in str(timeline)
             events = deps._memory_repositories().audit.list_for_aggregate("claim", UUID(claim_id))
             selection = next(e for e in events if e.event_type == "policy.retrieved")
             assert selection.safe_payload["source"] == "local"
+            assert selection.safe_payload["reason_code"] == reason
     finally:
         app.dependency_overrides.pop(deps.get_policy_retriever, None)
 
@@ -179,7 +240,10 @@ def test_missing_model_fallback_is_audited_in_pipeline(rag, monkeypatch):
     ("OTHER", "60000", ""),
 ])
 @pytest.mark.parametrize("rerank_mode", ["none", "cross_encoder"])
-def test_pipeline_decision_parity_and_audit_replay(rag, category, amount, marker, rerank_mode):
+def test_pipeline_decision_parity_and_audit_replay(
+    rag: RagPolicyRetriever, category: str, amount: str, marker: str,
+    rerank_mode: Literal["none", "cross_encoder"],
+) -> None:
     rag.rerank_mode = rerank_mode
     rag._reranker = SimpleNamespace(score=lambda query, texts: [0.0] * len(texts))
     with TestClient(app) as client:

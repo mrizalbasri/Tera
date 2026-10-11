@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from statistics import mean
 from time import perf_counter
+from typing import TypedDict
 
 from app.integrations.rag.corpus import policy_documents
 from app.integrations.rag.query import PolicyQueryContext, build_query
@@ -30,7 +31,21 @@ CASES = (
 )
 
 
-def benchmark(search: PolicySearch, reranker: Reranker, *, top_k: int, top_n: int) -> dict:
+class BenchmarkResult(TypedDict):
+    cases: int
+    top_k: int
+    top_n: int
+    search_top1: float
+    reranked_top1: float
+    search_mrr_at_n: float
+    reranked_mrr_at_n: float
+    mean_search_ms: float
+    mean_rerank_ms: float
+
+
+def benchmark(
+    search: PolicySearch, reranker: Reranker, *, top_k: int, top_n: int,
+) -> BenchmarkResult:
     """No claim data: fixed synthetic concepts; exclude first inference from latency."""
     policies = {document.policy.category: document.policy for document in policy_documents()}
     samples = []

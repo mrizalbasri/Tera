@@ -10,7 +10,9 @@ from app.integrations.rag.pgvector import PgPolicyStore, vector_literal
 from app.integrations.rag.vector_store import Generation, PolicyVectorStore, VectorRecord
 
 
-def chunk_metadata(chunk: PolicyChunk, document: PolicyDocument, fingerprint: str) -> dict:
+def chunk_metadata(
+    chunk: PolicyChunk, document: PolicyDocument, fingerprint: str,
+) -> dict[str, str | int]:
     policy = document.policy
     return {
         "document_id": document.id, "rule_id": chunk.rule_id,

@@ -75,6 +75,9 @@ class ExtractionResult(SchemaBase):
     line_items: list[ExtractedLineItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     provider: str = Field(min_length=1, max_length=100)
+    # True when this result came from the deterministic fallback after a live
+    # provider failure; the decision engine must never auto-approve it.
+    provider_degraded: bool = False
     created_at: datetime
 
 
@@ -172,6 +175,21 @@ class ConversationEntry(SchemaBase):
     role: str = Field(min_length=1, max_length=20)
     content: str = Field(min_length=1, max_length=2000)
     created_at: datetime
+
+
+class TimelineEntry(SchemaBase):
+    """One ordered, redacted step in a claim's processing story (FR-12)."""
+
+    sequence: int = Field(ge=1)
+    timestamp: datetime | None = None
+    step_name: str = Field(min_length=1, max_length=100)
+    status: str = Field(min_length=1, max_length=40)
+    summary: str = Field(min_length=1, max_length=500)
+    processing_run_id: UUID | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+    error_code: str | None = Field(default=None, max_length=100)
+    detail: dict[str, object] = Field(default_factory=dict)
+    related_ids: dict[str, str] = Field(default_factory=dict)
 
 
 class AuditEvent(SchemaBase):

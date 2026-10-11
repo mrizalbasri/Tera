@@ -178,7 +178,7 @@ def test_invalid_declared_amount_is_rejected_with_typed_error() -> None:
 
 
 def test_claim_creation_appends_audit_event() -> None:
-    from app.api.deps import _repositories
+    from app.api.deps import _memory_repositories
 
     created = client.post(
         "/claims",
@@ -193,7 +193,7 @@ def test_claim_creation_appends_audit_event() -> None:
     )
     claim_id = created.json()["claim"]["id"]
 
-    events = _repositories().audit.list_for_aggregate("claim", UUID(claim_id))
+    events = _memory_repositories().audit.list_for_aggregate("claim", UUID(claim_id))
 
     assert [event.event_type for event in events] == ["claim.received"]
     assert events[0].actor_type == "employee"

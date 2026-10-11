@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
-from app.api.deps import _repositories
+from app.api.deps import _memory_repositories as _repositories
 from app.main import app
 
 client = TestClient(app)

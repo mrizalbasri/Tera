@@ -245,60 +245,6 @@
 										<span class="attempt-status ok-glyph">Berhasil</span>
 									{/if}
 
-									<div class="glass-panel">
-										<h3>Validasi & Kebijakan (FR-04/05)</h3>
-										{#if validationFindings.length === 0 && policyEvaluations.length === 0}
-											<p class="scope-note">Belum ada temuan validasi atau evaluasi kebijakan dari backend.</p>
-										{:else}
-											<div class="evidence-list">
-												{#each validationFindings as finding (`validation-${finding.processing_run_id}-${finding.rule_id}`)}
-													<div class="evidence-row {finding.passed ? 'passed' : finding.severity}">
-														<div>
-															<strong>{finding.rule_id}</strong>
-															<p>{finding.explanation}</p>
-														</div>
-														<span>{finding.passed ? 'LULUS' : finding.severity.toUpperCase()}</span>
-													</div>
-												{/each}
-												{#each policyEvaluations as evaluation (`policy-${evaluation.processing_run_id}-${evaluation.rule_id}`)}
-													<div class="evidence-row {evaluation.passed ? 'passed' : evaluation.severity}">
-														<div>
-															<strong>{evaluation.rule_id}</strong>
-															<p>{evaluation.explanation}</p>
-															<small>
-																Nilai: {evaluation.actual_value == null ? '-' : String(evaluation.actual_value)}
-																· Batas: {evaluation.limit == null ? '-' : String(evaluation.limit)}
-															</small>
-														</div>
-														<span>{evaluation.passed ? 'LULUS' : evaluation.severity.toUpperCase()}</span>
-													</div>
-												{/each}
-											</div>
-										{/if}
-									</div>
-
-									<div class="glass-panel">
-										<h3>Duplikat & Risiko Anomali (FR-06/07)</h3>
-										{#if signals.length === 0}
-											<p class="scope-note">Tidak ada signal duplikat atau anomali dari backend.</p>
-										{:else}
-											<div class="evidence-list">
-												{#each signals as signal (signal.id)}
-													<div class="evidence-row {signal.severity}">
-														<div>
-															<strong>{signal.signal_type === 'duplicate' ? 'Duplikat' : 'Risiko anomali'} · {signal.severity}</strong>
-															<p>{signal.explanation}</p>
-															<small>
-																{#if signal.score != null}Skor: {formatConfidence(signal.score)} · {/if}
-																Confidence: {formatConfidence(signal.confidence)}
-															</small>
-														</div>
-														<span>{signal.severity.toUpperCase()}</span>
-													</div>
-												{/each}
-											</div>
-										{/if}
-									</div>
 									{#if attempt.preprocessing.length}
 										<span class="attempt-pre">{attempt.preprocessing.join(', ')}</span>
 									{/if}
@@ -307,6 +253,65 @@
 						</div>
 					</div>
 				{/if}
+
+				<div class="glass-panel">
+					<h3>Validasi & Kebijakan (FR-04/05)</h3>
+					{#if validationFindings.length === 0 && policyEvaluations.length === 0}
+						<p class="scope-note">Belum ada temuan validasi atau evaluasi kebijakan dari backend.</p>
+					{:else}
+						<div class="evidence-list">
+							{#each validationFindings as finding (`validation-${finding.processing_run_id}-${finding.rule_id}`)}
+								<div class="evidence-row {finding.passed ? 'passed' : finding.severity}">
+									<div>
+										<strong>{finding.rule_id}</strong>
+										<p>{finding.explanation}</p>
+										<small>
+											Nilai aktual: {finding.actual == null ? '-' : String(finding.actual)}
+											· Harapan: {finding.expected ?? '-'}
+										</small>
+									</div>
+									<span>{finding.passed ? 'LULUS' : finding.severity.toUpperCase()}</span>
+								</div>
+							{/each}
+							{#each policyEvaluations as evaluation (`policy-${evaluation.processing_run_id}-${evaluation.rule_id}`)}
+								<div class="evidence-row {evaluation.passed ? 'passed' : evaluation.severity}">
+									<div>
+										<strong>{evaluation.rule_id}</strong>
+										<p>{evaluation.explanation}</p>
+										<small>
+											Nilai: {evaluation.actual_value == null ? '-' : String(evaluation.actual_value)}
+											· Batas: {evaluation.limit == null ? '-' : String(evaluation.limit)}
+										</small>
+									</div>
+									<span>{evaluation.passed ? 'LULUS' : evaluation.severity.toUpperCase()}</span>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+
+				<div class="glass-panel">
+					<h3>Duplikat & Risiko Anomali (FR-06/07)</h3>
+					{#if signals.length === 0}
+						<p class="scope-note">Tidak ada signal duplikat atau anomali dari backend.</p>
+					{:else}
+						<div class="evidence-list">
+							{#each signals as signal (signal.id)}
+								<div class="evidence-row {signal.severity}">
+									<div>
+										<strong>{signal.signal_type === 'duplicate' ? 'Duplikat' : 'Risiko anomali'} · {signal.severity}</strong>
+										<p>{signal.explanation}</p>
+										<small>
+											{#if signal.score != null}Skor: {formatConfidence(signal.score)} · {/if}
+											Confidence: {formatConfidence(signal.confidence)}
+										</small>
+									</div>
+									<span>{signal.severity.toUpperCase()}</span>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
 
 				{#if timeline.length}
 					<div class="glass-panel">

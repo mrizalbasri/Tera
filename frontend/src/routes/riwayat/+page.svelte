@@ -8,6 +8,7 @@
 	import { shortClaimRef } from '$lib/formatters/claim';
 	import { formatDate } from '$lib/formatters/date';
 	import { formatCurrency } from '$lib/formatters/currency';
+	import { downloadReport } from '$lib/api/reports';
 	import type { Claim } from '$lib/types/claim';
 
 	let claims = $state<Claim[]>([]);
@@ -40,30 +41,23 @@
 		approved.reduce((sum, c) => sum + (Number(c.declared_amount) || 0), 0)
 	);
 
-	function exportToCSV() {
+	async function exportToCSV() {
 		if (loading || claims.length === 0) {
 			showToast('Tidak ada data untuk diekspor.', 'error');
 			return;
 		}
-		const headers = ['ID Klaim', 'Diajukan', 'Status', 'Nominal', 'Mata Uang'];
-		const rows = claims.map((c) => [
-			c.id,
-			formatDate(c.submitted_at),
-			c.status,
-			c.declared_amount ?? '',
-			c.currency
-		]);
-		const csv = [
-			headers.join(','),
-			...rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(','))
-		].join('\n');
-		const link = document.createElement('a');
-		link.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
-		link.download = `riwayat-klaim-${new Date().toISOString().slice(0, 10)}.csv`;
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
-		showToast('File riwayat klaim berhasil diunduh.', 'success');
+		try {
+			const blob = await downloadReport({ employeeId: CURRENT_EMPLOYEE_ID });
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `riwayat-klaim-${new Date().toISOString().slice(0, 10)}.csv`;
+			link.click();
+			URL.revokeObjectURL(url);
+			showToast('File riwayat klaim berhasil diunduh.', 'success');
+		} catch (error) {
+			showToast(error instanceof Error ? error.message : 'Export gagal.', 'error');
+		}
 	}
 </script>
 

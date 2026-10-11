@@ -9,6 +9,7 @@ Open this directory as an Obsidian vault.
 - [[architecture/agent-flow|Agent flow]]
 - [[decisions/0001-monorepo|Monorepo decision]]
 - [[decisions/0002-langchain-langgraph-stack|LLM stack decision (LangChain/LangGraph/RAG/ML)]]
+- [[development/pgvector|Local pgvector installation, seed and verification]]
 
 ## SDLC Documents
 

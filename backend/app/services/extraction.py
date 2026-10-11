@@ -274,10 +274,24 @@ class ExtractionService:
                 # there is no policy to retrieve for it.
                 continue
             try:
-                policy = self._policy_retriever.retrieve(
-                    category=category,
-                    effective_date=_as_date(result.receipt_date.value),
-                )
+                retrieve_with_provenance = getattr(self._policy_retriever, "retrieve_with_provenance", None)
+                if retrieve_with_provenance is None:
+                    policy = self._policy_retriever.retrieve(
+                        category=category, effective_date=_as_date(result.receipt_date.value),
+                    )
+                else:
+                    from app.integrations.rag.query import PolicyQueryContext
+
+                    selection = retrieve_with_provenance(
+                        category=category, effective_date=_as_date(result.receipt_date.value),
+                        context=PolicyQueryContext.from_extraction(result, participants),
+                    )
+                    record_audit_event(
+                        self._audit, aggregate_type="claim", aggregate_id=claim.id,
+                        event_type="policy.retrieved", actor_type=ActorType.AGENT,
+                        safe_payload=selection.audit_payload(), processing_run_id=run.id,
+                    )
+                    policy = selection.require_policy()
             except ApplicationError:
                 return self._fail_run(
                     run,

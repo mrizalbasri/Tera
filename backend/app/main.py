@@ -11,7 +11,8 @@ from app.api.reviews import router as reviews_router
 from app.config import get_settings
 from app.errors import ApplicationError
 from app.integrations.claim_graph import close_graph_resources
-from app.api.deps import close_sql_repositories
+from app.api.deps import close_sql_repositories, _rag_policy_retriever
+from app.integrations.rag.pgvector import close_policy_indexes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,6 +30,8 @@ async def lifespan(_app: FastAPI):
     finally:
         close_graph_resources()
         close_sql_repositories()
+        close_policy_indexes()
+        _rag_policy_retriever.cache_clear()
 
 
 app = FastAPI(

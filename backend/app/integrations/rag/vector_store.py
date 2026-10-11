@@ -11,6 +11,7 @@ class Generation:
     model: str
     dimensions: int
     ready: bool
+    record_count: int
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,8 @@ class PolicyVectorStore(Protocol):
     def seed(self, generation: Generation, records: list[VectorRecord]) -> None: ...
 
     def generation(self, fingerprint: str) -> Generation | None: ...
+
+    def count(self, fingerprint: str) -> int: ...
 
     def search(self, fingerprint: str, embedding: list[float], *, category: str,
                effective_date: date, top_k: int) -> list[SearchHit]: ...

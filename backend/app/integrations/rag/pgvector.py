@@ -67,9 +67,14 @@ class PgPolicyStore:
                 CREATE TABLE IF NOT EXISTS "{schema}".policy_generations (
                     fingerprint TEXT PRIMARY KEY, model TEXT NOT NULL,
                     dimensions INTEGER NOT NULL CHECK (dimensions BETWEEN 1 AND 16000),
-                    ready BOOLEAN NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    ready BOOLEAN NOT NULL, record_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
             '''))
+            connection.execute(text(
+                f'ALTER TABLE "{schema}".policy_generations '
+                'ADD COLUMN IF NOT EXISTS record_count INTEGER NOT NULL DEFAULT 0'
+            ))
             connection.execute(text(f'''
                 CREATE TABLE IF NOT EXISTS "{schema}".policy_chunks (
                     fingerprint TEXT NOT NULL REFERENCES "{schema}".policy_generations(fingerprint),
@@ -103,15 +108,25 @@ class PgPolicyStore:
                         "to": record.metadata["effective_to"], "document": record.text,
                         "metadata": json.dumps(record.metadata), "embedding": embedding}
                        for record, embedding in zip(records, vectors, strict=True)])
-            connection.execute(text(f'UPDATE "{schema}".policy_generations SET ready = true WHERE fingerprint = :fingerprint'),
-                               {"fingerprint": generation.fingerprint})
+            connection.execute(text(
+                f'UPDATE "{schema}".policy_generations '
+                'SET ready = true, record_count = :record_count '
+                'WHERE fingerprint = :fingerprint'
+            ), {"fingerprint": generation.fingerprint, "record_count": generation.record_count})
 
     def generation(self, fingerprint: str) -> Generation | None:
         with self._engine().connect() as connection:
-            row = connection.execute(text(f'SELECT fingerprint, model, dimensions, ready '
+            row = connection.execute(text(f'SELECT fingerprint, model, dimensions, ready, record_count '
                                           f'FROM "{self.schema}".policy_generations WHERE fingerprint = :fingerprint'),
                                      {"fingerprint": fingerprint}).mappings().first()
             return Generation(**row) if row is not None else None
+
+    def count(self, fingerprint: str) -> int:
+        with self._engine().connect() as connection:
+            return int(connection.execute(
+                text(f'SELECT count(*) FROM "{self.schema}".policy_chunks WHERE fingerprint = :fingerprint'),
+                {"fingerprint": fingerprint},
+            ).scalar_one())
 
     def search(self, fingerprint: str, embedding: list[float], *, category: str,
                effective_date: date, top_k: int) -> list[SearchHit]:

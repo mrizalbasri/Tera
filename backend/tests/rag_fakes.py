@@ -24,6 +24,9 @@ class MemoryVectorStore:
     def generation(self, fingerprint: str) -> Generation | None:
         return self.generations.get(fingerprint)
 
+    def count(self, fingerprint: str) -> int:
+        return len(self.records.get(fingerprint, []))
+
     def search(
         self, fingerprint: str, embedding: list[float], *, category: str,
         effective_date: date, top_k: int,

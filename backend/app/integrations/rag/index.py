@@ -41,7 +41,7 @@ def seed_index(
         vector_literal(embedding, dimensions)
     adapter = store if store is not None else PgPolicyStore(database_url, schema)
     try:
-        adapter.seed(Generation(fingerprint, model_identity, dimensions, True), [
+        adapter.seed(Generation(fingerprint, model_identity, dimensions, True, len(chunks)), [
             VectorRecord(chunk.id, chunk.text, chunk_metadata(chunk, known[chunk.document_id], fingerprint), embedding)
             for chunk, embedding in zip(chunks, embeddings, strict=True)
         ])
@@ -68,6 +68,14 @@ class PolicyIndex:
         if generation is None:
             raise RetrievalError("index_unavailable")
         if (generation.fingerprint != self.fingerprint or generation.model != self.model_identity
-            or not generation.ready or generation.dimensions < 1 or generation.dimensions > 16000):
+            or not generation.ready or generation.dimensions < 1 or generation.dimensions > 16000
+            or generation.record_count != len(self.chunks)):
             raise RetrievalError("index_not_ready")
+        try:
+            if self.store.count(self.fingerprint) != len(self.chunks):
+                raise RetrievalError("index_not_ready")
+        except RetrievalError:
+            raise
+        except Exception:
+            raise RetrievalError("index_unavailable") from None
         return generation

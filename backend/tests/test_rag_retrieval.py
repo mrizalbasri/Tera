@@ -49,7 +49,7 @@ def reranked(tmp_path):
                               rerank_mode="cross_encoder", reranker=FakeReranker(), top_n=1, store=store)
 
 
-def test_atomic_chunks_contain_all_rule_fields_and_stable_provenance():
+def test_atomic_chunks_contain_all_rule_fields_and_stable_provenance() -> None:
     documents = policy_documents()
     chunks = chunk_documents(documents)
     assert chunks == chunk_documents(documents)
@@ -63,7 +63,7 @@ def test_atomic_chunks_contain_all_rule_fields_and_stable_provenance():
             assert document.source in chunk.text and document.policy.category in chunk.text
 
 
-def test_chunk_fingerprint_changes_when_rules_or_source_change():
+def test_chunk_fingerprint_changes_when_rules_or_source_change() -> None:
     documents = policy_documents()
     original = index_fingerprint(documents, MODEL_IDENTITY)
     changed = documents[0].policy.model_copy(deep=True)
@@ -72,7 +72,7 @@ def test_chunk_fingerprint_changes_when_rules_or_source_change():
     assert index_fingerprint([replace(documents[0], source="synthetic-policy#9"), *documents[1:]], MODEL_IDENTITY) != original
 
 
-def test_duplicate_rules_cannot_seed_ambiguous_chunk_ids():
+def test_duplicate_rules_cannot_seed_ambiguous_chunk_ids() -> None:
     document = policy_documents()[0]
     policy = document.policy.model_copy(deep=True)
     policy.rules.append(policy.rules[0])
@@ -80,7 +80,7 @@ def test_duplicate_rules_cannot_seed_ambiguous_chunk_ids():
         chunk_documents([replace(document, policy=policy)])
 
 
-def test_context_is_bounded_canonical_and_contains_no_free_text():
+def test_context_is_bounded_canonical_and_contains_no_free_text() -> None:
     extraction = _extraction()
     extraction.vendor.value = "SPBU Jane Doe private@example.test rekening 1234567890"
     extraction.line_items = [ExtractedLineItem(
@@ -99,14 +99,14 @@ def test_context_is_bounded_canonical_and_contains_no_free_text():
     assert build_query("meals", PolicyQueryContext(("private@example.test",))) == build_query("meals")
 
 
-def test_unrecognized_context_uses_fixed_category_query():
+def test_unrecognized_context_uses_fixed_category_query() -> None:
     extraction = _extraction()
     extraction.vendor.value = "Jane Doe"
     extraction.line_items = []
     assert build_query("meals", PolicyQueryContext.from_extraction(extraction)) == build_query("meals")
 
 
-def test_search_filters_top_k_and_reranks_contextual_candidates(reranked):
+def test_search_filters_top_k_and_reranks_contextual_candidates(reranked) -> None:
     store = reranked._index.store
     search = store.search
     captured = []
@@ -124,7 +124,7 @@ def test_search_filters_top_k_and_reranks_contextual_candidates(reranked):
     assert "alkohol" in reranked._reranker.calls[0][0]
 
 
-def test_top_n_one_still_evaluates_every_rule(reranked):
+def test_top_n_one_still_evaluates_every_rule(reranked) -> None:
     selection = reranked.retrieve_with_provenance(category="meals", effective_date=date.today())
     assert len(selection.rule_ids) == 1
     assert selection.policy == LocalPolicyRetriever().retrieve(category="meals", effective_date=date.today())
@@ -135,20 +135,20 @@ def test_top_n_one_still_evaluates_every_rule(reranked):
 
 
 @pytest.mark.parametrize("scores", [[float("nan")], [float("inf")], [float("-inf")], [], [0, 1], [None], [True]])
-def test_invalid_rerank_scores_are_rejected(scores):
+def test_invalid_rerank_scores_are_rejected(scores) -> None:
     candidate = Candidate("chunk", "policy", "rule", "trusted text", 0.1)
     with pytest.raises(RetrievalError, match="rerank_invalid"):
         rerank_candidates("synthetic", [candidate], SimpleNamespace(score=lambda *args: scores), 1)
 
 
-def test_reranker_has_stable_tie_breaking_and_top_n():
+def test_reranker_has_stable_tie_breaking_and_top_n() -> None:
     candidates = [Candidate(str(i), "policy", str(i), "trusted text", 0.1) for i in (3, 2, 1)]
     scorer = SimpleNamespace(score=lambda *args: [0.1, 0.1, 0.1])
     assert [c.chunk_id for c in rerank_candidates("synthetic", candidates, scorer, 2)] == ["1", "2"]
 
 
 @pytest.mark.parametrize("failure", ["missing", "exception", "invalid"])
-def test_rerank_failure_uses_local_policy_and_safe_audit(reranked, monkeypatch, caplog, failure):
+def test_rerank_failure_uses_local_policy_and_safe_audit(reranked, monkeypatch, caplog, failure) -> None:
     secret = "private@example.test credential-secret"
     def fail(*args):
         raise RuntimeError(secret)
@@ -166,7 +166,7 @@ def test_rerank_failure_uses_local_policy_and_safe_audit(reranked, monkeypatch, 
     assert "credential-secret" not in str(selection.audit_payload()) + caplog.text
 
 
-def test_candidate_tampering_is_rejected_before_reranking(reranked):
+def test_candidate_tampering_is_rejected_before_reranking(reranked) -> None:
     store = reranked._index.store
     search = store.search
     def tampered(*args, **kwargs):
@@ -180,7 +180,7 @@ def test_candidate_tampering_is_rejected_before_reranking(reranked):
 
 
 @pytest.mark.parametrize("change", ["duplicates", "nan", "missing_metadata", "different_policy", "wrong_parent"])
-def test_malformed_search_results_cannot_enter_reranker(reranked, change):
+def test_malformed_search_results_cannot_enter_reranker(reranked, change) -> None:
     store = reranked._index.store
     search = store.search
     def tampered(*args, **kwargs):
@@ -197,7 +197,7 @@ def test_malformed_search_results_cannot_enter_reranker(reranked, change):
     assert reranked._reranker.calls == []
 
 
-def test_no_rerank_mode_does_not_load_or_call_reranker(reranked, monkeypatch):
+def test_no_rerank_mode_does_not_load_or_call_reranker(reranked, monkeypatch) -> None:
     reranked.rerank_mode = "none"
     def fail(*args):
         pytest.fail("reranker must stay unloaded")
@@ -206,7 +206,7 @@ def test_no_rerank_mode_does_not_load_or_call_reranker(reranked, monkeypatch):
     assert selection.source == "rag" and selection.reranker_model is None
 
 
-def test_reranker_is_offline_pinned_and_uses_safetensors(monkeypatch):
+def test_reranker_is_offline_pinned_and_uses_safetensors(monkeypatch) -> None:
     calls = []
     def constructor(name, **kwargs):
         calls.append((name, kwargs))
@@ -223,12 +223,12 @@ def test_reranker_is_offline_pinned_and_uses_safetensors(monkeypatch):
 
 @pytest.mark.parametrize("settings", [dict(policy_top_k=0), dict(policy_top_n=0),
     dict(policy_top_k=51), dict(policy_top_k=1, policy_top_n=2), dict(policy_rerank_mode="external")])
-def test_invalid_retrieval_settings_fail_at_startup(settings):
+def test_invalid_retrieval_settings_fail_at_startup(settings) -> None:
     with pytest.raises(ValueError):
         Settings(_env_file=None, **settings)
 
 
-def test_shared_adapter_cache_accounts_for_retrieval_configuration(tmp_path):
+def test_shared_adapter_cache_accounts_for_retrieval_configuration(tmp_path) -> None:
     base = Settings(_env_file=None, policy_mode="rag", policy_index_schema="rag_test")
     first = deps.get_policy_retriever(base)
     changed = base.model_copy(update={"policy_rerank_mode": "cross_encoder"})
@@ -236,7 +236,7 @@ def test_shared_adapter_cache_accounts_for_retrieval_configuration(tmp_path):
     assert deps.get_policy_retriever(changed) is deps.get_policy_retriever(changed)
 
 
-def test_reranked_queries_do_not_cross_claims_and_index_persists(reranked):
+def test_reranked_queries_do_not_cross_claims_and_index_persists(reranked) -> None:
     contexts = [("meals", "alkohol"), ("fuel", "nota SPBU"), ("hotel", "perjalanan dinas")] * 3
     def retrieve(pair):
         category, concept = pair
@@ -251,7 +251,7 @@ def test_reranked_queries_do_not_cross_claims_and_index_persists(reranked):
     assert restarted.retrieve(category="meals", effective_date=date.today()) == results[0].policy
 
 
-def test_pipeline_reranking_is_contextual_replay_safe_and_query_is_not_audited(reranked):
+def test_pipeline_reranking_is_contextual_replay_safe_and_query_is_not_audited(reranked) -> None:
     app.dependency_overrides[deps.get_policy_retriever] = lambda: reranked
     try:
         with TestClient(app) as client:
@@ -276,7 +276,7 @@ def test_pipeline_reranking_is_contextual_replay_safe_and_query_is_not_audited(r
     assert all("konteks:" not in record.text for record in stored)
 
 
-def test_explicit_seed_cli_prepares_reranker_and_verifies_offline(tmp_path, monkeypatch, capsys):
+def test_explicit_seed_cli_prepares_reranker_and_verifies_offline(tmp_path, monkeypatch, capsys) -> None:
     import app.seed_policy as cli
     calls = []
     def fake_embedder(cache, *, download=False):
@@ -300,7 +300,7 @@ def test_explicit_seed_cli_prepares_reranker_and_verifies_offline(tmp_path, monk
     assert "all 5 categories" in capsys.readouterr().out
 
 
-def test_benchmark_measures_fixed_synthetic_queries_without_claims(reranked):
+def test_benchmark_measures_fixed_synthetic_queries_without_claims(reranked) -> None:
     from app.integrations.rag.benchmark import CASES, benchmark
 
     result = benchmark(reranked._search, reranked._reranker, top_k=8, top_n=3)

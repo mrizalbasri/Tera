@@ -132,7 +132,7 @@ def test_seed_is_idempotent_and_new_fingerprint_isolated(rag: RagPolicyRetriever
 def test_empty_and_incomplete_index_fallback(rag: RagPolicyRetriever) -> None:
     store = rag._index.store
     store.records[rag.fingerprint] = []
-    assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).reason == "retrieval_miss"
+    assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).reason == "index_not_ready"
     store.generations[rag.fingerprint] = replace(store.generations[rag.fingerprint], ready=False)
     assert rag.retrieve_with_provenance(category="meals", effective_date=date.today()).reason == "index_not_ready"
 

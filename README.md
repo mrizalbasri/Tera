@@ -17,6 +17,25 @@ data/      Schemas and synthetic samples only
 docs/      Architecture and project documentation
 ```
 
+### Backend responsibilities
+
+| Package | Responsibility |
+| --- | --- |
+| `app/agent/` | LangGraph workflow, thin nodes, control state, checkpoint runtime and prompt templates |
+| `app/services/` | Claim processing lifecycle, extraction, validation, decisions, clarification and review |
+| `app/integrations/` | LLM transport, outbound privacy controls, policy retrieval and other adapters |
+| `app/domain/` and `app/schemas/` | Business states, transitions and typed data contracts |
+| `app/repositories/` | Persistence contracts and implementations |
+| `app/api/` and `app/audit/` | HTTP endpoints, dependency wiring and audit events |
+
+`ClaimProcessingService` composes `ExtractionService` and the agent workflow.
+Graph nodes call public service operations; business rules stay outside the
+graph topology. Prompt instructions live in `app/agent/prompts/extraction.py`;
+masking, image sanitization and multimodal message construction remain in
+`app/integrations/llm_prompt.py` at the outbound privacy boundary.
+See [the agent module guide](docs/architecture/agent-modules.md) for the dependency
+flow and checkpoint compatibility constraints.
+
 ## Local setup
 
 ### Backend

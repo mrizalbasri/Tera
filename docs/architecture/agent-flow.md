@@ -1,6 +1,6 @@
 # Agent Flow
 
-The target claim flow is:
+The implemented processing flow is:
 
 ```mermaid
 flowchart TD
@@ -15,7 +15,12 @@ flowchart TD
     Decision -->|Reject| Rejected[Record rejection]
 ```
 
-The flow is a target architecture, not a claim that all steps are already implemented.
+Intake saves receipts before processing begins. Clarification resumes processing
+with the stored answer; human review applies a new decision without repeating
+extraction. The workflow also records policy evaluation separately from field
+validation. Completed requests replay stored outcomes.
+
+See [[agent-modules|Agent module boundaries]] for graph modules and responsibilities.
 
 Related documents:
 

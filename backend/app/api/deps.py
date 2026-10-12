@@ -8,7 +8,7 @@ from fastapi import Depends
 
 from app.config import Settings, get_settings
 from app.integrations.anomaly import RuleBasedAnomalyScorer
-from app.integrations.claim_graph import graph_resources
+from app.agent.runtime import graph_resources
 from app.integrations.duplicate import AttributeDuplicateDetector
 from app.integrations.llm import LlmReceiptExtractor
 from app.integrations.masking import SensitiveDataMasker
@@ -43,6 +43,7 @@ from app.repositories.protocols import (
 )
 from app.services.clarification import ClarificationService
 from app.services.decision import DecisionEngine
+from app.services.extraction import ExtractionService
 from app.services.processing import ClaimProcessingService
 from app.services.intake import IntakeService
 from app.services.review import ReviewService
@@ -242,7 +243,7 @@ def get_extraction_service(
     policy_evaluator: PolicyEvaluator = Depends(get_policy_evaluator),
     decider: DecisionEngine = Depends(get_decision_engine),
 ) -> ClaimProcessingService:
-    return ClaimProcessingService(
+    extraction = ExtractionService(
         claims,
         receipts,
         storage,
@@ -265,6 +266,9 @@ def get_extraction_service(
         policy_evaluator,
         decider,
         settings,
+    )
+    return ClaimProcessingService(
+        claims, runs, extraction,
         graph_resources=graph_resources(_backend(settings), settings),
     )
 

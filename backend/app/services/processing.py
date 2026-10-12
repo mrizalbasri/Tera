@@ -7,59 +7,42 @@ the source of truth; completed requests replay without executing graph nodes.
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from langgraph.graph import END, START, StateGraph
-from langgraph.runtime import Runtime
-from langgraph.types import Command, interrupt
+from langgraph.types import Command
 
+from app.agent.nodes import ClaimNodes
+from app.agent.runtime import GraphResources
+from app.agent.state import ClaimGraphState, ReviewExecution
+from app.agent.workflow import build_claim_workflow
 from app.domain.enums import ClaimStatus, ProcessingRunStatus
 from app.errors import ApplicationError, ErrorCode, NotFoundError
-from app.integrations.claim_graph import ClaimGraphState, GraphResources
+from app.repositories.protocols import ClaimRepository, ProcessingRunRepository
 from app.schemas.core import Claim, Decision, ProcessingOutcome, ProcessingRun, Review
 from app.services.extraction import ExtractionService, PIPELINE_VERSION
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ReviewExecution:
-    """Invocation-local callback and result; never part of checkpoint state."""
+class ClaimProcessingService:
+    """Application entry point for processing, replay, and human-input resume."""
 
-    apply: Callable[[UUID], tuple[Claim, Decision, Review]]
-    result: tuple[Claim, Decision, Review] | None = None
-
-
-class ClaimProcessingService(ExtractionService):
-    def __init__(self, *args, graph_resources: GraphResources, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        claims: ClaimRepository,
+        runs: ProcessingRunRepository,
+        extraction: ExtractionService,
+        *,
+        graph_resources: GraphResources,
+    ) -> None:
+        self._claims = claims
+        self._runs = runs
+        self._extraction = extraction
         self.resources = graph_resources
-        builder = StateGraph(ClaimGraphState, context_schema=ReviewExecution)
-        for name, step in (
-            ("extract", self._extract), ("validate", self._validate),
-            ("evaluate_policy", self._policy), ("detect_duplicates", self._duplicates),
-            ("score_anomaly", self._anomaly), ("decide", self._decide),
-            ("wait_clarification", self._wait_clarification),
-            ("wait_review", self._wait_review), ("apply_review", self._apply_review),
-        ):
-            builder.add_node(name, step)
-        builder.add_conditional_edges(START, lambda s: s["stage"],
-                                      ["extract", "wait_clarification", "wait_review"])
-        builder.add_conditional_edges("extract", lambda s: s["stage"],
-                                      ["validate", "wait_clarification"])
-        for source, target in (("validate", "evaluate_policy"),
-                               ("evaluate_policy", "detect_duplicates"),
-                               ("detect_duplicates", "score_anomaly"),
-                               ("score_anomaly", "decide")):
-            builder.add_edge(source, target)
-        builder.add_conditional_edges("decide", lambda s: s["stage"],
-                                      [END, "wait_clarification", "wait_review"])
-        builder.add_edge("wait_clarification", "extract")
-        builder.add_edge("wait_review", "apply_review")
-        builder.add_edge("apply_review", END)
-        self.graph = builder.compile(checkpointer=self.resources.saver)
+        self.graph = build_claim_workflow(
+            ClaimNodes(claims, runs, extraction), graph_resources.saver,
+        )
 
     def claim_lock(self, claim_id: UUID):
         return self.resources.claim_lock(claim_id)
@@ -126,62 +109,7 @@ class ClaimProcessingService(ExtractionService):
             self.graph.invoke(Command(resume={"run_id": str(run.id)}), config)
         else:
             self.graph.invoke(self._state(claim.id, run.id, "extract"), config)
-        return self._replay(claim.id, self._runs.get(run.id))
-
-    def _records(self, state):
-        return self._claims.get(UUID(state["claim_id"])), self._runs.get(UUID(state["run_id"]))
-
-    def _extract(self, state):
-        claim, run = self._records(state)
-        self.extract_receipts(claim, run)
-        run = self._runs.get(run.id)
-        return {"stage": "wait_clarification" if run.status == ProcessingRunStatus.NEEDS_CLARIFICATION
-                else "validate"}
-
-    def _validate(self, state):
-        claim, run = self._records(state)
-        self._validate_extraction(claim, self._replay(claim.id, run).extractions)
-        return {"stage": "evaluate_policy"}
-
-    def _policy(self, state):
-        claim, run = self._records(state)
-        outcome = self._replay(claim.id, run)
-        participants, _ = self._answered_participants(claim.id)
-        self._evaluate_policy(claim, outcome.extractions, run, outcome.attempts, participants)
-        return {"stage": "detect_duplicates"}
-
-    def _duplicates(self, state):
-        self.detect_duplicates(*self._records(state))
-        return {"stage": "score_anomaly"}
-
-    def _anomaly(self, state):
-        self.score_anomaly(*self._records(state))
-        return {"stage": "decide"}
-
-    def _decide(self, state):
-        claim, run = self._records(state)
-        self.decide_claim(claim, run)
-        status = self._runs.get(run.id).status
-        return {"stage": {ProcessingRunStatus.NEEDS_CLARIFICATION: "wait_clarification",
-                          ProcessingRunStatus.ESCALATED: "wait_review"}.get(status, END)}
-
-    @staticmethod
-    def _wait_clarification(state):
-        answer = interrupt({"claim_id": state["claim_id"], "kind": "clarification"})
-        return {"run_id": answer["run_id"], "stage": "extract"}
-
-    @staticmethod
-    def _wait_review(state):
-        answer = interrupt({"claim_id": state["claim_id"], "kind": "review"})
-        return {"run_id": answer["run_id"], "stage": "apply_review"}
-
-    def _apply_review(self, state: ClaimGraphState, runtime: Runtime[ReviewExecution]):
-        _, run = self._records(state)
-        if runtime.context is None:
-            raise ApplicationError(ErrorCode.INVALID_CLAIM, "Review input is required.", 409)
-        runtime.context.result = runtime.context.apply(run.id)
-        self._complete_run(run, ProcessingRunStatus.SUCCEEDED, [], error_code=None)
-        return {"stage": END}
+        return self._extraction.replay(claim.id, self._runs.get(run.id))
 
     def _process_claim(
         self,
@@ -209,7 +137,7 @@ class ClaimProcessingService(ExtractionService):
         ):
             # Repetition without new input replays the recorded run instead of
             # creating a conflicting one (M6 reliability rule).
-            return self._replay(claim_id, latest_run)
+            return self._extraction.replay(claim_id, latest_run)
 
         if run_key:
             keyed_run = self._runs.get_run_by_key(run_key)
@@ -238,7 +166,7 @@ class ClaimProcessingService(ExtractionService):
 
         current_status = ClaimStatus(claim.status)
         if current_status is ClaimStatus.RECEIVED:
-            claim = self._transition_claim(claim, ClaimStatus.PROCESSING)
+            claim = self._extraction.transition_claim(claim, ClaimStatus.PROCESSING)
         elif current_status is ClaimStatus.PROCESSING and (
             resume
             or (
@@ -276,7 +204,7 @@ class ClaimProcessingService(ExtractionService):
                 "Receipt extraction failed; please upload a clearer receipt.",
                 502,
             )
-        return self._replay(claim_id, run)
+        return self._extraction.replay(claim_id, run)
 
     def _await_terminal(self, run: ProcessingRun) -> ProcessingRun:
         """Wait briefly for a concurrent winner's run to reach a final state."""

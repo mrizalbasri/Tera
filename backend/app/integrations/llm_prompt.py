@@ -17,26 +17,13 @@ from decimal import Decimal
 
 from langchain_core.messages import HumanMessage
 
+from app.agent.prompts.extraction import EXTRACTION_PROMPT
 from app.config import Settings
 from app.domain.enums import ErrorClassification
 from app.errors import ErrorCode, classified_error
 from app.integrations.image_privacy import strip_image_metadata
 from app.integrations.masking import SensitiveDataMasker
 from app.schemas.core import Receipt
-
-_EXTRACTION_PROMPT = (
-    "You are an expense receipt parser. Extract the vendor, receipt date, "
-    "total, currency, and category from this receipt image. Category must be "
-    "one of: meals, fuel, toll_parking, hotel, other. Give every field the "
-    "same confidence between 0 and 1. Return only a valid JSON object, without "
-    "Markdown or extra text, using these fields and types: "
-    "vendor: non-empty string (maximum 255 characters); "
-    "receipt_date: string in YYYY-MM-DD format; total: positive number; "
-    "currency: three-letter currency string; category: string from the list above; "
-    "quantity: positive number (use 1 if unspecified); "
-    "confidence: number between 0 and 1; warnings: array of strings "
-    "(use an empty array if there are no warnings)."
-)
 
 
 def build_extraction_message(
@@ -56,7 +43,7 @@ def build_extraction_message(
             "Receipt image forwarding is disabled by privacy policy.",
             422,
         )
-    prompt = _EXTRACTION_PROMPT
+    prompt = EXTRACTION_PROMPT
     if declared_amount is not None:
         masked_amount = masker.mask(str(declared_amount)).masked_text
         prompt += "\nDeclared amount submitted by the employee: " + masked_amount

@@ -1,161 +1,142 @@
-<script>
-	// Data antrean klaim (berdasarkan BRD)
-	let claims = $state([
-		{
-			id: 'CLM-1042',
-			name: 'Budi Santoso',
-			role: 'Sales Lapangan Surabaya',
-			category: 'Hotel / Penginapan',
-			date: '28 Sep 2026',
-			amount: 650000,
-			vendor: 'Hotel Ibis Budget Surabaya',
-			reasonBadge: 'Nominal > Rp 500.000',
-			reasonType: 'warning',
-			aiReason: 'Nota valid (skor 94%), namun melebihi ambang batas auto-approve (Rp500.000).',
-			status: 'PENDING',
-			confidence: 94,
-			ocrItems: [
-				{ desc: 'Room Standard 1 Malam', price: 590909 },
-				{ desc: 'PB1 / Pajak Daerah 10%', price: 59091 }
-			],
-			aiAuditTrail: [
-				{ step: 'Kualitas Gambar', status: 'PASS', desc: 'Resolusi 1920x1080, tidak buram, teks terbaca jelas.' },
-				{ step: 'Ekstraksi OCR (FR-02)', status: 'PASS', desc: 'Berhasil membaca vendor, tanggal, rincian item, dan total.' },
-				{ step: 'Pengecekan Kebijakan (RAG)', status: 'PASS', desc: 'Batas hotel Rp600.000/malam. Tanggal klaim dalam 14 hari.' },
-				{ step: 'Deteksi Anomali & Duplikat (ML)', status: 'PASS', desc: 'Bukan klaim ganda, pola historis wajar.' },
-				{ step: 'Keputusan Otonom (FR-08/10)', status: 'FLAGGED', desc: 'Dieskalasi ke admin manusia karena total (Rp650rb) > batas otonom (Rp500rb).' }
-			]
-		},
-		{
-			id: 'CLM-1045',
-			name: 'Andi Wijaya',
-			role: 'Sales Lapangan Bandung',
-			category: 'BBM / SPBU',
-			date: '01 Okt 2026',
-			amount: 180000,
-			vendor: 'SPBU Pertamina 34-40112',
-			reasonBadge: 'Terdeteksi Anomali',
-			reasonType: 'danger',
-			aiReason: 'Nominal BBM melebihi batas kebijakan harian maksimal Rp150.000/hari kerja.',
-			status: 'PENDING',
-			confidence: 89,
-			ocrItems: [
-				{ desc: 'Pertamax 13.95 Liter @ Rp12.900', price: 180000 }
-			],
-			aiAuditTrail: [
-				{ step: 'Kualitas Gambar', status: 'PASS', desc: 'Foto struk SPBU terbaca.' },
-				{ step: 'Ekstraksi OCR (FR-02)', status: 'PASS', desc: 'Nominal Rp180.000 terverifikasi.' },
-				{ step: 'Pengecekan Kebijakan (RAG)', status: 'WARN', desc: 'Batas maksimal BBM per hari adalah Rp150.000. Selisih: Rp30.000.' },
-				{ step: 'Deteksi Anomali & Duplikat (ML)', status: 'WARN', desc: 'Karyawan mengajukan klaim BBM 2x dalam jarak 18 jam.' },
-				{ step: 'Keputusan Otonom (FR-08/10)', status: 'FLAGGED', desc: 'Dieskalasi ke manusia karena melanggar aturan limit anggaran.' }
-			]
-		},
-		{
-			id: 'CLM-1049',
-			name: 'Siti Rahma',
-			role: 'Sales Lapangan Semarang',
-			category: 'Makan Dinas',
-			date: '02 Okt 2026',
-			amount: 85000,
-			vendor: 'RM Padang Sederhana',
-			reasonBadge: 'Kepercayaan Rendah (72%)',
-			reasonType: 'info',
-			aiReason: 'Foto sedikit buram, rincian item minuman/pajak perlu verifikasi mata admin.',
-			status: 'PENDING',
-			confidence: 72,
-			ocrItems: [
-				{ desc: 'Nasi Rendang Komplit x1', price: 42000 },
-				{ desc: 'Ayam Gulai x1 (tidak jelas)', price: 28000 },
-				{ desc: 'Es Jeruk x1', price: 15000 }
-			],
-			aiAuditTrail: [
-				{ step: 'Kualitas Gambar', status: 'WARN', desc: 'Kamera goyang, bagian tengah nota agak buram.' },
-				{ step: 'Ekstraksi OCR (FR-02)', status: 'WARN', desc: 'Skor keyakinan 72% (di bawah batas minimal 80%).' },
-				{ step: 'Pengecekan Kebijakan (RAG)', status: 'PASS', desc: 'Maks Rp75.000/orang. Nota untuk 1 orang (melebihi Rp10.000).' },
-				{ step: 'Deteksi Anomali & Duplikat (ML)', status: 'PASS', desc: 'Tidak ada indikasi nota ganda.' },
-				{ step: 'Keputusan Otonom (FR-08/10)', status: 'FLAGGED', desc: 'Dieskalasi untuk konfirmasi mata manusia sebelum disetujui.' }
-			]
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { listReviews, decideReview, CURRENT_REVIEWER_ID } from '$lib/api/reviews';
+	import { getClaim } from '$lib/api/claims';
+	import { formatCurrency, formatConfidence, toNumber } from '$lib/formatters/currency';
+	import { formatDate, formatDateTime } from '$lib/formatters/date';
+	import type { ReviewQueueItem, ClaimDetailResponse } from '$lib/types/claim';
+
+	// State antrean review dari backend
+	let loading = $state<boolean>(true);
+	let error = $state<string | null>(null);
+	let reviewQueue = $state<ReviewQueueItem[]>([]);
+	let searchQuery = $state<string>('');
+	let toastMessage = $state<string | null>(null);
+
+	// State modal inspeksi detail klaim (Audit Trail asli)
+	let activeDetail = $state<ClaimDetailResponse | null>(null);
+	let loadingDetail = $state<boolean>(false);
+
+	// State modal konfirmasi keputusan (FR-10: wajib ada konfirmasi & alasan reviewer)
+	let confirmAction = $state<{
+		isOpen: boolean;
+		claimId: string;
+		action: 'approve' | 'reject';
+		reason: string;
+		submitting: boolean;
+	}>({
+		isOpen: false,
+		claimId: '',
+		action: 'approve',
+		reason: '',
+		submitting: false
+	});
+
+	// Ambil antrean review saat halaman dibuka
+	async function fetchReviewQueue() {
+		loading = true;
+		error = null;
+		try {
+			const res = await listReviews();
+			reviewQueue = res.items;
+		} catch (err) {
+			console.error('Gagal memuat antrean review:', err);
+			error = err instanceof Error ? err.message : 'Gagal terhubung ke backend.';
+		} finally {
+			loading = false;
 		}
-	]);
+	}
 
-	let autoApprovedCount = $state(24);
-	let searchQuery = $state('');
-	let selectedCategory = $state('ALL');
-	let activeModalClaim = $state(null);
-	let toastMessage = $state('');
+	onMount(() => {
+		fetchReviewQueue();
+	});
 
-	// Hitung angka statistik secara live
-	let pendingClaims = $derived(claims.filter(c => c.status === 'PENDING'));
-	let pendingCount = $derived(pendingClaims.length);
-	let filteredClaims = $derived(
-		claims.filter(c => {
-			const matchSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-			                    c.id.toLowerCase().includes(searchQuery.toLowerCase());
-			const matchCategory = selectedCategory === 'ALL' || c.category === selectedCategory;
-			return matchSearch && matchCategory;
-		})
-	);
-
-	function showToast(msg) {
+	function showToast(msg: string) {
 		toastMessage = msg;
 		setTimeout(() => {
-			toastMessage = '';
+			toastMessage = null;
 		}, 3500);
 	}
 
-	function approveClaim(id) {
-		const claim = claims.find(c => c.id === id);
-		if (claim) {
-			claim.status = 'APPROVED';
-			autoApprovedCount += 1;
-			showToast(`✅ Berhasil! Klaim ${claim.id} atas nama ${claim.name} telah DISETUJUI.`);
-			if (activeModalClaim?.id === id) activeModalClaim = null;
+	// Buka modal detail untuk melihat audit trail riil dari backend
+	async function openInspectModal(claimId: string) {
+		loadingDetail = true;
+		try {
+			activeDetail = await getClaim(claimId);
+		} catch (err) {
+			console.error('Gagal mengambil detail klaim:', err);
+			showToast('❌ Gagal memuat detail nota dari server.');
+		} finally {
+			loadingDetail = false;
 		}
 	}
 
-	function rejectClaim(id) {
-		const claim = claims.find(c => c.id === id);
-		if (claim) {
-			const reason = prompt('Masukkan alasan penolakan klaim (opsional):', 'Tidak sesuai kebijakan perusahaan');
-			if (reason !== null) {
-				claim.status = 'REJECTED';
-				showToast(`❌ Klaim ${claim.id} telah DITOLAK. Alasan dicatat.`);
-				if (activeModalClaim?.id === id) activeModalClaim = null;
+	// Buka dialog konfirmasi alasan sebelum submit ke API backend (FR-10)
+	function initiateDecision(claimId: string, action: 'approve' | 'reject') {
+		confirmAction = {
+			isOpen: true,
+			claimId,
+			action,
+			reason: action === 'approve' ? 'Dokumen dan nominal telah diverifikasi sesuai kebijakan operasional.' : '',
+			submitting: false
+		};
+	}
+
+	// Kirim keputusan reviewer ke backend POST /reviews/{claim_id}/decision
+	async function submitDecision() {
+		if (!confirmAction.reason.trim()) {
+			alert('Mohon cantumkan alasan keputusan reviewer.');
+			return;
+		}
+
+		confirmAction.submitting = true;
+		try {
+			await decideReview({
+				claimId: confirmAction.claimId,
+				action: confirmAction.action,
+				reason: confirmAction.reason.trim(),
+				reviewerReference: CURRENT_REVIEWER_ID
+			});
+
+			showToast(
+				confirmAction.action === 'approve'
+					? `✅ Klaim berhasil DISETUJUI oleh ${CURRENT_REVIEWER_ID}.`
+					: `❌ Klaim berhasil DITOLAK oleh ${CURRENT_REVIEWER_ID}.`
+			);
+
+			confirmAction.isOpen = false;
+			if (activeDetail?.claim.id === confirmAction.claimId) {
+				activeDetail = null;
 			}
+
+			// Perbarui antrean dari server
+			await fetchReviewQueue();
+		} catch (err) {
+			console.error('Gagal mengirim keputusan:', err);
+			alert('Gagal mengirim keputusan: ' + (err instanceof Error ? err.message : 'Error server'));
+		} finally {
+			confirmAction.submitting = false;
 		}
 	}
 
-	function formatRupiah(num) {
-		return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
-	}
-
-	function exportToCSV() {
-		const headers = ['ID Klaim', 'Nama Karyawan', 'Kategori', 'Tanggal', 'Vendor', 'Nominal (IDR)', 'Status', 'Alasan AI'];
-		const rows = claims.map(c => [
-			c.id,
-			`"${c.name}"`,
-			`"${c.category}"`,
-			c.date,
-			`"${c.vendor}"`,
-			c.amount,
-			c.status,
-			`"${c.aiReason}"`
-		]);
-
-		const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-		const encodedUri = encodeURI(csvContent);
-		const link = document.createElement('a');
-		link.setAttribute('href', encodedUri);
-		link.setAttribute('download', `laporan-klaim-expense-agent-${new Date().toISOString().slice(0, 10)}.csv`);
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
-		showToast('📥 Laporan CSV berhasil diunduh ke komputermu!');
-	}
+	// Filter pencarian
+	let filteredQueue = $derived(
+		reviewQueue.filter((item) => {
+			const idMatch = item.claim.id.toLowerCase().includes(searchQuery.toLowerCase());
+			const empMatch = item.claim.employee_id.toLowerCase().includes(searchQuery.toLowerCase());
+			return idMatch || empMatch;
+		})
+	);
 </script>
 
 <svelte:head>
-	<title>Review & Eskalasi Klaim | Expense Agent</title>
+	<title>Expense Agent - Human Review Portal</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+	<link
+		href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+		rel="stylesheet"
+	/>
 </svelte:head>
 
 {#if toastMessage}
@@ -164,199 +145,316 @@
 	</div>
 {/if}
 
-<main>
-	<header class="header">
-		<div>
-			<a href="/" class="back-link">← Kembali ke Beranda</a>
-			<p class="eyebrow">Admin & Finance Review Portal</p>
-			<h1>Review & Eskalasi Klaim</h1>
-			<p class="subtitle">
-				Tinjau nota operasional yang membutuhkan persetujuan manual (nominal di atas limit, skor anomali, atau nota kurang jelas).
-			</p>
+<div class="review-wrapper">
+	<!-- Top Navigation Bar -->
+	<header class="top-nav">
+		<div class="brand">
+			<a href="/" class="brand-logo">
+				<span class="logo-dot"></span>
+				ExpenseAgent
+			</a>
+			<span class="page-title">/ Human Review Portal (FR-10)</span>
 		</div>
-		<div class="header-actions">
-			<button class="btn-secondary" onclick={exportToCSV}>
-				📥 Unduh CSV (FR-14)
+
+		<div class="top-controls">
+			<a href="/dashboard" class="btn-dashboard-link">
+				📊 Buka Analytics Dashboard
+			</a>
+			<button class="btn-refresh" onclick={fetchReviewQueue} disabled={loading}>
+				{loading ? '⟳ Memuat...' : '⟳ Refresh Antrean'}
 			</button>
 		</div>
 	</header>
 
-	<!-- Ringkasan Cepat -->
-	<section class="stats-grid">
-		<div class="stat-card urgent">
-			<span class="stat-label">Perlu Review Manual</span>
-			<span class="stat-value">{pendingCount}</span>
-			<span class="stat-hint">{pendingCount > 0 ? 'Menunggu keputusan admin' : 'Semua antrean selesai! 🎉'}</span>
+	<!-- Stat Cards -->
+	<section class="stat-cards-grid">
+		<div class="gradient-card orange">
+			<div class="card-top">
+				<span class="card-icon">⚠️</span>
+				<span class="card-title">Antrean Eskalasi Aktif</span>
+			</div>
+			<div class="card-value">{reviewQueue.length}</div>
+			<div class="card-sub">Menunggu tindakan manual reviewer</div>
+			<div class="card-wave"></div>
 		</div>
-		<div class="stat-card">
-			<span class="stat-label">Auto-Approved Hari Ini</span>
-			<span class="stat-value">{autoApprovedCount}</span>
-			<span class="stat-hint">{Math.round((autoApprovedCount / (autoApprovedCount + claims.length)) * 100)}% tanpa intervensi manual</span>
+
+		<div class="gradient-card purple">
+			<div class="card-top">
+				<span class="card-icon">👤</span>
+				<span class="card-title">Identitas Reviewer</span>
+			</div>
+			<div class="card-value small">{CURRENT_REVIEWER_ID}</div>
+			<div class="card-sub">Tercatat di backend audit log (FR-10)</div>
+			<div class="card-wave"></div>
 		</div>
-		<div class="stat-card">
-			<span class="stat-label">Estimasi Waktu Dihemat</span>
-			<span class="stat-value">{(autoApprovedCount * 5 / 60).toFixed(1)} Jam</span>
-			<span class="stat-hint">Target efisiensi: 5 menit per klaim</span>
+
+		<div class="gradient-card blue">
+			<div class="card-top">
+				<span class="card-icon">⚡</span>
+				<span class="card-title">Status API Backend</span>
+			</div>
+			<div class="card-value small">{error ? 'Offline' : 'Connected'}</div>
+			<div class="card-sub">{error ? error : 'Tersinkron dengan FastAPI'}</div>
+			<div class="card-wave"></div>
 		</div>
 	</section>
 
-	<!-- Filter & Search Bar -->
-	<div class="toolbar">
-		<div class="search-box">
-			🔍 <input type="text" placeholder="Cari ID klaim atau nama salesman..." bind:value={searchQuery} />
-		</div>
-		<div class="filter-group">
-			<span>Kategori:</span>
-			<select bind:value={selectedCategory}>
-				<option value="ALL">Semua Kategori</option>
-				<option value="Hotel / Penginapan">Hotel / Penginapan</option>
-				<option value="BBM / SPBU">BBM / SPBU</option>
-				<option value="Makan Dinas">Makan Dinas</option>
-			</select>
-		</div>
-	</div>
-
-	<!-- Tabel Antrean Review -->
-	<section class="table-container">
-		<div class="table-header">
-			<h2>Daftar Antrean Klaim (Eskalasi)</h2>
-			<span class="badge-count">{pendingCount} Klaim Perlu Tindakan</span>
+	<!-- Main Table Section -->
+	<section class="card-panel">
+		<div class="toolbar">
+			<div class="search-pill">
+				<span class="icon">🔍</span>
+				<input
+					type="text"
+					placeholder="Cari berdasarkan UUID klaim atau ID Karyawan..."
+					bind:value={searchQuery}
+				/>
+			</div>
 		</div>
 
-		{#if filteredClaims.length === 0}
-			<div class="empty-state">
-				<p>Tidak ada klaim yang cocok dengan pencarian.</p>
+		{#if loading}
+			<div class="state-box">
+				<p>⏳ Menghubungkan ke backend dan memuat antrean review...</p>
+			</div>
+		{:else if error}
+			<div class="state-box error">
+				<p>❌ {error}</p>
+				<button class="btn-retry" onclick={fetchReviewQueue}>Coba Lagi</button>
+			</div>
+		{:else if filteredQueue.length === 0}
+			<div class="state-box empty">
+				<p class="empty-icon">🎉</p>
+				<h3>Semua Antrean Bersih!</h3>
+				<p>Tidak ada klaim yang menunggu review manual dari reviewer saat ini.</p>
 			</div>
 		{:else}
-			<table class="review-table">
-				<thead>
-					<tr>
-						<th>ID & Karyawan</th>
-						<th>Kategori & Vendor</th>
-						<th>Tanggal Nota</th>
-						<th>Nominal</th>
-						<th>Alasan Eskalasi AI</th>
-						<th>Status</th>
-						<th>Aksi</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each filteredClaims as claim}
-						<tr class:resolved={claim.status !== 'PENDING'}>
-							<td>
-								<strong>#{claim.id}</strong>
-								<div class="user-sub">{claim.name}</div>
-								<div class="role-sub">{claim.role}</div>
-							</td>
-							<td>
-								<span class="tag">{claim.category}</span>
-								<div class="vendor-sub">{claim.vendor}</div>
-							</td>
-							<td>{claim.date}</td>
-							<td class="amount">{formatRupiah(claim.amount)}</td>
-							<td>
-								<span class="badge {claim.reasonType}">{claim.reasonBadge}</span>
-								<p class="ai-reason">{claim.aiReason}</p>
-								<button class="btn-inspect" onclick={() => activeModalClaim = claim}>
-									🔍 Lihat Bukti & Log AI
-								</button>
-							</td>
-							<td>
-								{#if claim.status === 'PENDING'}
-									<span class="status-pill pending">⏳ Menunggu</span>
-								{:else if claim.status === 'APPROVED'}
-									<span class="status-pill approved">✅ Disetujui</span>
-								{:else}
-									<span class="status-pill rejected">❌ Ditolak</span>
-								{/if}
-							</td>
-							<td>
-								{#if claim.status === 'PENDING'}
-									<div class="action-buttons">
-										<button class="btn-approve" onclick={() => approveClaim(claim.id)}>Setujui</button>
-										<button class="btn-reject" onclick={() => rejectClaim(claim.id)}>Tolak</button>
-									</div>
-								{:else}
-									<span class="text-done">Selesai</span>
-								{/if}
-							</td>
+			<div class="table-responsive">
+				<table class="modern-table">
+					<thead>
+						<tr>
+							<th>UUID Klaim</th>
+							<th>Karyawan</th>
+							<th>Diajukan</th>
+							<th>Nominal</th>
+							<th>Indikasi AI (Signals)</th>
+							<th>Status</th>
+							<th>Aksi Reviewer</th>
 						</tr>
-					{/each}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						{#each filteredQueue as item}
+							<tr>
+								<td>
+									<span class="id-tag" title={item.claim.id}>
+										{item.claim.id.slice(0, 8)}...
+									</span>
+								</td>
+								<td><strong>{item.claim.employee_id}</strong></td>
+								<td class="date-col">{formatDateTime(item.claim.submitted_at)}</td>
+								<td class="amount">{formatCurrency(item.claim.declared_amount)}</td>
+								<td class="reason-cell">
+									{#if item.signals && item.signals.length > 0}
+										{#each item.signals as sig}
+											<span class="reason-badge danger">{sig.signal_type}: {sig.severity}</span>
+											<p class="reason-desc">{sig.explanation}</p>
+										{/each}
+									{:else if item.decision}
+										<span class="reason-badge warning">{item.decision.outcome}</span>
+										<p class="reason-desc">{item.decision.explanation}</p>
+									{:else}
+										<span class="reason-badge info">Eskalasi Kebijakan</span>
+										<p class="reason-desc">Klaim memerlukan verifikasi manual reviewer.</p>
+									{/if}
+									<button class="btn-inspect" onclick={() => openInspectModal(item.claim.id)}>
+										🔍 Cek Bukti Struk & Log AI
+									</button>
+								</td>
+								<td>
+									<span class="status-pill warning">Review Open</span>
+								</td>
+								<td>
+									<div class="action-btn-group">
+										<button
+											class="btn-approve"
+											onclick={() => initiateDecision(item.claim.id, 'approve')}
+										>
+											Setujui
+										</button>
+										<button
+											class="btn-reject"
+											onclick={() => initiateDecision(item.claim.id, 'reject')}
+										>
+											Tolak
+										</button>
+									</div>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		{/if}
 	</section>
-</main>
+</div>
 
-<!-- Modal Pop-up Bukti Nota & Audit Trail AI (FR-12) -->
-{#if activeModalClaim}
-	<div class="modal-backdrop" onclick={() => activeModalClaim = null} role="presentation">
-		<div class="modal-dialog" onclick={e => e.stopPropagation()} role="dialog" aria-modal="true">
+<!-- Modal Pop-up Bukti Nota & Log Backend Asli (FR-12) -->
+{#if activeDetail || loadingDetail}
+	<div class="modal-backdrop" onclick={() => (activeDetail = null)} role="presentation">
+		<div class="modal-dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
 			<div class="modal-header">
 				<div>
-					<span class="eyebrow">Audit Trail & Bukti Nota</span>
-					<h3>Detail Klaim #{activeModalClaim.id} - {activeModalClaim.name}</h3>
+					<span class="modal-eyebrow">Audit Trail & Extraction Detail (FR-12)</span>
+					<h3>
+						Klaim #{activeDetail?.claim.id.slice(0, 8)} - {activeDetail?.claim.employee_id}
+					</h3>
 				</div>
-				<button class="btn-close" onclick={() => activeModalClaim = null}>✕</button>
+				<button class="btn-close" onclick={() => (activeDetail = null)}>✕</button>
 			</div>
 
 			<div class="modal-body">
-				<!-- Kolom Kiri: Simulasi Struk Fisik -->
-				<div class="receipt-mockup">
-					<div class="receipt-paper">
-						<div class="receipt-header">
-							<h4>{activeModalClaim.vendor}</h4>
-							<p>Tanggal: {activeModalClaim.date}</p>
-							<p class="receipt-dash">--------------------------------</p>
+				{#if loadingDetail}
+					<div class="modal-loading">Memuat data nota dari server...</div>
+				{:else if activeDetail}
+					<!-- Struk & Hasil Ekstraksi Vision Asli -->
+					<div class="receipt-container">
+						<div class="receipt-paper">
+							<div class="receipt-header">
+								<h4>{activeDetail.extractions[0]?.vendor.value ?? 'Vendor Tidak Terbaca'}</h4>
+								<p>
+									Tanggal Nota: {formatDate(String(activeDetail.extractions[0]?.receipt_date.value ?? ''))}
+								</p>
+								<div class="receipt-dash">--------------------------------</div>
+							</div>
+
+							<div class="receipt-items">
+								{#if activeDetail.extractions[0]?.line_items?.length}
+									{#each activeDetail.extractions[0].line_items as itm}
+										<div class="receipt-row">
+											<span>{itm.description}</span>
+											<span>{formatCurrency(itm.total)}</span>
+										</div>
+									{/each}
+								{:else}
+									<p class="muted">Tidak ada rincian item baris tersimpan.</p>
+								{/if}
+							</div>
+
+							<div class="receipt-dash">--------------------------------</div>
+							<div class="receipt-total">
+								<strong>TOTAL:</strong>
+								<strong>
+									{formatCurrency(toNumber(activeDetail.extractions[0]?.total.value as number | string | null) ?? activeDetail.claim.declared_amount)}
+								</strong>
+							</div>
+
+							<div class="ocr-badge">
+								✓ Total Confidence: {formatConfidence(activeDetail.extractions[0]?.total.confidence)}
+							</div>
 						</div>
-						<div class="receipt-items">
-							{#each activeModalClaim.ocrItems as item}
-								<div class="receipt-row">
-									<span>{item.desc}</span>
-									<span>{formatRupiah(item.price)}</span>
+					</div>
+
+					<!-- Riwayat Tahapan Logika AI Asli dari Backend -->
+					<div class="audit-flow">
+						<h4>Riwayat Percobaan & Evaluasi (Backend State)</h4>
+						<div class="timeline">
+							{#each activeDetail.attempts as att}
+								<div class="timeline-step">
+									<div class="step-indicator {att.error_code ? 'FAIL' : 'PASS'}">
+										{att.error_code ? '!' : '✓'}
+									</div>
+									<div class="step-details">
+										<strong>Percobaan #{att.attempt}: {att.preprocessing.join(', ') || 'Ekstraksi Standar'}</strong>
+										<p>{att.message || 'Ekstraksi OCR berhasil diproses tanpa error.'}</p>
+										<span class="timestamp">{formatDateTime(att.created_at)}</span>
+									</div>
 								</div>
 							{/each}
-						</div>
-						<div class="receipt-dash">--------------------------------</div>
-						<div class="receipt-total">
-							<strong>TOTAL:</strong>
-							<strong>{formatRupiah(activeModalClaim.amount)}</strong>
-						</div>
-						<div class="ocr-watermark">
-							<span>✓ Terverifikasi Vision OCR ({activeModalClaim.confidence}%)</span>
-						</div>
-					</div>
-				</div>
 
-				<!-- Kolom Kanan: Langkah Kerja AI (Audit Trail FR-12) -->
-				<div class="audit-log">
-					<h4>Jejak Logika Agent (FR-12)</h4>
-					<div class="timeline">
-						{#each activeModalClaim.aiAuditTrail as log, idx}
-							<div class="timeline-item">
-								<div class="timeline-badge {log.status}">
-									{log.status === 'PASS' ? '✓' : log.status === 'WARN' ? '!' : '⚠'}
-								</div>
-								<div class="timeline-content">
-									<strong>Langkah {idx + 1}: {log.step}</strong>
-									<p>{log.desc}</p>
-								</div>
-							</div>
-						{/each}
-					</div>
+							{#if activeDetail.decisions?.length}
+								{#each activeDetail.decisions as dec}
+									<div class="timeline-step">
+										<div class="step-indicator dec">⚖️</div>
+										<div class="step-details">
+											<strong>Keputusan Agen: {dec.outcome.toUpperCase()}</strong>
+											<p>{dec.explanation}</p>
+											<span class="timestamp">{formatDateTime(dec.created_at)}</span>
+										</div>
+									</div>
+								{/each}
+							{/if}
+						</div>
 
-					<div class="modal-actions-bar">
-						{#if activeModalClaim.status === 'PENDING'}
-							<button class="btn-approve full" onclick={() => approveClaim(activeModalClaim.id)}>
+						<div class="modal-footer-actions">
+							<button
+								class="btn-approve full"
+								onclick={() => {
+									if (activeDetail) initiateDecision(activeDetail.claim.id, 'approve');
+								}}
+							>
 								✓ Setujui Klaim Ini
 							</button>
-							<button class="btn-reject full" onclick={() => rejectClaim(activeModalClaim.id)}>
+							<button
+								class="btn-reject full"
+								onclick={() => {
+									if (activeDetail) initiateDecision(activeDetail.claim.id, 'reject');
+								}}
+							>
 								✕ Tolak Klaim
 							</button>
-						{:else}
-							<p class="status-summary">Klaim ini sudah berstatus: <strong>{activeModalClaim.status}</strong></p>
-						{/if}
+						</div>
 					</div>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Dialog Konfirmasi Keputusan Reviewer (Syarat FR-10) -->
+{#if confirmAction.isOpen}
+	<div class="modal-backdrop" onclick={() => (confirmAction.isOpen = false)} role="presentation">
+		<div
+			class="modal-dialog small"
+			tabindex="-1"
+			onclick={(e) => e.stopPropagation()}
+			role="dialog"
+			aria-modal="true"
+		>
+			<div class="modal-header">
+				<h3>Konfirmasi Keputusan Reviewer (FR-10)</h3>
+				<button class="btn-close" onclick={() => (confirmAction.isOpen = false)}>✕</button>
+			</div>
+			<div class="confirm-body">
+				<p>
+					Anda akan <strong>{confirmAction.action === 'approve' ? 'MENYETUJUI' : 'MENOLAK'}</strong> klaim
+					<code>{confirmAction.claimId.slice(0, 8)}...</code> sebagai reviewer
+					<code>{CURRENT_REVIEWER_ID}</code>.
+				</p>
+
+				<label for="review-reason">
+					<strong>Alasan Keputusan Reviewer (Wajib):</strong>
+				</label>
+				<textarea
+					id="review-reason"
+					bind:value={confirmAction.reason}
+					placeholder="Tuliskan catatan pertimbangan reviewer..."
+					rows="3"
+				></textarea>
+
+				<div class="confirm-actions">
+					<button
+						class="btn-cancel"
+						onclick={() => (confirmAction.isOpen = false)}
+						disabled={confirmAction.submitting}
+					>
+						Batal
+					</button>
+					<button
+						class={confirmAction.action === 'approve' ? 'btn-approve' : 'btn-reject'}
+						onclick={submitDecision}
+						disabled={confirmAction.submitting}
+					>
+						{confirmAction.submitting ? 'Mengirim...' : 'Kirim Keputusan ke Backend'}
+					</button>
 				</div>
 			</div>
 		</div>
@@ -364,493 +462,461 @@
 {/if}
 
 <style>
-	main {
-		max-width: 1140px;
+	:global(body) {
+		margin: 0;
+		background: #f1f4f9;
+		font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+		color: #1e293b;
+	}
+
+	.review-wrapper {
+		max-width: 1280px;
 		margin: 0 auto;
-		padding: 2.5rem 2rem;
+		padding: 2rem 2.5rem;
 		box-sizing: border-box;
 	}
 
-	.header {
+	.top-nav {
 		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		margin-bottom: 2rem;
-	}
-
-	.back-link {
-		color: #55745a;
-		text-decoration: none;
-		font-weight: 600;
-		font-size: 0.9rem;
-		display: inline-block;
-		margin-bottom: 0.6rem;
-	}
-
-	.eyebrow {
-		margin: 0 0 0.35rem;
-		color: #55745a;
-		font-size: 0.8rem;
-		font-weight: 700;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-	}
-
-	h1 {
-		margin: 0;
-		font-size: 2.3rem;
-		letter-spacing: -0.04em;
-		color: #172018;
-	}
-
-	.subtitle {
-		margin: 0.5rem 0 0;
-		color: #5b665c;
-		font-size: 1rem;
-		max-width: 650px;
-	}
-
-	.btn-secondary {
-		background: #ffffff;
-		border: 1px solid #c9d6c7;
-		color: #27452a;
-		padding: 0.65rem 1.1rem;
-		border-radius: 8px;
-		font-weight: 600;
-		cursor: pointer;
-		font-size: 0.9rem;
-		box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-	}
-
-	.btn-secondary:hover {
-		background: #f4f7f3;
-	}
-
-	/* Stats */
-	.stats-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-		gap: 1.2rem;
-		margin-bottom: 2rem;
-	}
-
-	.stat-card {
-		background: #ffffff;
-		border: 1px solid #dce4da;
-		border-radius: 12px;
-		padding: 1.4rem;
-		display: flex;
-		flex-direction: column;
-	}
-
-	.stat-card.urgent {
-		border-color: #f0c57c;
-		background: #fffdf8;
-	}
-
-	.stat-label {
-		font-size: 0.82rem;
-		font-weight: 600;
-		color: #637064;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-
-	.stat-value {
-		font-size: 2.2rem;
-		font-weight: 800;
-		color: #172018;
-		margin: 0.4rem 0;
-	}
-
-	.stat-card.urgent .stat-value {
-		color: #b45309;
-	}
-
-	.stat-hint {
-		font-size: 0.85rem;
-		color: #7b887c;
-	}
-
-	/* Toolbar */
-	.toolbar {
-		display: flex;
-		gap: 1rem;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 1.2rem;
+		margin-bottom: 2rem;
+		flex-wrap: wrap;
+		gap: 1rem;
+	}
+
+	.brand {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+
+	.brand-logo {
+		font-size: 1.35rem;
+		font-weight: 800;
+		color: #0f172a;
+		text-decoration: none;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		letter-spacing: -0.03em;
+	}
+
+	.logo-dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: #7c3aed;
+		box-shadow: 0 0 10px #7c3aed;
+	}
+
+	.page-title {
+		color: #94a3b8;
+		font-size: 0.95rem;
+		font-weight: 600;
+	}
+
+	.top-controls {
+		display: flex;
+		align-items: center;
+		gap: 0.8rem;
 		flex-wrap: wrap;
 	}
 
-	.search-box {
-		background: white;
-		border: 1px solid #dce4da;
-		border-radius: 8px;
-		padding: 0.5rem 0.85rem;
+	.btn-dashboard-link {
+		background: #ffffff;
+		color: #475569;
+		border: 1px solid #e2e8f0;
+		padding: 0.6rem 1.1rem;
+		border-radius: 999px;
+		font-weight: 700;
+		font-size: 0.85rem;
+		text-decoration: none;
+		transition: all 0.2s;
+	}
+
+	.btn-refresh {
+		background: #7c3aed;
+		color: white;
+		border: none;
+		border-radius: 999px;
+		padding: 0.6rem 1.25rem;
+		font-weight: 700;
+		font-size: 0.85rem;
+		cursor: pointer;
+		box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+	}
+
+	.stat-cards-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: 1.4rem;
+		margin-bottom: 2rem;
+	}
+
+	.gradient-card {
+		color: white;
+		padding: 1.6rem;
+		border-radius: 20px;
+		position: relative;
+		overflow: hidden;
+		box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.12);
+	}
+
+	.gradient-card.orange {
+		background: linear-gradient(135deg, #ea580c, #f59e0b);
+	}
+	.gradient-card.purple {
+		background: linear-gradient(135deg, #7c3aed, #a855f7);
+	}
+	.gradient-card.blue {
+		background: linear-gradient(135deg, #2563eb, #38bdf8);
+	}
+
+	.card-top {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		flex: 1;
-		min-width: 260px;
+		margin-bottom: 0.5rem;
+	}
+	.card-icon {
+		font-size: 1.1rem;
+	}
+	.card-title {
+		font-size: 0.82rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		opacity: 0.9;
+	}
+	.card-value {
+		font-size: 2.3rem;
+		font-weight: 800;
+		letter-spacing: -0.04em;
+		margin-bottom: 0.35rem;
+	}
+	.card-value.small {
+		font-size: 1.6rem;
+	}
+	.card-sub {
+		font-size: 0.82rem;
+		opacity: 0.85;
+	}
+	.card-wave {
+		position: absolute;
+		right: -20px;
+		bottom: -20px;
+		width: 100px;
+		height: 100px;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.12);
+		pointer-events: none;
 	}
 
-	.search-box input {
+	.card-panel {
+		background: #ffffff;
+		border-radius: 20px;
+		padding: 1.8rem;
+		box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+		border: 1px solid #f1f5f9;
+	}
+
+	.toolbar {
+		margin-bottom: 1.5rem;
+	}
+	.search-pill {
+		background: #f8fafc;
+		border-radius: 999px;
+		padding: 0.55rem 1.1rem;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		border: 1px solid #e2e8f0;
+		max-width: 420px;
+	}
+	.search-pill input {
 		border: none;
 		outline: none;
+		background: transparent;
+		font-family: inherit;
+		font-size: 0.85rem;
 		width: 100%;
-		font-size: 0.9rem;
 	}
 
-	.filter-group {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		font-size: 0.9rem;
-		color: #4b584c;
-		font-weight: 600;
+	.state-box {
+		padding: 3rem;
+		text-align: center;
+		color: #64748b;
 	}
-
-	.filter-group select {
-		padding: 0.5rem 0.8rem;
-		border: 1px solid #dce4da;
-		border-radius: 8px;
-		background: white;
-		font-size: 0.9rem;
-		outline: none;
-	}
-
-	/* Table */
-	.table-container {
-		background: #ffffff;
-		border: 1px solid #dce4da;
-		border-radius: 12px;
-		overflow: hidden;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
-	}
-
-	.table-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.2rem 1.5rem;
-		border-bottom: 1px solid #eef2ed;
-	}
-
-	.table-header h2 {
+	.state-box.empty .empty-icon {
+		font-size: 3rem;
 		margin: 0;
-		font-size: 1.25rem;
-		color: #172018;
+	}
+	.state-box.error {
+		color: #ef4444;
+	}
+	.btn-retry {
+		margin-top: 1rem;
+		padding: 0.5rem 1rem;
+		background: #7c3aed;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
 	}
 
-	.badge-count {
-		background: #fef3c7;
-		color: #92400e;
-		font-weight: 600;
-		font-size: 0.8rem;
-		padding: 0.35rem 0.75rem;
-		border-radius: 999px;
+	.table-responsive {
+		overflow-x: auto;
 	}
-
-	.review-table {
+	.modern-table {
 		width: 100%;
 		border-collapse: collapse;
 		text-align: left;
 	}
-
-	.review-table th {
-		background: #f9faf8;
-		padding: 0.9rem 1.2rem;
-		font-size: 0.82rem;
+	.modern-table th {
+		padding: 0.9rem 1rem;
+		color: #94a3b8;
+		font-size: 0.78rem;
 		font-weight: 700;
-		color: #556356;
 		text-transform: uppercase;
-		border-bottom: 1px solid #e2e8e0;
+		letter-spacing: 0.05em;
+		border-bottom: 1px solid #f1f5f9;
 	}
-
-	.review-table td {
-		padding: 1.1rem 1.2rem;
-		border-bottom: 1px solid #f0f4ef;
+	.modern-table td {
+		padding: 1.2rem 1rem;
+		font-size: 0.88rem;
+		border-bottom: 1px solid #f8fafc;
 		vertical-align: top;
-		font-size: 0.92rem;
 	}
 
-	tr.resolved {
-		background: #fafbfa;
-		opacity: 0.75;
-	}
-
-	.user-sub {
-		font-size: 0.85rem;
-		color: #2b392c;
-		font-weight: 600;
-		margin-top: 0.2rem;
-	}
-
-	.role-sub {
-		font-size: 0.78rem;
-		color: #7b887c;
-	}
-
-	.vendor-sub {
-		font-size: 0.8rem;
-		color: #637064;
-		margin-top: 0.25rem;
-	}
-
-	.tag {
-		background: #edf3ec;
-		color: #2e5434;
-		padding: 0.2rem 0.55rem;
-		border-radius: 6px;
-		font-size: 0.78rem;
-		font-weight: 600;
-	}
-
-	.amount {
+	.id-tag {
+		background: #f1f5f9;
+		color: #475569;
 		font-weight: 700;
-		color: #1b261c;
+		font-size: 0.75rem;
+		padding: 0.2rem 0.45rem;
+		border-radius: 6px;
+		font-family: monospace;
+	}
+	.date-col {
+		color: #64748b;
+		white-space: nowrap;
+	}
+	.amount {
+		font-weight: 800;
+		color: #0f172a;
 		white-space: nowrap;
 	}
 
-	.badge {
-		display: inline-block;
-		font-size: 0.75rem;
-		font-weight: 700;
-		padding: 0.2rem 0.5rem;
-		border-radius: 6px;
-		margin-bottom: 0.35rem;
+	.reason-cell {
+		max-width: 320px;
 	}
-
-	.badge.warning { background: #fef3c7; color: #92400e; }
-	.badge.danger { background: #fee2e2; color: #991b1b; }
-	.badge.info { background: #e0f2fe; color: #075985; }
-
-	.ai-reason {
+	.reason-badge {
+		display: inline-block;
+		font-size: 0.72rem;
+		font-weight: 700;
+		padding: 0.15rem 0.5rem;
+		border-radius: 6px;
+		margin-bottom: 0.3rem;
+	}
+	.reason-badge.warning {
+		background: #fff7ed;
+		color: #c2410c;
+	}
+	.reason-badge.danger {
+		background: #fef2f2;
+		color: #b91c1c;
+	}
+	.reason-badge.info {
+		background: #f0fdf4;
+		color: #15803d;
+	}
+	.reason-desc {
 		margin: 0 0 0.5rem;
-		font-size: 0.82rem;
-		color: #5d6b5e;
+		font-size: 0.8rem;
+		color: #64748b;
 		line-height: 1.35;
 	}
 
 	.btn-inspect {
-		background: none;
-		border: 1px dashed #7a947d;
-		color: #2a4c2e;
-		font-size: 0.78rem;
-		font-weight: 600;
-		padding: 0.25rem 0.5rem;
-		border-radius: 4px;
+		background: #f8fafc;
+		border: 1px dashed #cbd5e1;
+		color: #64748b;
+		font-size: 0.75rem;
+		font-weight: 700;
+		padding: 0.25rem 0.6rem;
+		border-radius: 6px;
 		cursor: pointer;
 	}
-
-	.btn-inspect:hover {
-		background: #eaf1e8;
-	}
-
 	.status-pill {
 		display: inline-block;
-		font-size: 0.8rem;
-		font-weight: 600;
-		padding: 0.25rem 0.6rem;
+		font-size: 0.75rem;
+		font-weight: 700;
+		padding: 0.3rem 0.75rem;
 		border-radius: 999px;
 	}
-	.status-pill.pending { background: #fef9c3; color: #854d0e; }
-	.status-pill.approved { background: #dcfce7; color: #166534; }
-	.status-pill.rejected { background: #fee2e2; color: #991b1b; }
+	.status-pill.warning {
+		background: #fff7ed;
+		color: #c2410c;
+	}
 
-	.action-buttons {
+	.action-btn-group {
 		display: flex;
 		gap: 0.4rem;
 	}
-
 	.btn-approve {
-		background: #36593b;
+		background: #10b981;
 		color: white;
 		border: none;
-		border-radius: 6px;
-		padding: 0.45rem 0.8rem;
-		font-weight: 600;
-		font-size: 0.82rem;
+		border-radius: 8px;
+		padding: 0.45rem 0.85rem;
+		font-weight: 700;
+		font-size: 0.8rem;
 		cursor: pointer;
 	}
-
-	.btn-approve:hover { background: #27422b; }
-
 	.btn-reject {
-		background: #ffffff;
-		color: #b91c1c;
-		border: 1px solid #fca5a5;
-		border-radius: 6px;
-		padding: 0.45rem 0.8rem;
-		font-weight: 600;
-		font-size: 0.82rem;
+		background: white;
+		color: #ef4444;
+		border: 1px solid #fecaca;
+		border-radius: 8px;
+		padding: 0.45rem 0.85rem;
+		font-weight: 700;
+		font-size: 0.8rem;
 		cursor: pointer;
 	}
 
-	.btn-reject:hover { background: #fef2f2; }
-
-	.text-done {
-		color: #889689;
-		font-size: 0.85rem;
-		font-style: italic;
-	}
-
-	.empty-state {
-		padding: 3rem;
-		text-align: center;
-		color: #7b887c;
-	}
-
-	/* Toast */
 	.toast-notification {
 		position: fixed;
 		bottom: 2rem;
 		right: 2rem;
-		background: #172018;
+		background: #0f172a;
 		color: #ffffff;
 		padding: 0.85rem 1.4rem;
-		border-radius: 8px;
+		border-radius: 12px;
 		font-weight: 600;
-		font-size: 0.9rem;
-		box-shadow: 0 10px 15px -3px rgba(0,0,0,0.2);
+		font-size: 0.88rem;
+		box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25);
 		z-index: 1000;
 	}
 
-	/* Modal */
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
-		background: rgba(18, 25, 19, 0.55);
+		background: rgba(15, 23, 42, 0.6);
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		z-index: 999;
-		backdrop-filter: blur(2px);
+		backdrop-filter: blur(4px);
 	}
-
 	.modal-dialog {
 		background: white;
 		width: 90%;
 		max-width: 860px;
-		border-radius: 14px;
+		border-radius: 20px;
 		overflow: hidden;
-		box-shadow: 0 20px 25px -5px rgba(0,0,0,0.15);
 		max-height: 90vh;
 		display: flex;
 		flex-direction: column;
 	}
-
+	.modal-dialog.small {
+		max-width: 480px;
+	}
 	.modal-header {
-		padding: 1.2rem 1.6rem;
-		border-bottom: 1px solid #eef2ed;
+		padding: 1.4rem 1.8rem;
+		border-bottom: 1px solid #f1f5f9;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 	}
-
-	.modal-header h3 {
-		margin: 0.2rem 0 0;
-		color: #172018;
-		font-size: 1.3rem;
+	.modal-eyebrow {
+		font-size: 0.78rem;
+		font-weight: 700;
+		color: #7c3aed;
+		text-transform: uppercase;
 	}
-
 	.btn-close {
-		background: none;
+		background: #f1f5f9;
 		border: none;
-		font-size: 1.3rem;
+		width: 32px;
+		height: 32px;
+		border-radius: 50%;
 		cursor: pointer;
-		color: #637064;
 	}
-
 	.modal-body {
-		padding: 1.6rem;
+		padding: 1.8rem;
 		display: grid;
 		grid-template-columns: 1fr 1.3fr;
-		gap: 1.5rem;
+		gap: 1.6rem;
 		overflow-y: auto;
 	}
-
-	/* Receipt Mockup */
-	.receipt-mockup {
-		background: #f0f3ef;
-		padding: 1rem;
-		border-radius: 8px;
-		display: flex;
-		justify-content: center;
+	.modal-loading {
+		padding: 3rem;
+		text-align: center;
+		grid-column: 1 / -1;
 	}
 
+	.receipt-container {
+		background: #f8fafc;
+		padding: 1rem;
+		border-radius: 14px;
+	}
 	.receipt-paper {
 		background: white;
-		width: 100%;
 		padding: 1.2rem;
-		border-radius: 4px;
-		box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+		border-radius: 8px;
 		font-family: monospace;
 		font-size: 0.85rem;
-		color: #2b392c;
 	}
-
 	.receipt-header h4 {
-		margin: 0 0 0.3rem;
-		font-size: 0.95rem;
+		margin: 0;
 		text-align: center;
 	}
-
 	.receipt-header p {
 		margin: 0;
 		text-align: center;
-		color: #6d7b6f;
+		color: #94a3b8;
+		font-size: 0.8rem;
 	}
-
 	.receipt-dash {
 		text-align: center;
-		color: #cbd5cb;
-		margin: 0.6rem 0;
+		color: #cbd5e1;
+		margin: 0.5rem 0;
 	}
-
 	.receipt-row {
 		display: flex;
 		justify-content: space-between;
-		margin-bottom: 0.4rem;
+		margin-bottom: 0.35rem;
 	}
-
 	.receipt-total {
 		display: flex;
 		justify-content: space-between;
 		font-size: 0.95rem;
-		margin-top: 0.5rem;
 	}
-
-	.ocr-watermark {
-		margin-top: 1.2rem;
-		background: #eaf3e8;
-		color: #2e5434;
+	.ocr-badge {
+		margin-top: 1rem;
+		background: #f5f3ff;
+		color: #7c3aed;
 		padding: 0.4rem;
-		border-radius: 4px;
+		border-radius: 6px;
 		text-align: center;
 		font-size: 0.75rem;
-		font-weight: bold;
+		font-weight: 700;
 	}
 
-	/* Timeline Audit */
-	.audit-log h4 {
+	.audit-flow h4 {
 		margin: 0 0 1rem;
-		color: #172018;
 	}
-
-		.timeline {
+	.timeline {
 		display: flex;
 		flex-direction: column;
 		gap: 0.9rem;
 	}
-
-	.timeline-item {
+	.timeline-step {
 		display: flex;
 		gap: 0.8rem;
 		align-items: flex-start;
 	}
-
-	.timeline-badge {
+	.step-indicator {
 		width: 22px;
 		height: 22px;
 		border-radius: 50%;
@@ -861,40 +927,83 @@
 		font-weight: bold;
 		flex-shrink: 0;
 	}
-
-	.timeline-badge.PASS { background: #dcfce7; color: #166534; }
-	.timeline-badge.WARN { background: #fef3c7; color: #92400e; }
-	.timeline-badge.FLAGGED { background: #fee2e2; color: #991b1b; }
-
-	.timeline-content strong {
+	.step-indicator.PASS {
+		background: #dcfce7;
+		color: #15803d;
+	}
+	.step-indicator.FAIL {
+		background: #fee2e2;
+		color: #b91c1c;
+	}
+	.step-indicator.dec {
+		background: #f5f3ff;
+	}
+	.step-details strong {
 		font-size: 0.85rem;
-		color: #202b21;
 	}
-
-	.timeline-content p {
-		margin: 0.2rem 0 0;
+	.step-details p {
+		margin: 0.2rem 0;
 		font-size: 0.8rem;
-		color: #5d6b5e;
-		line-height: 1.35;
+		color: #64748b;
+	}
+	.timestamp {
+		font-size: 0.72rem;
+		color: #94a3b8;
 	}
 
-	.modal-actions-bar {
+	.modal-footer-actions {
 		margin-top: 1.5rem;
 		display: flex;
 		gap: 0.6rem;
 		padding-top: 1rem;
-		border-top: 1px solid #eef2ed;
+		border-top: 1px solid #f1f5f9;
 	}
-
-	.btn-approve.full, .btn-reject.full {
+	.btn-approve.full,
+	.btn-reject.full {
 		flex: 1;
 		padding: 0.65rem;
-		font-size: 0.88rem;
 	}
 
-	.status-summary {
+	.confirm-body {
+		padding: 1.5rem;
+	}
+	.confirm-body p {
+		margin: 0 0 1rem;
 		font-size: 0.9rem;
-		color: #556356;
-		margin: 0;
+		color: #475569;
+	}
+	.confirm-body code {
+		background: #f1f5f9;
+		padding: 0.15rem 0.4rem;
+		border-radius: 4px;
+	}
+	.confirm-body label {
+		display: block;
+		margin-bottom: 0.5rem;
+		font-size: 0.85rem;
+	}
+	.confirm-body textarea {
+		width: 100%;
+		box-sizing: border-box;
+		border: 1px solid #cbd5e1;
+		border-radius: 8px;
+		padding: 0.6rem;
+		font-family: inherit;
+		font-size: 0.85rem;
+		outline: none;
+		margin-bottom: 1.2rem;
+	}
+	.confirm-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.6rem;
+	}
+	.btn-cancel {
+		background: #f1f5f9;
+		border: none;
+		border-radius: 8px;
+		padding: 0.5rem 1rem;
+		cursor: pointer;
+		font-weight: 600;
 	}
 </style>

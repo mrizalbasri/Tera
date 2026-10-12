@@ -171,6 +171,59 @@ def _valid_output() -> LlmExtractionOutput:
     )
 
 
+@pytest.mark.parametrize("total,quantity", [
+    ("1e30", "1"), ("1e999999", "1e-999999"), ("0.01", "1e30"),
+    ("1e30", "1e30"), ("1e-30", "1"), ("60000", "1e-30"),
+])
+def test_extreme_numbers_fail_safely_and_processing_can_retry(total, quantity, caplog):
+    from uuid import UUID
+    from app.api.deps import get_processing_run_repository
+
+    output = _valid_output().model_copy(update={
+        "total": Decimal(total), "quantity": Decimal(quantity),
+    })
+    extractor, stub = _extractor(
+        _settings(provider_fallback="mock"), structured=lambda _messages: output,
+    )
+    app.dependency_overrides[get_receipt_extractor] = lambda: extractor
+    try:
+        created = client.post("/claims", data={"employee_id": "numeric-test"},
+                              files={"files": ("receipt.jpg", _jpeg_bytes(), "image/jpeg")})
+        assert created.status_code == 201
+        claim_id = created.json()["claim"]["id"]
+        headers = {"Idempotency-Key": "extreme-number-run"}
+        response = client.post(f"/claims/{claim_id}/process", headers=headers)
+        assert response.status_code == 502
+        assert response.json()["code"] == "malformed_extraction"
+        runs = get_processing_run_repository(Settings(_env_file=None, storage_backend="memory"))
+        assert runs.latest_for_claim(UUID(claim_id)).status == "failed"
+        calls = len(stub.calls)
+        replay = client.post(f"/claims/{claim_id}/process", headers=headers)
+        assert replay.status_code == 502
+        assert len(stub.calls) == calls
+        output = _valid_output()
+        retry = client.post(f"/claims/{claim_id}/process")
+        assert retry.status_code == 200
+        assert runs.latest_for_claim(UUID(claim_id)).status != "running"
+        assert total not in response.text
+        assert total not in caplog.text
+    finally:
+        app.dependency_overrides.pop(get_receipt_extractor, None)
+
+
+@pytest.mark.parametrize("total,quantity,unit_price", [
+    ("0.01", "1000", "0.000010"), ("1", "3", "0.33"),
+    ("999999999999.999999", "0.000001", "999999999999999999.00"),
+])
+def test_supported_numeric_precision_remains_valid(total, quantity, unit_price):
+    output = _valid_output().model_copy(update={
+        "total": Decimal(total), "quantity": Decimal(quantity),
+    })
+    extractor, _ = _extractor(structured=lambda _messages: output)
+    result = extractor.extract(receipt=_receipt(), content=_jpeg_bytes(), declared_amount=None, attempt=1)
+    assert result.line_items[0].unit_price == Decimal(unit_price)
+
+
 def _jpeg_segment(marker: bytes, payload: bytes) -> bytes:
     return marker + (len(payload) + 2).to_bytes(2, "big") + payload
 

@@ -24,7 +24,7 @@ Design invariants (spec M7 + FR-13):
 import logging
 import time
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, DecimalException
 from uuid import uuid4
 
 import openai
@@ -107,10 +107,11 @@ class LlmExtractionOutput(BaseModel):
 
     vendor: str = Field(min_length=1, max_length=255)
     receipt_date: str
-    total: Decimal = Field(gt=0)
+    # Bound magnitude and scale before derived prices or downstream formatting.
+    total: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
     currency: str = Field(min_length=3, max_length=3)
     category: str
-    quantity: Decimal = Field(default=Decimal("1"), gt=0)
+    quantity: Decimal = Field(default=Decimal("1"), gt=0, max_digits=18, decimal_places=6)
     confidence: Decimal = Field(ge=0, le=1)
     warnings: list[str] = Field(default_factory=list)
 
@@ -214,8 +215,6 @@ class LlmReceiptExtractor:
         for retry in range(self._settings.llm_max_retries + 1):
             try:
                 raw = self._structured.invoke([message])
-                if isinstance(raw, LlmExtractionOutput):
-                    return raw
                 if isinstance(raw, BaseModel):
                     return LlmExtractionOutput.model_validate(
                         raw.model_dump(mode="json")
@@ -279,10 +278,19 @@ class LlmReceiptExtractor:
         # Keep enough precision that a tiny total over a huge quantity never
         # rounds the unit price down to zero (the schema requires > 0); a
         # still-degenerate quotient is a contract violation, not a 500.
-        quotient = total / output.quantity
-        unit_price = quotient.quantize(Decimal("0.01"))
-        if unit_price <= 0:
-            unit_price = quotient.quantize(Decimal("0.000001"))
+        try:
+            quotient = total / output.quantity
+            unit_price = quotient.quantize(Decimal("0.01"))
+            if unit_price <= 0:
+                unit_price = quotient.quantize(Decimal("0.000001"))
+        except DecimalException as exc:
+            raise classified_error(
+                ErrorCode.MALFORMED_EXTRACTION,
+                ErrorClassification.NON_RETRYABLE,
+                "Live extraction returned unsupported numeric values.",
+                502,
+                {"stage": "line_item_derivation", "exception_type": type(exc).__name__},
+            ) from exc
         if unit_price <= 0:
             raise classified_error(
                 ErrorCode.MALFORMED_EXTRACTION,

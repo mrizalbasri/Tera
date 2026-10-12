@@ -83,7 +83,7 @@
 	// Fungsi Download CSV Nyata (Menjawab komplain Blocker 5 Rizal!)
 	function downloadReport() {
 		const headers = ['ID Klaim', 'ID Karyawan', 'Tanggal Submit', 'Nominal (IDR)', 'Status'];
-		
+
 		// Gunakan data dari backend jika ada, atau data sampel laporan
 		const rowsData = claimsList.length > 0
 			? claimsList.map(c => [c.id, c.employee_id, c.submitted_at, c.declared_amount ?? 0, c.status])
@@ -336,7 +336,7 @@
 									</span>
 								</td>
 								<td>
-									<a href="/review" class="table-link">Tinjau di Review</a>
+									<a href="/claims/{claim.id}" class="table-link">Lihat detail klaim</a>
 								</td>
 							</tr>
 						{/each}

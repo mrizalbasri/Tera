@@ -24,7 +24,7 @@ export type ClarificationStatus = 'open' | 'answered' | 'cancelled';
 
 export type ActorType = 'system' | 'agent' | 'employee' | 'reviewer';
 
-export type SignalType = 'duplicate' | 'anomaly';
+export type SignalType = 'duplicate' | 'anomaly' | 'provider_degraded';
 
 export type Severity = 'info' | 'warning' | 'blocking';
 
@@ -67,6 +67,7 @@ export interface ExtractedLineItem {
 export interface ExtractionResult {
 	id: string;
 	receipt_id: string;
+	processing_run_id: string | null;
 	vendor: FieldConfidence;
 	receipt_date: FieldConfidence;
 	total: FieldConfidence;
@@ -75,6 +76,7 @@ export interface ExtractionResult {
 	line_items: ExtractedLineItem[];
 	warnings: string[];
 	provider: string;
+	provider_degraded: boolean;
 	created_at: string;
 }
 
@@ -172,6 +174,28 @@ export interface ClaimDetailResponse {
 	extractions: ExtractionResult[];
 	attempts: ExtractionAttempt[];
 	decisions: Decision[];
+	validation_findings: Finding[];
+	policy_evaluations: Finding[];
+	signals: Signal[];
+}
+
+/** Common fields rendered by validation and policy evidence tables. */
+export interface Finding {
+	processing_run_id: string;
+	rule_id: string;
+	passed: boolean;
+	explanation: string;
+	severity: Severity;
+}
+
+export interface TimelineEntry {
+	sequence: number;
+	timestamp: string | null;
+	step_name: string;
+	status: string;
+	summary: string;
+	error_code: string | null;
+	processing_run_id: string | null;
 }
 
 export interface ProcessClaimResponse {

@@ -6,7 +6,8 @@
 	const menu = [
 		{ href: '/', label: 'Pengajuan baru', number: '01' },
 		{ href: '/riwayat', label: 'Riwayat klaim', number: '02' },
-		{ href: '/review', label: 'Review klaim', number: '03' }
+		{ href: '/review', label: 'Review klaim', number: '03' },
+		{ href: '/dashboard', label: 'Analytics Dashboard', number: '04' }
 	];
 </script>
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>

@@ -29,7 +29,7 @@
 			anchor.href = url;
 			anchor.download = 'claims-report.csv';
 			anchor.click();
-			URL.revokeObjectURL(url);
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Export gagal.';
 		}

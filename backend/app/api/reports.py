@@ -79,17 +79,18 @@ def report_summary(
         for run in runs_by_claim[claim.id]
         if run.started_at is not None and run.completed_at is not None
     ]
+    signals_by_claim = {
+        claim.id: list(signals.list_for_claim(claim.id)) for claim in items
+    }
     duplicate_count = sum(
-        1
+        signal.signal_type == "duplicate"
         for claim in items
-        for signal in signals.list_for_claim(claim.id)
-        if signal.signal_type == "duplicate"
+        for signal in signals_by_claim[claim.id]
     )
     anomaly_count = sum(
-        1
+        signal.signal_type == "anomaly"
         for claim in items
-        for signal in signals.list_for_claim(claim.id)
-        if signal.signal_type == "anomaly"
+        for signal in signals_by_claim[claim.id]
     )
     manual_claims = sum(1 for claim in items if claim.status in ("escalated", "approved", "rejected") and any(
         decision.created_by == "reviewer" for decision in decisions_by_claim[claim.id]
@@ -132,7 +133,7 @@ def export_claims_csv(
             claim.employee_id,
             claim.submitted_at.isoformat(),
             claim.currency,
-            claim.declared_amount or "",
+            str(claim.declared_amount) if claim.declared_amount is not None else "",
             claim.status,
         ])
     buffer.seek(0)

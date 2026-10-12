@@ -68,7 +68,7 @@
 	onMount(load);
 
 	const claim = $derived(detail?.claim ?? null);
-	const receipt = $derived(detail?.receipts[0] ?? null);
+	const receipt = $derived(detail?.receipts.at(-1) ?? null);
 	const extraction = $derived(detail?.extractions.at(-1) ?? null);
 	const attempts = $derived(detail?.attempts ?? []);
 	const validationFindings = $derived(detail?.validation_findings ?? []);

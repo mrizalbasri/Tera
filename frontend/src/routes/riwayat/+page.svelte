@@ -53,7 +53,7 @@
 			link.href = url;
 			link.download = `riwayat-klaim-${new Date().toISOString().slice(0, 10)}.csv`;
 			link.click();
-			URL.revokeObjectURL(url);
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
 			showToast('File riwayat klaim berhasil diunduh.', 'success');
 		} catch (error) {
 			showToast(error instanceof Error ? error.message : 'Export gagal.', 'error');

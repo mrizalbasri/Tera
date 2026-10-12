@@ -43,7 +43,7 @@
 
 <svelte:head><title>Klarifikasi Klaim</title></svelte:head>
 <main class="page">
-	<a href="/reviews">← Kembali</a>
+	<a href={`/claims/${encodeURIComponent(page.params.claimId ?? '')}`}>← Kembali ke klaim</a>
 	<h1>Jawaban Klarifikasi</h1>
 	{#if loading}
 		<p>Memuat klarifikasi...</p>

@@ -143,6 +143,13 @@ Copy `frontend/.env.example` to `frontend/.env` if the backend runs somewhere
 other than `http://127.0.0.1:8000`, then set the server-only `BACKEND_URL`.
 Restart the frontend after configuration changes. Run FastAPI separately.
 
+The workspace and `/dashboard` share the same `/api` transport and contracts in
+`src/lib/types/claim.ts`. Browser requests do not use `PUBLIC_API_BASE_URL`.
+Dashboard claim rows link to the persisted claim detail page; the review queue
+uses that page for evidence inspection, reviewer identity, reason and confirmation.
+The analytics page retains prototype/sample metrics from the dashboard work;
+it is not a verified production reporting or automation-accuracy dashboard.
+
 - `/`: save synthetic receipt files and employee reference.
 - `/riwayat`: search persisted claims by employee reference and status.
 - `/claims/{claim_id}`: explicitly start/retry processing, inspect extraction,

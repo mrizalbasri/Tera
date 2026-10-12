@@ -11,6 +11,7 @@ Open this directory as an Obsidian vault.
 - [[decisions/0001-monorepo|Monorepo decision]]
 - [[decisions/0002-langchain-langgraph-stack|LLM stack decision (LangChain/LangGraph/RAG/ML)]]
 - [[development/pgvector|Local pgvector installation, seed and verification]]
+- [[development/ml-anomaly|Local ML anomaly training, evaluation and activation]]
 
 ## SDLC Documents
 

@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     graph_checkpoint_schema: str = "langgraph"
     provider_mode: Literal["mock", "live"] = "mock"
     policy_mode: Literal["local", "rag"] = "local"
+    anomaly_mode: Literal["rules", "ml"] = "rules"
+    anomaly_model_path: str = "./data/local/anomaly/model.joblib"
     policy_index_schema: str = Field(default="rag", pattern=r"^[a-z][a-z0-9_]{0,62}$")
     # Accepted for existing dotenv files only; pgvector ignores old Chroma paths.
     policy_index_path: str | None = Field(default=None, exclude=True)
@@ -30,7 +32,7 @@ class Settings(BaseSettings):
     max_processing_retries: int = 2
     extraction_confidence_threshold: float = 0.8
     max_claim_age_days: int = 14
-    anomaly_escalation_threshold: float = 0.7
+    anomaly_escalation_threshold: float = Field(default=0.7, gt=0, le=1)
     llm_base_url: str = "https://api.z.ai/api/paas/v4"
     llm_model: str = "glm-4.5v"
     llm_api_key: str = ""

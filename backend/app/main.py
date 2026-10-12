@@ -1,9 +1,3 @@
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from app.config import get_settings
-
 import logging
 from contextlib import asynccontextmanager
 from uuid import uuid4
@@ -26,7 +20,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("expense_agent")
 
-
 settings = get_settings()
 
 
@@ -47,11 +40,8 @@ app = FastAPI(
     version="0.1.0",
     description="API foundation for the Expense Reimbursement Agent.",
 )
-
-
 app.include_router(claims_router)
 app.include_router(reviews_router)
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,8 +50,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
 
 
 @app.middleware("http")
@@ -91,6 +79,7 @@ async def application_error_handler(
             "details": exc.details,
         },
     )
+
 
 @app.get("/health")
 def health() -> dict[str, str]:

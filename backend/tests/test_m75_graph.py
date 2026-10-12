@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from app.api import deps
 from app.config import Settings, get_settings
-from app.integrations.claim_graph import close_graph_resources, graph_resources
+from app.agent.runtime import close_graph_resources, graph_resources
 from app.main import app
 
 

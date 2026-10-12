@@ -1,10 +1,9 @@
-"""Local checkpoint ownership and the claim graph's control-only state."""
+"""Checkpoint connections, per-claim locks, and resource lifecycle ownership."""
 
 import sqlite3
 import re
 from pathlib import Path
 from threading import RLock
-from typing import TypedDict
 from weakref import WeakKeyDictionary, finalize
 
 from langgraph.checkpoint.memory import InMemorySaver
@@ -16,13 +15,6 @@ from psycopg import sql
 from sqlalchemy.engine import make_url
 
 from app.config import Settings
-
-
-class ClaimGraphState(TypedDict):
-    claim_id: str
-    run_id: str
-    pipeline_version: str
-    stage: str
 
 
 class GraphResources:

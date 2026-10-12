@@ -212,7 +212,7 @@ class ExtractionService:
         self._request_clarification(claim, run, attempts, confidence)
 
     def decide_claim(self, claim: Claim, run: ProcessingRun) -> None:
-        outcome = self._replay(claim.id, run)
+        outcome = self.replay(claim.id, run)
         saved = outcome.extractions
         confidence = _min_confidence_map(saved)
         signals = [s for s in self._signals.list_for_claim(claim.id)
@@ -227,13 +227,13 @@ class ExtractionService:
             processing_run_id=run.id, answered_codes=self._answered_codes(claim.id),
         )
         self._decisions.save(decision)
-        claim = self._transition_claim(claim, _DECISION_CLAIM_STATUS[decision.outcome])
+        claim = self.transition_claim(claim, _DECISION_CLAIM_STATUS[decision.outcome])
         claim = self._claims.save(claim.model_copy(update={"current_decision_id": decision.id}))
         if decision.outcome == DecisionOutcome.NEEDS_CLARIFICATION:
             self._record_data_clarification(claim, decision, run)
         elif decision.outcome == DecisionOutcome.ESCALATED:
             self._open_review(claim, run)
-        self._complete_run(run, _DECISION_RUN_STATUS[decision.outcome],
+        self.complete_run(run, _DECISION_RUN_STATUS[decision.outcome],
                            outcome.attempts, error_code=None)
 
     @staticmethod
@@ -241,6 +241,18 @@ class ExtractionService:
         # Preserve the existing multi-receipt decision semantics.
         return max((_as_decimal(r.total.value) or Decimal("0") for r in results),
                    default=Decimal("0"))
+
+    def validate_claim(self, claim: Claim, run: ProcessingRun) -> list[ValidationFinding]:
+        """Validate the extraction records belonging to this processing run."""
+        return self._validate_extraction(claim, self.replay(claim.id, run).extractions)
+
+    def evaluate_claim_policy(self, claim: Claim, run: ProcessingRun) -> list[PolicyEvaluation]:
+        """Evaluate policy using persisted extraction and clarification evidence."""
+        outcome = self.replay(claim.id, run)
+        participants, _ = self._answered_participants(claim.id)
+        return self._evaluate_policy(
+            claim, outcome.extractions, run, outcome.attempts, participants,
+        )
 
     def _validate_extraction(
         self, claim: Claim, saved: list[ExtractionResult]
@@ -364,7 +376,7 @@ class ExtractionService:
             self._signals.save(signal)
 
     def score_anomaly(self, claim: Claim, run: ProcessingRun) -> None:
-        extractions = self._replay(claim.id, run).extractions
+        extractions = self.replay(claim.id, run).extractions
         history = self._history.list_for_employee(claim.employee_id, exclude_claim_id=claim.id)
         self._signals.save(self._anomaly_scorer.score(
             claim=claim, total=self.extracted_total(extractions), history=history,
@@ -453,8 +465,8 @@ class ExtractionService:
             answered_at=None,
         )
         self._clarifications.save(clarification)
-        claim = self._transition_claim(claim, ClaimStatus.NEEDS_CLARIFICATION)
-        self._complete_run(
+        claim = self.transition_claim(claim, ClaimStatus.NEEDS_CLARIFICATION)
+        self.complete_run(
             run, ProcessingRunStatus.NEEDS_CLARIFICATION, attempts, error_code=None
         )
         return ProcessingOutcome(
@@ -476,7 +488,7 @@ class ExtractionService:
         status_code: int,
         attempts: list[ExtractionAttempt] | None = None,
     ) -> ProcessingOutcome:
-        self._complete_run(
+        self.complete_run(
             run, ProcessingRunStatus.FAILED, attempts or [], error_code=error_code
         )
         raise ApplicationError(error_code, message, status_code)
@@ -505,7 +517,7 @@ class ExtractionService:
         )
         return self._attempts.save(run.claim_id, attempt)
 
-    def _complete_run(
+    def complete_run(
         self,
         run: ProcessingRun,
         status: ProcessingRunStatus,
@@ -549,14 +561,14 @@ class ExtractionService:
             status,
         )
 
-    def _transition_claim(self, claim: Claim, target: ClaimStatus) -> Claim:
+    def transition_claim(self, claim: Claim, target: ClaimStatus) -> Claim:
         apply_transition(ClaimStatus(claim.status), target)
         updated = claim.model_copy(
             update={"status": target, "updated_at": datetime.now(UTC)}
         )
         return self._claims.save(updated)
 
-    def _replay(self, claim_id: UUID, run: ProcessingRun) -> ProcessingOutcome:
+    def replay(self, claim_id: UUID, run: ProcessingRun) -> ProcessingOutcome:
         receipts = list(self._receipts.list_for_claim(claim_id))
         extractions = [
             result

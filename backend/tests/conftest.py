@@ -13,7 +13,7 @@ from app.config import Settings, get_settings
 Settings.model_config["env_file"] = None
 
 from app.main import app
-from app.integrations.claim_graph import close_graph_resources
+from app.agent.runtime import close_graph_resources
 from app.integrations.rag.pgvector import close_policy_indexes
 import psycopg
 from psycopg import sql

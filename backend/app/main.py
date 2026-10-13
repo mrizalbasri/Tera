@@ -12,7 +12,7 @@ from app.api.reports import router as reports_router
 from app.config import get_settings
 from app.errors import ApplicationError
 from app.agent.runtime import close_graph_resources
-from app.api.deps import close_sql_repositories, _rag_policy_retriever
+from app.api.deps import close_sql_repositories, _rag_policy_retriever, _ml_anomaly_scorer
 from app.integrations.rag.pgvector import close_policy_indexes
 
 logging.basicConfig(
@@ -33,6 +33,7 @@ async def lifespan(_app: FastAPI):
         close_sql_repositories()
         close_policy_indexes()
         _rag_policy_retriever.cache_clear()
+        _ml_anomaly_scorer.cache_clear()
 
 
 app = FastAPI(

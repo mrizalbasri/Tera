@@ -197,7 +197,16 @@ def get_duplicate_detector(
     return AttributeDuplicateDetector(history, receipts, extractions)
 
 
-def get_anomaly_scorer() -> AnomalyScorer:
+@lru_cache(maxsize=4)
+def _ml_anomaly_scorer(model_path: str, threshold: float) -> AnomalyScorer:
+    from app.integrations.ml_anomaly.scorer import SklearnAnomalyScorer
+
+    return SklearnAnomalyScorer(model_path, threshold)
+
+
+def get_anomaly_scorer(settings: Settings = Depends(get_settings)) -> AnomalyScorer:
+    if settings.anomaly_mode == "ml":
+        return _ml_anomaly_scorer(settings.anomaly_model_path, settings.anomaly_escalation_threshold)
     return RuleBasedAnomalyScorer()
 
 

@@ -35,8 +35,8 @@
 		font-weight: 600;
 		font-size: 0.85rem;
 		z-index: 1000;
+		max-width: calc(100% - 32px);
 		box-shadow: var(--shadow-md);
-		animation: toastSlide 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 	}
 
 	.toast.error {
@@ -57,14 +57,4 @@
 		color: #1d4ed8;
 	}
 
-	@keyframes toastSlide {
-		from {
-			top: -2rem;
-			opacity: 0;
-		}
-		to {
-			top: 1.5rem;
-			opacity: 1;
-		}
-	}
 </style>

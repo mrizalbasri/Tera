@@ -11,10 +11,10 @@
 		ClaimStatus,
 		{ label: string; glyph: string; tone: 'neutral' | 'info' | 'warn' | 'success' | 'danger' }
 	> = {
-		received: { label: 'Diterima', glyph: '📥', tone: 'neutral' },
+		received: { label: 'Diterima', glyph: '○', tone: 'neutral' },
 		processing: { label: 'Diproses', glyph: '⟳', tone: 'info' },
-		needs_clarification: { label: 'Perlu Klarifikasi', glyph: '❓', tone: 'warn' },
-		escalated: { label: 'Perlu Review', glyph: '👤', tone: 'warn' },
+		needs_clarification: { label: 'Perlu klarifikasi', glyph: '?', tone: 'warn' },
+		escalated: { label: 'Perlu review', glyph: '!', tone: 'warn' },
 		approved: { label: 'Disetujui', glyph: '✓', tone: 'success' },
 		rejected: { label: 'Ditolak', glyph: '✕', tone: 'danger' }
 	};
@@ -33,7 +33,7 @@
 		align-items: center;
 		gap: 0.35rem;
 		padding: 0.25rem 0.7rem;
-		border-radius: 20px;
+		border-radius: var(--radius-sm);
 		font-weight: 600;
 		white-space: nowrap;
 		border: 1px solid transparent;
@@ -54,32 +54,32 @@
 	}
 
 	.status-badge.neutral, .status-badge.received {
-		background: rgba(100, 116, 139, 0.1);
-		color: #475569;
-		border-color: rgba(100, 116, 139, 0.2);
+		background: var(--color-soft);
+		color: var(--color-text-muted);
+		border-color: var(--color-border);
 	}
 
 	.status-badge.info, .status-badge.processing {
-		background: rgba(59, 130, 246, 0.1);
-		color: #1d4ed8;
-		border-color: rgba(59, 130, 246, 0.2);
+		background: var(--color-light);
+		color: var(--color-primary-dark);
+		border-color: var(--color-border);
 	}
 
 	.status-badge.warn, .status-badge.needs_clarification, .status-badge.escalated {
-		background: rgba(245, 158, 11, 0.12);
-		color: #b45309;
-		border-color: rgba(245, 158, 11, 0.25);
+		background: var(--color-warning-soft);
+		color: var(--color-warning);
+		border-color: var(--color-warning-soft);
 	}
 
 	.status-badge.success, .status-badge.approved {
-		background: rgba(34, 197, 94, 0.12);
-		color: #16a34a;
-		border-color: rgba(34, 197, 94, 0.25);
+		background: var(--color-light);
+		color: var(--color-primary-dark);
+		border-color: var(--color-border);
 	}
 
 	.status-badge.danger, .status-badge.rejected {
-		background: rgba(239, 68, 68, 0.1);
-		color: #dc2626;
-		border-color: rgba(239, 68, 68, 0.2);
+		background: var(--color-danger-soft);
+		color: var(--color-danger);
+		border-color: var(--color-danger-soft);
 	}
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Toast from '$lib/components/Toast.svelte';
+	import { modalFocus } from '$lib/actions/modalFocus';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import { listReviews, decideReview, CURRENT_REVIEWER_ID } from '$lib/api/reviews';
 	import { ApiError } from '$lib/api/client';
@@ -92,9 +93,9 @@
 				reason
 			});
 			showToast(
-				`✅ Klaim ${shortClaimRef(response.claim.id)} ${
+				`Klaim ${shortClaimRef(response.claim.id)} ${
 					decisionAction === 'approve' ? 'disetujui' : 'ditolak'
-				} — tercatat atas nama ${response.review.reviewer_reference ?? CURRENT_REVIEWER_ID}.`,
+				}. Tercatat atas nama ${response.review.reviewer_reference ?? CURRENT_REVIEWER_ID}.`,
 				'success'
 			);
 			decisionTarget = null;
@@ -136,7 +137,7 @@
 </script>
 
 <svelte:head>
-	<title>Review & Eskalasi Klaim | Expense Agent</title>
+	<title>Review klaim · Tera</title>
 </svelte:head>
 
 <Toast />
@@ -145,15 +146,14 @@
 	<header class="header">
 		<div>
 			<a href="/" class="back-link">← Kembali ke Beranda</a>
-			<p class="eyebrow">Admin & Finance Review Portal</p>
-			<h1>Review & Eskalasi Klaim</h1>
+			<h1>Review klaim</h1>
 			<p class="subtitle">
 				Tinjau nota operasional yang membutuhkan persetujuan manual (nominal di atas limit, skor anomali, atau nota kurang jelas).
 			</p>
 		</div>
 		<div class="header-actions">
 			<button class="btn-secondary" onclick={exportToCSV}>
-				📥 Unduh CSV (FR-14)
+				Unduh CSV
 			</button>
 		</div>
 	</header>
@@ -162,29 +162,29 @@
 	<section class="stats-grid">
 		<div class="stat-card urgent">
 			<span class="stat-label">Perlu Review Manual</span>
-			<span class="stat-value">{pendingCount}</span>
-			<span class="stat-hint">{pendingCount > 0 ? 'Menunggu keputusan reviewer' : 'Semua antrean selesai! 🎉'}</span>
+			<span class="stat-value">{loading || loadError ? '...' : pendingCount}</span>
+			<span class="stat-hint">{loading ? 'Memuat antrean...' : loadError ? 'Data belum tersedia' : pendingCount > 0 ? 'Menunggu keputusan reviewer' : 'Tidak ada klaim menunggu review'}</span>
 		</div>
 		<div class="stat-card">
 			<span class="stat-label">Selesai Ditinjau</span>
-			<span class="stat-value">{decidedCount}</span>
+			<span class="stat-value">{loading || loadError ? '...' : decidedCount}</span>
 			<span class="stat-hint">Keputusan terekam sebagai jejak audit</span>
 		</div>
 		<div class="stat-card">
 			<span class="stat-label">Total Antrean Eskalasi</span>
-			<span class="stat-value">{queue.length}</span>
-			<span class="stat-hint">Diteruskan agent ke reviewer manusia (FR-10)</span>
+			<span class="stat-value">{loading || loadError ? '...' : queue.length}</span>
+			<span class="stat-hint">Diteruskan Tera untuk diperiksa</span>
 		</div>
 	</section>
 
 	<!-- Filter & Search Bar -->
 	<div class="toolbar">
 		<div class="search-box">
-			🔍 <input type="text" placeholder="Cari ID klaim atau nama karyawan..." bind:value={searchQuery} />
+			<input type="text" aria-label="Cari klaim" placeholder="Cari ID klaim atau karyawan..." bind:value={searchQuery} />
 		</div>
 		<select aria-label="Filter status review" bind:value={statusFilter}>
 			<option value="all">Semua status</option>
-			<option value="open">Open</option>
+			<option value="open">Menunggu review</option>
 			<option value="decided">Selesai</option>
 		</select>
 		<select aria-label="Filter risiko" bind:value={riskFilter}>
@@ -201,8 +201,8 @@
 	<!-- Tabel Antrean Review -->
 	<section class="table-container">
 		<div class="table-header">
-			<h2>Daftar Antrean Klaim (Eskalasi)</h2>
-			<span class="badge-count">{pendingCount} Klaim Perlu Tindakan</span>
+			<h2>Antrean pemeriksaan</h2>
+			<span class="badge-count">{loading || loadError ? 'Data belum tersedia' : `${pendingCount} klaim perlu tindakan`}</span>
 		</div>
 
 		{#if loading}
@@ -216,7 +216,7 @@
 			</div>
 		{:else if filteredQueue.length === 0}
 			<div class="empty-state">
-				<p>{queue.length === 0 ? 'Antrean kosong — tidak ada klaim yang dieskalasi.' : 'Tidak ada klaim yang cocok dengan pencarian.'}</p>
+				<p>{queue.length === 0 ? 'Belum ada klaim yang membutuhkan review. Klaim yang diteruskan Tera akan muncul di sini.' : 'Tidak ada klaim yang cocok. Coba ubah pencarian atau filter.'}</p>
 			</div>
 		{:else}
 			<table class="review-table">
@@ -243,13 +243,13 @@
 								<span class="badge {item.decision?.outcome === 'rejected' ? 'danger' : 'warning'}">{primaryReason(item)}</span>
 								<p class="ai-reason">{item.decision?.explanation ?? 'Agent meneruskan klaim ini ke reviewer manusia.'}</p>
 								<button class="btn-inspect" onclick={() => (activeSignals = item)}>
-									🔍 Lihat Bukti & Log AI
+									Lihat bukti pemeriksaan
 								</button>
 							</td>
 							<td>
 								<StatusBadge status={item.claim.status} size="sm" />
 								<div class="review-state">
-									{item.review.status === 'open' ? '⏳ Menunggu review' : `✓ Review selesai${item.review.reviewer_reference ? ` · ${item.review.reviewer_reference}` : ''}`}
+									{item.review.status === 'open' ? 'Menunggu review' : `Review selesai${item.review.reviewer_reference ? ` · ${item.review.reviewer_reference}` : ''}`}
 								</div>
 							</td>
 							<td>
@@ -274,7 +274,7 @@
 <!-- Modal Bukti & Audit Trail (FR-06/07/12) — hanya data dari API -->
 {#if activeSignals}
 	<div class="modal-backdrop" role="presentation">
-		<div class="modal-dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label="Bukti dan log AI klaim">
+		<div class="modal-dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label="Bukti dan log AI klaim" use:modalFocus={{ onclose: () => (activeSignals = null) }}>
 			<div class="modal-header">
 				<div>
 					<span class="eyebrow">Audit Trail & Bukti Signal</span>
@@ -312,7 +312,7 @@
 
 				<!-- Kolom Kanan: Keputusan + Signal duplikat/anomali -->
 				<div class="audit-log">
-					<h4>Keputusan Agent (FR-08)</h4>
+					<h4>Keputusan Tera</h4>
 					<p class="ai-reason">{activeSignals.decision?.explanation ?? 'Belum ada keputusan backend.'}</p>
 					{#if activeSignals.decision}
 						<div class="reason-chips">
@@ -322,7 +322,7 @@
 						</div>
 					{/if}
 
-					<h4 style="margin-top: 1.1rem;">Signal Duplikat & Anomali (FR-06/07)</h4>
+					<h4 style="margin-top: 1.1rem;">Temuan duplikat dan anomali</h4>
 					{#if activeSignals.signals.length === 0}
 						<p class="ai-reason">Tidak ada signal dari backend untuk klaim ini.</p>
 					{:else}
@@ -368,7 +368,7 @@
 <!-- Modal Konfirmasi Keputusan (FR-10: konfirmasi eksplisit + alasan wajib) -->
 {#if decisionTarget}
 	<div class="modal-backdrop" role="presentation">
-		<div class="modal-dialog decision-dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label="Konfirmasi keputusan review">
+		<div class="modal-dialog decision-dialog" role="dialog" aria-modal="true" tabindex="-1" aria-label="Konfirmasi keputusan review" use:modalFocus={{ onclose: closeDecisionModal }}>
 			<div class="modal-header">
 				<div>
 					<span class="eyebrow">Konfirmasi Keputusan</span>

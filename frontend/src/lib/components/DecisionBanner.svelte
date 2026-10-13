@@ -18,10 +18,10 @@
 	} = $props();
 
 	const OUTCOME_VIEW = {
-		approved: { label: 'DISETUJUI', glyph: '✅', tone: 'success' },
-		rejected: { label: 'DITOLAK', glyph: '❌', tone: 'danger' },
-		needs_clarification: { label: 'TERTUNDA — butuh klarifikasi', glyph: '🤔', tone: 'warn' },
-		escalated: { label: 'DIERUSKAN — perlu tinjauan', glyph: '⚠️', tone: 'warn' }
+		approved: { label: 'Disetujui', glyph: '✓', tone: 'success' },
+		rejected: { label: 'Ditolak', glyph: '×', tone: 'danger' },
+		needs_clarification: { label: 'Perlu klarifikasi', glyph: '?', tone: 'warn' },
+		escalated: { label: 'Diteruskan untuk review', glyph: '!', tone: 'warn' }
 	} as const;
 
 	const reasons = $derived(decision ? describeReasonCodes(decision.reason_codes) : []);

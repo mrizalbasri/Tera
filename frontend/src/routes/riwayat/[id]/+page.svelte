@@ -90,7 +90,7 @@
 </script>
 
 <svelte:head>
-	<title>Detail Klaim | Tera Expense Agent</title>
+	<title>Detail klaim · Tera</title>
 </svelte:head>
 
 <section class="detail-page">
@@ -105,7 +105,7 @@
 			</a>
 		</div>
 		<div>
-			<h1>Detail Klaim {claim ? shortClaimRef(claim.id) : ''}</h1>
+			<h1>Detail klaim {claim ? shortClaimRef(claim.id) : ''}</h1>
 		</div>
 	</div>
 
@@ -127,6 +127,10 @@
 			<button type="button" class="primary-btn" onclick={load}>Coba lagi</button>
 		</div>
 	{:else if claim}
+		{#if timeline.some((entry) => entry.step_name === 'run.completed' && entry.status === 'failed') && !decision}
+			<div class="notice" role="alert"><h2>Pemeriksaan belum selesai</h2><p>Ada kendala pada proses terakhir. Lihat jejak pemeriksaan untuk penyebabnya, lalu coba kembali dari halaman pengelolaan klaim.</p><a class="button secondary" href={`/claims/${claim.id}`}>Kelola klaim</a></div>
+		{/if}
+		{#if decision}<DecisionBanner {decision} />{/if}
 		<div class="detail-grid">
 			<!-- Kiri: Bukti Nota -->
 			<div class="receipt-panel glass-panel">
@@ -136,7 +140,7 @@
 						<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
 						<polyline points="14 2 14 8 20 8"/>
 					</svg>
-					<span>Gambar nota tidak ditampilkan oleh API</span>
+					<span>Pratinjau nota belum tersedia</span>
 				</div>
 				{#if receipt}
 					<div class="receipt-meta">
@@ -186,7 +190,8 @@
 
 				{#if extraction}
 					<div class="glass-panel">
-						<h3>Hasil Ekstraksi (FR-02)</h3>
+						<h3>Hasil pembacaan nota</h3>
+						{#if extraction.provider.startsWith('mock')}<p class="scope-note">Hasil simulasi dari mode mock.</p>{/if}
 						<div class="extraction-list">
 							{#each fields as item (item.label)}
 								{@const level = confidenceLevel(item.confidence)}
@@ -209,13 +214,13 @@
 						{#if extraction.warnings.length}
 							<div class="warning-box">
 								{#each extraction.warnings as warning (warning)}
-									<p>⚠️ {describeReasonCode(warning).label}</p>
+									<p>{describeReasonCode(warning).label}</p>
 								{/each}
 							</div>
 						{/if}
 						{#if extraction.provider_degraded}
 							<div class="warning-box degraded">
-								<p>⚠️ Hasil dari penyedia cadangan — klaim ini tidak akan disetujui otomatis.</p>
+								<p>Hasil dari penyedia cadangan. Klaim ini memerlukan review.</p>
 							</div>
 						{/if}
 						{#if extraction.line_items.length}
@@ -234,7 +239,7 @@
 
 				{#if attempts.length}
 					<div class="glass-panel">
-						<h3>Percobaan Ekstraksi (FR-03)</h3>
+						<h3>Percobaan pembacaan</h3>
 						<div class="attempts-list">
 							{#each attempts as attempt, i (`${attempt.attempt}-${attempt.created_at}-${i}`)}
 								<div class="attempt-row {attempt.error_code ? 'failed' : 'ok'}">
@@ -255,9 +260,11 @@
 				{/if}
 
 				<div class="glass-panel">
-					<h3>Validasi & Kebijakan (FR-04/05)</h3>
+					<h3>Validasi dan kebijakan</h3>
+					<details open={validationFindings.some((finding) => !finding.passed) || policyEvaluations.some((evaluation) => !evaluation.passed)}>
+						<summary>Lihat {validationFindings.length + policyEvaluations.length} hasil pemeriksaan</summary>
 					{#if validationFindings.length === 0 && policyEvaluations.length === 0}
-						<p class="scope-note">Belum ada temuan validasi atau evaluasi kebijakan dari backend.</p>
+						<p class="scope-note">Belum ada hasil pemeriksaan kebijakan yang tercatat.</p>
 					{:else}
 						<div class="evidence-list">
 							{#each validationFindings as finding (`validation-${finding.processing_run_id}-${finding.rule_id}`)}
@@ -288,12 +295,13 @@
 							{/each}
 						</div>
 					{/if}
+					</details>
 				</div>
 
 				<div class="glass-panel">
-					<h3>Duplikat & Risiko Anomali (FR-06/07)</h3>
+					<h3>Duplikat dan risiko anomali</h3>
 					{#if signals.length === 0}
-						<p class="scope-note">Tidak ada signal duplikat atau anomali dari backend.</p>
+						<p class="scope-note">Belum ada temuan duplikat atau anomali yang tercatat.</p>
 					{:else}
 						<div class="evidence-list">
 							{#each signals as signal (signal.id)}
@@ -315,8 +323,9 @@
 
 				{#if timeline.length}
 					<div class="glass-panel">
-						<h3>Timeline Pemrosesan Agent (FR-12)</h3>
-						<p class="scope-note">Urutan sesuai endpoint timeline backend · detail sudah disaring</p>
+						<h3>Jejak pemeriksaan</h3>
+						<p class="scope-note">Aktivitas tersimpan sesuai urutan proses.</p>
+						<details><summary>Lihat {timeline.length} aktivitas</summary>
 						<ol class="timeline-list">
 							{#each timeline as entry (entry.sequence)}
 								{@const tone = timelineTone(entry.status)}
@@ -338,32 +347,14 @@
 								</li>
 							{/each}
 						</ol>
+						</details>
 					</div>
 				{/if}
 
-				<div class="glass-panel agent-log">
-					<div class="log-header">
-						<div class="agent-avatar-mini" aria-hidden="true">
-							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-								<rect x="3" y="11" width="18" height="10" rx="2"/>
-								<circle cx="12" cy="5" r="2"/>
-								<path d="M12 7v4"/>
-								<circle cx="8.5" cy="15" r="1.5"/>
-								<circle cx="15.5" cy="15" r="1.5"/>
-							</svg>
-						</div>
-						<h3>Keputusan Agent (FR-08)</h3>
-					</div>
-					<DecisionBanner
-						decision={decision}
-						waitingNote="Backend belum menerbitkan keputusan untuk klaim ini. Keputusan resmi hanya berasal dari backend dan akan tampil di sini."
-					/>
-				</div>
-
 				{#if clarifications.length}
 					<div class="glass-panel">
-						<h3>Riwayat Klarifikasi (FR-15)</h3>
-						<p class="scope-note">Khusus klaim ini · urutan sesuai API · tidak dapat diubah</p>
+						<h3>Riwayat klarifikasi</h3>
+						<p class="scope-note">Pertanyaan dan jawaban yang tercatat pada klaim ini.</p>
 						<ol class="clarification-list">
 							{#each clarifications as item (item.id)}
 								<li class="clarification-item">
@@ -379,7 +370,7 @@
 									{:else if item.status === 'open'}
 										<div class="clarification-entry pending-entry">
 											<span class="entry-author">Menunggu jawaban</span>
-											<p>Buka halaman chat untuk menjawab klarifikasi ini.</p>
+											<a href={`/claims/${claim.id}/clarification`}>Jawab klarifikasi</a>
 										</div>
 									{/if}
 								</li>
@@ -389,10 +380,9 @@
 				{/if}
 
 				<div class="glass-panel">
-					<h3>Riwayat Klaim Karyawan (FR-15)</h3>
+					<h3>Klaim lain dari karyawan ini</h3>
 					<p class="scope-note">
-						Hanya klaim lain milik karyawan yang sama, dikirim oleh API berotorisasi. Riwayat ini
-						tidak mengubah konteks klaim saat ini.
+						Pengajuan sebelumnya sebagai konteks tambahan untuk pemeriksaan.
 					</p>
 					{#if employeeHistory.length}
 						<ul class="history-list">
@@ -716,27 +706,6 @@
 	.attempt-pre {
 		font-size: 0.7rem;
 		color: var(--color-text-muted);
-	}
-
-	/* Agent Log */
-	.log-header {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		margin-bottom: 1.25rem;
-	}
-	.log-header h3 { margin: 0; }
-
-	.agent-avatar-mini {
-		width: 28px;
-		height: 28px;
-		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: white;
-		box-shadow: 0 2px 8px rgba(26, 107, 92, 0.3);
 	}
 
 	.primary-btn {

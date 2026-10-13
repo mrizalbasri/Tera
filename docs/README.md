@@ -7,8 +7,10 @@ Open this directory as an Obsidian vault.
 - [[BRD_Expense_Reimbursement_Agent|Business requirements]]
 - [[architecture/overview|Architecture overview]]
 - [[architecture/agent-flow|Agent flow]]
+- [[architecture/agent-modules|Agent module boundaries]]
 - [[decisions/0001-monorepo|Monorepo decision]]
 - [[decisions/0002-langchain-langgraph-stack|LLM stack decision (LangChain/LangGraph/RAG/ML)]]
+- [[development/pgvector|Local pgvector installation, seed and verification]]
 
 ## SDLC Documents
 

@@ -1,18 +1,20 @@
 """FastAPI dependency wiring for the storage backend and services."""
 
 from functools import lru_cache
+from threading import RLock
 from weakref import WeakSet
 
 from fastapi import Depends
 
 from app.config import Settings, get_settings
 from app.integrations.anomaly import RuleBasedAnomalyScorer
-from app.integrations.claim_graph import graph_resources
+from app.agent.runtime import graph_resources
 from app.integrations.duplicate import AttributeDuplicateDetector
 from app.integrations.llm import LlmReceiptExtractor
 from app.integrations.masking import SensitiveDataMasker
 from app.integrations.mock import MockReceiptExtractor
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
+from app.integrations.rag.retriever import RagPolicyRetriever
 from app.integrations.quality import FileQualityChecker
 from app.repositories.memory import InMemoryRepositories
 from app.repositories.sql import SqlRepositories
@@ -41,6 +43,7 @@ from app.repositories.protocols import (
 )
 from app.services.clarification import ClarificationService
 from app.services.decision import DecisionEngine
+from app.services.extraction import ExtractionService
 from app.services.processing import ClaimProcessingService
 from app.services.intake import IntakeService
 from app.services.review import ReviewService
@@ -160,7 +163,25 @@ def get_validation_service(
     return ValidationService(settings)
 
 
-def get_policy_retriever() -> PolicyRetriever:
+@lru_cache
+def _rag_policy_retriever(
+    database_url: str, index_schema: str, model_cache: str, reranker_cache: str, rerank_mode: str, top_k: int, top_n: int,
+) -> RagPolicyRetriever:
+    return RagPolicyRetriever(database_url, model_cache, index_schema=index_schema, reranker_cache=reranker_cache,
+                              rerank_mode=rerank_mode, top_k=top_k, top_n=top_n)
+
+
+_policy_adapter_lock = RLock()
+
+
+def get_policy_retriever(settings: Settings = Depends(get_settings)) -> PolicyRetriever:
+    if settings.policy_mode == "rag":
+        with _policy_adapter_lock:
+            return _rag_policy_retriever(
+                settings.database_url, settings.policy_index_schema, settings.policy_model_cache,
+                settings.policy_reranker_cache, settings.policy_rerank_mode,
+                settings.policy_top_k, settings.policy_top_n,
+            )
     return LocalPolicyRetriever()
 
 
@@ -222,7 +243,7 @@ def get_extraction_service(
     policy_evaluator: PolicyEvaluator = Depends(get_policy_evaluator),
     decider: DecisionEngine = Depends(get_decision_engine),
 ) -> ClaimProcessingService:
-    return ClaimProcessingService(
+    extraction = ExtractionService(
         claims,
         receipts,
         storage,
@@ -245,6 +266,9 @@ def get_extraction_service(
         policy_evaluator,
         decider,
         settings,
+    )
+    return ClaimProcessingService(
+        claims, runs, extraction,
         graph_resources=graph_resources(_backend(settings), settings),
     )
 

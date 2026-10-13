@@ -13,7 +13,8 @@ from app.config import Settings, get_settings
 Settings.model_config["env_file"] = None
 
 from app.main import app
-from app.integrations.claim_graph import close_graph_resources
+from app.agent.runtime import close_graph_resources
+from app.integrations.rag.pgvector import close_policy_indexes
 import psycopg
 from psycopg import sql
 from sqlalchemy.engine import make_url
@@ -23,23 +24,27 @@ from sqlalchemy.engine import make_url
 def isolated_stores(monkeypatch):
     """No local .env/provider calls; independent domain and graph stores."""
     close_graph_resources()
+    close_policy_indexes()
     deps.close_sql_repositories()
     deps._memory_repositories.cache_clear()
     deps._sql_repositories.cache_clear()
     get_settings.cache_clear()
+    deps._rag_policy_retriever.cache_clear()
     with tempfile.TemporaryDirectory(prefix="tera-graph-test-") as directory:
         monkeypatch.setenv("GRAPH_CHECKPOINT_PATH", f"{directory}/checkpoints.db")
-        settings = Settings(_env_file=None, storage_backend="memory", provider_mode="mock")
+        settings = Settings(_env_file=None, storage_backend="memory", provider_mode="mock", policy_mode="local")
         app.dependency_overrides[get_settings] = lambda: settings
         try:
             yield
         finally:
             app.dependency_overrides.pop(get_settings, None)
             close_graph_resources()
+            close_policy_indexes()
             deps.close_sql_repositories()
             deps._memory_repositories.cache_clear()
             deps._sql_repositories.cache_clear()
             get_settings.cache_clear()
+            deps._rag_policy_retriever.cache_clear()
 
 
 @pytest.fixture
@@ -56,6 +61,7 @@ def postgres_database_url():
             yield url.set(drivername="postgresql+psycopg", database=name).render_as_string(hide_password=False)
         finally:
             close_graph_resources()
+            close_policy_indexes()
             deps.close_sql_repositories()
             admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
 

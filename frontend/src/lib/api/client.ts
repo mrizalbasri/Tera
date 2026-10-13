@@ -1,6 +1,5 @@
-import { env } from '$env/dynamic/public';
-
-const BASE_URL = env.PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+// All browser requests use the same-origin SvelteKit proxy. BACKEND_URL is server-only.
+const BASE_URL = '/api';
 
 /**
  * Normalisasi error API (roadmap: pesan singkat untuk pengguna + detail
@@ -33,7 +32,11 @@ const USER_MESSAGES: Record<string, string> = {
 	receipt_content_unavailable: 'Isi nota tidak tersedia di server.',
 	malformed_extraction: 'Pembacaan nota gagal. Coba upload nota yang lebih jelas.',
 	not_found: 'Data tidak ditemukan.',
-	invalid_state_transition: 'Status klaim tidak bisa diubah sekarang.'
+	invalid_state_transition: 'Status klaim tidak bisa diubah sekarang.',
+	policy_unavailable: 'Kebijakan belum tersedia. Coba lagi setelah layanan pulih.',
+	provider_unavailable: 'Layanan pembaca nota belum tersedia. Coba lagi nanti.',
+	provider_timeout: 'Pembacaan nota melewati batas waktu. Coba lagi.',
+	upstream_unavailable: 'Backend belum dapat dihubungi. Pastikan layanan API berjalan.'
 };
 
 function shortMessage(code: string, fallback: string): string {
@@ -50,7 +53,9 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 
 	if (!response.ok) {
 		let code = `http_${response.status}`;
-		let message = `Permintaan gagal (HTTP ${response.status}).`;
+		const message = response.status === 422
+			? 'Periksa isian formulir. Ada nilai yang belum sesuai.'
+			: `Permintaan gagal (HTTP ${response.status}).`;
 		let details: Record<string, unknown> | null = null;
 		try {
 			const body = (await response.json()) as {
@@ -60,8 +65,6 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 				detail?: string;
 			};
 			if (body.code) code = body.code;
-			if (body.message) message = body.message;
-			else if (body.detail) message = body.detail;
 			if (body.details) details = body.details;
 		} catch {
 			// respons non-JSON: pertahankan pesan generik

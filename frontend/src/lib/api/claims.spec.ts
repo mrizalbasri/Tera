@@ -19,7 +19,7 @@ describe('claim submission APIs', () => {
 		await processClaim('claim-1', 'process-key-1');
 
 		expect(fetchMock).toHaveBeenCalledWith(
-			'http://localhost:8000/claims/claim-1/process',
+			'/api/claims/claim-1/process',
 			expect.objectContaining({
 				method: 'POST',
 				headers: { 'Idempotency-Key': 'process-key-1' }
@@ -51,7 +51,7 @@ describe('claim submission APIs', () => {
 		});
 
 		expect(fetchMock).toHaveBeenCalledWith(
-			'http://localhost:8000/claims/claim-1/receipts',
+			'/api/claims/claim-1/receipts',
 			expect.objectContaining({ method: 'POST' })
 		);
 	});

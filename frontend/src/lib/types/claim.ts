@@ -24,7 +24,7 @@ export type ClarificationStatus = 'open' | 'answered' | 'cancelled';
 
 export type ActorType = 'system' | 'agent' | 'employee' | 'reviewer';
 
-export type SignalType = 'duplicate' | 'anomaly';
+export type SignalType = 'duplicate' | 'anomaly' | 'provider_degraded';
 
 export type Severity = 'info' | 'warning' | 'blocking';
 
@@ -67,6 +67,7 @@ export interface ExtractedLineItem {
 export interface ExtractionResult {
 	id: string;
 	receipt_id: string;
+	processing_run_id: string | null;
 	vendor: FieldConfidence;
 	receipt_date: FieldConfidence;
 	total: FieldConfidence;
@@ -75,8 +76,7 @@ export interface ExtractionResult {
 	line_items: ExtractedLineItem[];
 	warnings: string[];
 	provider: string;
-	/** True bila hasil berasal dari fallback deterministik — tidak pernah auto-approve. */
-	provider_degraded?: boolean;
+	provider_degraded: boolean;
 	created_at: string;
 }
 
@@ -176,10 +176,10 @@ export interface TimelineEntry {
 	status: string;
 	summary: string;
 	processing_run_id: string | null;
-	duration_ms: number | null;
+	duration_ms?: number | null;
 	error_code: string | null;
-	detail: Record<string, unknown>;
-	related_ids: Record<string, string>;
+	detail?: Record<string, unknown>;
+	related_ids?: Record<string, string>;
 }
 
 export interface TimelineResponse {
@@ -192,6 +192,33 @@ export interface ClaimListResponse {
 	total: number;
 }
 
+export interface Finding {
+	processing_run_id: string;
+	rule_id: string;
+	passed: boolean;
+	explanation: string;
+	severity: Severity;
+}
+
+export interface ValidationFinding extends Finding {
+	claim_id?: string;
+	extraction_id?: string | null;
+	actual?: unknown;
+	expected?: string | null;
+	reason_code?: string | null;
+}
+
+export interface PolicyEvaluation extends Finding {
+	claim_id?: string;
+	policy_id?: string;
+	policy_version?: number;
+	rule_type?: string;
+	clarifiable?: boolean;
+	actual_value?: unknown;
+	limit?: unknown;
+	reason_code?: string | null;
+}
+
 export interface ClaimDetailResponse {
 	claim: Claim;
 	receipts: Receipt[];
@@ -201,35 +228,6 @@ export interface ClaimDetailResponse {
 	policy_evaluations: PolicyEvaluation[];
 	signals: Signal[];
 	decisions: Decision[];
-}
-
-export interface ValidationFinding {
-	claim_id: string;
-	processing_run_id: string;
-	extraction_id: string | null;
-	rule_id: string;
-	passed: boolean;
-	severity: Severity;
-	actual: unknown;
-	expected: string | null;
-	reason_code: string | null;
-	explanation: string;
-}
-
-export interface PolicyEvaluation {
-	claim_id: string;
-	processing_run_id: string;
-	policy_id: string;
-	policy_version: number;
-	rule_id: string;
-	rule_type: string;
-	passed: boolean;
-	severity: Severity;
-	clarifiable: boolean;
-	actual_value: unknown;
-	limit: unknown;
-	reason_code: string | null;
-	explanation: string;
 }
 
 export interface ProcessClaimResponse {

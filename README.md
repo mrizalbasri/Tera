@@ -17,6 +17,25 @@ data/      Schemas and synthetic samples only
 docs/      Architecture and project documentation
 ```
 
+### Backend responsibilities
+
+| Package | Responsibility |
+| --- | --- |
+| `app/agent/` | LangGraph workflow, thin nodes, control state, checkpoint runtime and prompt templates |
+| `app/services/` | Claim processing lifecycle, extraction, validation, decisions, clarification and review |
+| `app/integrations/` | LLM transport, outbound privacy controls, policy retrieval and other adapters |
+| `app/domain/` and `app/schemas/` | Business states, transitions and typed data contracts |
+| `app/repositories/` | Persistence contracts and implementations |
+| `app/api/` and `app/audit/` | HTTP endpoints, dependency wiring and audit events |
+
+`ClaimProcessingService` composes `ExtractionService` and the agent workflow.
+Graph nodes call public service operations; business rules stay outside the
+graph topology. Prompt instructions live in `app/agent/prompts/extraction.py`;
+masking, image sanitization and multimodal message construction remain in
+`app/integrations/llm_prompt.py` at the outbound privacy boundary.
+See [the agent module guide](docs/architecture/agent-modules.md) for the dependency
+flow and checkpoint compatibility constraints.
+
 ## Local setup
 
 ### Backend
@@ -100,8 +119,8 @@ cd backend
 ```
 
 Tests use mock providers, isolated stores and settings that do not read the
-local `.env`. GitHub CI runs the same suite without provider credentials.
-CI starts PostgreSQL 18 and sets `TEST_POSTGRES_URL`. To run the PostgreSQL
+local `.env`. Tests currently run locally; the GitHub backend workflow is
+manually disabled at the owner's request. To run the PostgreSQL
 integration cases locally, set that variable to a PostgreSQL connection URL for
 a test-capable account before running pytest. The account must have `CREATEDB`:
 each case creates a unique `tera_test_*` database and removes only that database
@@ -118,6 +137,128 @@ pnpm dev
 ```
 
 The web interface is available at the URL printed by SvelteKit.
+
+The frontend now connects to FastAPI through a same-origin `/api` proxy.
+Copy `frontend/.env.example` to `frontend/.env` if the backend runs somewhere
+other than `http://127.0.0.1:8000`, then set the server-only `BACKEND_URL`.
+Restart the frontend after configuration changes. Run FastAPI separately.
+
+The workspace and `/dashboard` share the same `/api` transport and contracts in
+`src/lib/types/claim.ts`. Browser requests do not use `PUBLIC_API_BASE_URL`.
+Dashboard claim rows link to the persisted claim detail page; the review queue
+uses that page for evidence inspection, reviewer identity, reason and confirmation.
+The analytics page retains prototype/sample metrics from the dashboard work;
+it is not a verified production reporting or automation-accuracy dashboard.
+
+- `/`: save synthetic receipt files and employee reference.
+- `/riwayat`: search persisted claims by employee reference and status.
+- `/claims/{claim_id}`: explicitly start/retry processing, inspect extraction,
+  validation, policy evidence and timeline, answer clarification, or review an
+  escalated claim with a reason and confirmation.
+- `/review`: load the backend's open review queue.
+
+Intake and processing are separate steps so processing failures do not require
+resubmitting saved receipts. Retrying the unchanged upload form reuses its
+idempotency key. Employee/reviewer references are prototype identifiers, not
+authentication or authorization; the review queue is intended for trusted local
+development. No frontend receipt/identity data is saved in localStorage.
+Reports/export and ML anomaly scoring remain separate planned work.
+
+## RAG policy retrieval (M7.6)
+
+RAG code lives in `backend/app/integrations/rag/`, with separate modules:
+
+| Module | Responsibility |
+| --- | --- |
+| `corpus.py` | Trusted versioned policy records and source references |
+| `chunking.py` | One complete rule per chunk, stable IDs; summary for the no-rule category |
+| `embeddings.py` | Pinned multilingual SentenceTransformer, local CPU |
+| `index.py` | Trusted chunks, explicit seed and generation readiness |
+| `vector_store.py` / `pgvector.py` | Storage contract and PostgreSQL vector persistence |
+| `query.py` | Bounded canonical concepts from extracted items/vendor, participant count |
+| `search.py` | Category/date filters, cosine top-k, trusted candidate validation |
+| `reranker.py` | Optional pinned local cross-encoder, top-n and score validation |
+| `retriever.py` | Shared adapter, orchestration, complete Policy and safe fallback |
+| `benchmark.py` | Explicit synthetic relevance and warmed latency comparison |
+
+Ingestion: policy documents → atomic rule chunks → embeddings → PostgreSQL/pgvector.
+Processing: safe contextual query → filtered top-k search → optional rerank →
+complete validated Policy → deterministic evaluation. Retrieved chunks are
+evidence; every rule in the selected policy is still evaluated.
+`backend/app/seed_policy.py` remains the CLI entry point.
+
+For local development, use `compose.yaml` to run PostgreSQL + pgvector on
+`127.0.0.1:5434`, with a persistent volume and ignored credentials. Native
+PostgreSQL on 5432 remains separate. See [the pgvector setup guide](docs/development/pgvector.md)
+for Docker startup, DBeaver and configuration. From `backend/`, seed the BRD
+section 9 category policies explicitly:
+
+```powershell
+python -m app.seed_policy --verify
+# Prepare both models, verify full-policy parity, and measure retrieval relevance:
+python -m app.seed_policy --with-reranker --verify --benchmark
+```
+
+The seed command downloads the public multilingual embedding model at an
+immutable revision and writes the policy-only pgvector index in `DATABASE_URL`. `--with-reranker`
+also prepares `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` at a pinned revision.
+`--benchmark` prepares that model and compares both retrieval stages on fixed
+synthetic rule queries. Models run on CPU, with remote code disabled; reranking
+uses safetensors. First-time seeding requires internet access, but no LLM API key.
+With a complete cache, set `HF_HUB_OFFLINE=1` to verify entirely offline.
+
+Set these in `.env` after verification:
+
+```dotenv
+POLICY_MODE=rag
+POLICY_RERANK_MODE=cross_encoder
+POLICY_TOP_K=8
+POLICY_TOP_N=3
+```
+
+`POLICY_MODE=local` and `POLICY_RERANK_MODE=none` remain the defaults. Reranking
+is optional because it adds model memory and inference latency; compare benchmark
+results before enabling it. Both top-k and top-n must be in 1–50 and top-n must
+not exceed top-k. There may be fewer candidates after category/date filtering.
+`POLICY_INDEX_SCHEMA=rag` separates vector tables from claim tables and
+`GRAPH_CHECKPOINT_SCHEMA`. `POLICY_MODEL_CACHE=./data/local/policy_model` and
+`POLICY_RERANKER_CACHE=./data/local/policy_reranker` remain ignored local caches.
+The legacy `POLICY_INDEX_PATH` setting is accepted but ignored; old Chroma indexes
+are not migrated. Reseed the canonical corpus into PostgreSQL (15 atomic chunks).
+Reseed after changing corpus, chunking or embedding model. Fingerprints isolate
+model/corpus generations, including vector dimensions. Repeat seeds replace only
+the same generation atomically; a failed seed leaves its previous committed data
+intact. Old generations are retained. Stop the API before seeding and restart
+it afterward. Application shutdown disposes the RAG connection pool.
+
+Requests load cached model files only, never download or seed. Missing index,
+missing model, retrieval/reranking errors or invalid candidates/scores fall back to the local
+policy store and produce a `policy.retrieved` audit/timeline event with safe
+provenance. If no local policy applies, the existing policy-unavailable behavior
+remains. Retrieval selects complete validated policy records; deterministic
+evaluation and decision precedence remain authoritative. Claims/checkpoints stay
+in PostgreSQL; pgvector stores policy embeddings in a separate schema. API
+requests perform reads only and never create schemas, tables or extensions.
+Search uses exact cosine distance over category/date/fingerprint-filtered rows,
+with a B-tree filter index. ANN indexes are deferred until corpus scale warrants
+benchmarking them.
+
+Query context recognizes canonical policy concepts such as alcohol, SPBU,
+business-trip evidence, meals, hotel, toll/parking and receipts. Unrecognized
+free text is excluded; missing context uses the fixed category description.
+Receipt text, names, account numbers, email addresses, answers and queries never
+enter the index or retrieval audit. Audit records contain validated policy/rule/
+chunk IDs, model identities, candidate count, fingerprint and reason codes only.
+
+Routine tests use an injected memory vector store with fake embeddings/reranking;
+separate integration tests exercise disposable PostgreSQL databases with pgvector.
+No model downloads or API access are needed. `--verify` checks all five categories
+against full local policies, using cached-only runtime loaders. `--benchmark`
+reports top-1, MRR at top-n, and mean warmed search/reranking latency. These measure
+evidence relevance, not approval accuracy; the full-policy evaluator is unchanged.
+The corpus preserves existing policy behavior, including limits evaluated per
+claim; aggregation per day/night is not introduced in this PR. ML anomaly
+scoring is a separate M7.6 PR.
 
 ## Documentation in Obsidian
 
@@ -138,7 +279,8 @@ provider logging privacy fixes. M7 provides LangChain vision extraction through
 an OpenAI-compatible endpoint, bounded retry, fallback and an image privacy gate.
 M7.5 adds LangGraph orchestration and PostgreSQL checkpoint persistence for
 development and deployment, with memory and legacy SQLite compatibility.
-`PROVIDER_MODE=mock` remains the default and needs no API key. Still planned:
-RAG policy retrieval and ML anomaly scoring (M7.6), and reporting/export (M8).
+`PROVIDER_MODE=mock` remains the default and needs no API key. M7.6's first PR
+adds optional local RAG policy selection; ML anomaly scoring and reporting/export
+(M8) remain planned.
 OCR, frontend work and the large-number validation bug tracked in
 [issue #12](https://github.com/mrizalbasri/Tera/issues/12) are outside M7.5.

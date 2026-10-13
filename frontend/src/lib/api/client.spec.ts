@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, apiRequest } from './client';
+import { api, post } from '../api';
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -11,7 +12,21 @@ describe('apiRequest', () => {
 			'fetch',
 			vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
 		);
-		await expect(apiRequest('/health')).resolves.toEqual({ ok: true });
+		await expect(apiRequest('/claims')).resolves.toEqual({ ok: true });
+		expect(fetch).toHaveBeenCalledWith('/api/claims', undefined);
+	});
+
+	it('workspace dan dashboard memakai transport proxy yang sama', async () => {
+		const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ items: [] })));
+		vi.stubGlobal('fetch', fetchMock);
+		await api('/claims?employee_id=EMP-001');
+		await post('/reviews/claim-001/decision', { action: 'approve', reason: 'verified' });
+		expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/claims?employee_id=EMP-001');
+		expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/reviews/claim-001/decision');
+		expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+			method: 'POST', headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ action: 'approve', reason: 'verified' })
+		});
 	});
 
 	it('menormalkan error backend menjadi ApiError dengan pesan pengguna', async () => {
@@ -62,5 +77,14 @@ describe('apiRequest', () => {
 		const apiError = error as ApiError;
 		expect(apiError.code).toBe('network_error');
 		expect(apiError.status).toBe(0);
+	});
+
+	it('pesan upstream yang tidak dikenal tidak ditampilkan mentah ke workspace', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+			code: 'unexpected_provider_failure', message: 'private-provider-payload', detail: 'private-details'
+		}), { status: 502 })));
+		const error = await api('/claims').catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(ApiError);
+		expect((error as ApiError).message).toBe('Permintaan gagal (HTTP 502).');
 	});
 });

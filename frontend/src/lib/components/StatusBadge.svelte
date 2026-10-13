@@ -22,7 +22,7 @@
 	const view = $derived(PRESENTATION[status] ?? PRESENTATION.received);
 </script>
 
-<span class="status-badge {view.tone} {size}">
+<span class="status-badge badge {status} {view.tone} {size}">
 	<span class="glyph" aria-hidden="true">{view.glyph}</span>
 	{view.label}
 </span>
@@ -31,7 +31,7 @@
 	.status-badge {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.3rem;
+		gap: 0.35rem;
 		padding: 0.25rem 0.7rem;
 		border-radius: 20px;
 		font-weight: 600;
@@ -53,31 +53,31 @@
 		line-height: 1;
 	}
 
-	.status-badge.neutral {
+	.status-badge.neutral, .status-badge.received {
 		background: rgba(100, 116, 139, 0.1);
 		color: #475569;
 		border-color: rgba(100, 116, 139, 0.2);
 	}
 
-	.status-badge.info {
+	.status-badge.info, .status-badge.processing {
 		background: rgba(59, 130, 246, 0.1);
 		color: #1d4ed8;
 		border-color: rgba(59, 130, 246, 0.2);
 	}
 
-	.status-badge.warn {
+	.status-badge.warn, .status-badge.needs_clarification, .status-badge.escalated {
 		background: rgba(245, 158, 11, 0.12);
 		color: #b45309;
 		border-color: rgba(245, 158, 11, 0.25);
 	}
 
-	.status-badge.success {
+	.status-badge.success, .status-badge.approved {
 		background: rgba(34, 197, 94, 0.12);
 		color: #16a34a;
 		border-color: rgba(34, 197, 94, 0.25);
 	}
 
-	.status-badge.danger {
+	.status-badge.danger, .status-badge.rejected {
 		background: rgba(239, 68, 68, 0.1);
 		color: #dc2626;
 		border-color: rgba(239, 68, 68, 0.2);

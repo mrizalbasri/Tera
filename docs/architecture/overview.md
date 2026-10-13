@@ -11,7 +11,13 @@ flowchart LR
     Agent --> Storage[(Claim storage)]
 ```
 
-The current implementation contains only the API health check and frontend foundation. The remaining components are introduced incrementally.
+The backend implements claim intake, extraction, validation, policy evaluation,
+duplicate detection, rule-based anomaly scoring, decisions and human clarification
+or review. LangGraph coordinates the processing steps; repositories store domain
+records and a separate checkpoint runtime supports waiting-state resume.
+
+See [[agent-modules|Agent module boundaries]] for the current source layout,
+dependency flow and checkpoint compatibility constraints.
 
 Related documents:
 

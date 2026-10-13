@@ -163,23 +163,35 @@ export interface CreateClaimResponse {
 	idempotent_replay: boolean;
 }
 
+export interface ReplacementReceiptResponse {
+	claim: Claim;
+	receipt: Receipt;
+}
+
+/** Satu langkah terurut & redacted dalam kisah pemrosesan klaim (FR-12). */
+export interface TimelineEntry {
+	sequence: number;
+	timestamp: string | null;
+	step_name: string;
+	status: string;
+	summary: string;
+	processing_run_id: string | null;
+	duration_ms?: number | null;
+	error_code: string | null;
+	detail?: Record<string, unknown>;
+	related_ids?: Record<string, string>;
+}
+
+export interface TimelineResponse {
+	items: TimelineEntry[];
+	total: number;
+}
+
 export interface ClaimListResponse {
 	items: Claim[];
 	total: number;
 }
 
-export interface ClaimDetailResponse {
-	claim: Claim;
-	receipts: Receipt[];
-	extractions: ExtractionResult[];
-	attempts: ExtractionAttempt[];
-	decisions: Decision[];
-	validation_findings: Finding[];
-	policy_evaluations: Finding[];
-	signals: Signal[];
-}
-
-/** Common fields rendered by validation and policy evidence tables. */
 export interface Finding {
 	processing_run_id: string;
 	rule_id: string;
@@ -188,14 +200,34 @@ export interface Finding {
 	severity: Severity;
 }
 
-export interface TimelineEntry {
-	sequence: number;
-	timestamp: string | null;
-	step_name: string;
-	status: string;
-	summary: string;
-	error_code: string | null;
-	processing_run_id: string | null;
+export interface ValidationFinding extends Finding {
+	claim_id?: string;
+	extraction_id?: string | null;
+	actual?: unknown;
+	expected?: string | null;
+	reason_code?: string | null;
+}
+
+export interface PolicyEvaluation extends Finding {
+	claim_id?: string;
+	policy_id?: string;
+	policy_version?: number;
+	rule_type?: string;
+	clarifiable?: boolean;
+	actual_value?: unknown;
+	limit?: unknown;
+	reason_code?: string | null;
+}
+
+export interface ClaimDetailResponse {
+	claim: Claim;
+	receipts: Receipt[];
+	extractions: ExtractionResult[];
+	attempts: ExtractionAttempt[];
+	validation_findings: ValidationFinding[];
+	policy_evaluations: PolicyEvaluation[];
+	signals: Signal[];
+	decisions: Decision[];
 }
 
 export interface ProcessClaimResponse {

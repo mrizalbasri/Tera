@@ -3,8 +3,8 @@ import type { RequestHandler } from './$types';
 
 const proxy: RequestHandler = async ({ request, params, url, fetch }) => {
 	const path = params.path ?? '';
-	// Limit forwarding to the existing claim/review API, never arbitrary URLs.
-	if (!/^(claims|reviews)(\/|$)/.test(path) || path.split('/').some(part => part === '.' || part === '..')) {
+	// Limit forwarding to the existing claim/review/report API, never arbitrary URLs.
+	if (!/^(claims|reviews|reports|health)(\/|$)/.test(path) || path.split('/').some(part => part === '.' || part === '..')) {
 		return new Response(null, { status: 404 });
 	}
 	const target = new URL(`${path}${url.search}`, `${(env.BACKEND_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')}/`);

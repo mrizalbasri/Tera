@@ -4,7 +4,9 @@ import type {
 	ClaimListResponse,
 	ClarificationListResponse,
 	CreateClaimResponse,
-	ProcessClaimResponse
+	ProcessClaimResponse,
+	ReplacementReceiptResponse,
+	TimelineResponse
 } from '$lib/types/claim';
 
 /**
@@ -49,16 +51,44 @@ export async function getClaim(claimId: string): Promise<ClaimDetailResponse> {
 	return apiRequest<ClaimDetailResponse>(`/claims/${encodeURIComponent(claimId)}`);
 }
 
-export async function processClaim(claimId: string): Promise<ProcessClaimResponse> {
-	return apiRequest<ProcessClaimResponse>(`/claims/${encodeURIComponent(claimId)}/process`, {
-		method: 'POST'
+export async function processClaim(
+	claimId: string,
+	idempotencyKey?: string,
+	resume = false
+): Promise<ProcessClaimResponse> {
+	const headers: Record<string, string> = {};
+	if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+	const query = resume ? '?resume=true' : '';
+	return apiRequest<ProcessClaimResponse>(`/claims/${encodeURIComponent(claimId)}/process${query}`, {
+		method: 'POST',
+		headers
 	});
+}
+
+export async function replaceClaimReceipt(input: {
+	claimId: string;
+	file: File;
+}): Promise<ReplacementReceiptResponse> {
+	const form = new FormData();
+	form.append('file', input.file, input.file.name);
+	return apiRequest<ReplacementReceiptResponse>(
+		`/claims/${encodeURIComponent(input.claimId)}/receipts`,
+		{
+			method: 'POST',
+			body: form
+		}
+	);
 }
 
 export async function listClarifications(claimId: string): Promise<ClarificationListResponse> {
 	return apiRequest<ClarificationListResponse>(
 		`/claims/${encodeURIComponent(claimId)}/clarifications`
 	);
+}
+
+/** FR-12: urutan kerja agent sesuai API, sudah redacted oleh backend. */
+export async function getClaimTimeline(claimId: string): Promise<TimelineResponse> {
+	return apiRequest<TimelineResponse>(`/claims/${encodeURIComponent(claimId)}/timeline`);
 }
 
 /**

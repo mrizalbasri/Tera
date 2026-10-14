@@ -105,7 +105,7 @@
 		</section>
 		{#if openQuestion}<section class="panel"><p class="eyebrow">Perlu informasi tambahan</p><h2>{openQuestion.fields.includes('participant_count') ? 'Berapa orang yang ikut dalam pengeluaran ini?' : 'Lengkapi informasi klaim'}</h2><p class="muted">{openQuestion.question}</p>
 			{#if openQuestion.fields.includes('participant_count')}<p class="muted">Masukkan jumlah peserta sebagai angka bulat, misalnya 2.</p>{/if}
-			{#if openQuestion.code === 'extraction_confidence_low'}<p class="muted">Jika nota belum terbaca, buat pengajuan baru dengan foto yang lebih jelas.</p><a class="button secondary" href="/">Unggah nota baru</a>{/if}
+			{#if openQuestion.code === 'extraction_confidence_low'}<p class="muted">Jika nota belum terbaca, buat pengajuan baru dengan foto yang lebih jelas.</p><a class="button secondary" href="/pengajuan">Unggah nota baru</a>{/if}
 			<form onsubmit={submitAnswer}><div class="field"><label for="answer">Jawaban klarifikasi</label><textarea id="answer" bind:value={answer} required maxlength="2000" disabled={busy} placeholder="Isi informasi yang diminta Tera."></textarea></div><button disabled={busy || !answer.trim()}>{busy ? 'Memeriksa jawaban…' : 'Kirim jawaban & periksa ulang'}</button></form>
 		</section>{/if}
 		<section class="panel"><h2>Hasil pembacaan nota</h2>

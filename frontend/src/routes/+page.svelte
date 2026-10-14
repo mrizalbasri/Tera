@@ -126,7 +126,7 @@
 
 <style>
 	/* Hallmark · genre: modern-minimal · macrostructure: Marquee Hero · design-system: DESIGN.md · enrichment: receipt workflow · nav: N9 · footer: Ft2 */
-	.landing { display: flow-root; color: var(--color-ink); }
+	.landing { --nav-offset: 110px; display: flow-root; color: var(--color-ink); }
 	.navbar-shell { position: sticky; top: 16px; z-index: 50; width: min(1040px, calc(100% - 48px)); margin: 16px auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 20px; box-shadow: 0 4px 20px rgb(0 45 40 / .07); }
 	.landing :is(#produk, #fitur, #cara-kerja, #untuk-tim, #faq) { scroll-margin-top: 124px; }
 	.landing-header, .hero, .capability-line, .workflow-section, .team-section, .faq-section, .closing, .landing-footer { width: min(1120px, calc(100% - 64px)); margin-inline: auto; }
@@ -194,8 +194,9 @@
 		:global(.landing .scroll-reveal), .menu-toggle svg path { transition: none; }
 		:global(.landing .awaiting-reveal) { opacity: 1; transform: none; }
 	}
-	.hero-stage { position: relative; isolation: isolate; overflow: clip; background: linear-gradient(110deg, var(--color-paper) 40%, var(--color-light)); }
-	.hero { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: var(--space-12); align-items: center; padding-block: var(--space-12) var(--space-20); }
+	.hero-stage { position: relative; isolation: isolate; overflow: clip; margin-top: calc(-1 * var(--nav-offset)); padding-top: var(--nav-offset); background: linear-gradient(to bottom, var(--color-paper), transparent 220px), linear-gradient(110deg, var(--color-paper) 40%, var(--color-light)); }
+	.hero-stage :global(.brand-ribbon) { mask-image: linear-gradient(to bottom, transparent, #000 26%); }
+	.hero { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: var(--space-12); align-items: center; padding-block: var(--space-6) var(--space-20); }
 	.hero h1 { font: 800 clamp(3rem, 5vw, 4.5rem)/1.05 var(--font-display); letter-spacing: -0.065em; margin: 0 0 var(--space-6); }
 	.hero h1 span { color: var(--color-primary); }
 	.hero-copy > p { color: var(--color-text-muted); font-size: var(--text-md); line-height: 1.8; max-width: 420px; margin: 0; }
@@ -271,6 +272,7 @@
 	.landing-footer p { margin: 0 auto 0 0; font-size: var(--text-xs); color: var(--color-text-muted); }
 	.landing-footer > a:not(.wordmark) { font-size: var(--text-xs); color: var(--color-text-muted); text-decoration: none; min-height: 44px; display: flex; align-items: center; white-space: nowrap; }
 	@media (max-width: 960px) {
+		.landing { --nav-offset: 106px; }
 		.landing-header { min-height: 72px; flex-wrap: wrap; gap: var(--space-3); position: relative; }
 		.landing-header { z-index: 10; }
 		.landing-header nav { position: absolute; top: calc(100% - 4px); left: 0; display: grid; grid-template-rows: 0fr; align-items: stretch; width: 100%; padding: 0 var(--space-5); gap: 0; background: var(--color-surface); border-radius: var(--radius-md); box-shadow: 0 14px 28px rgb(0 45 40 / .1); visibility: hidden; transition: grid-template-rows 240ms ease, visibility 240ms; }
@@ -293,6 +295,7 @@
 		.closing { gap: var(--space-4); padding: var(--space-8); }
 	}
 	@media (max-width: 768px) {
+		.landing { --nav-offset: 88px; }
 		.landing-header, .hero, .capability-line, .workflow-section, .team-section, .faq-section, .closing, .landing-footer { width: calc(100% - 40px); }
 		.navbar-shell { top: 10px; width: calc(100% - 24px); margin-block: 10px; border-radius: 16px; }
 		.landing-header { width: 100%; padding: 10px; min-height: 66px; flex-wrap: wrap; gap: var(--space-2); position: relative; }
@@ -301,7 +304,7 @@
 		.nav-cta { padding-inline: var(--space-3); }
 		.menu-toggle { display: inline-flex; }
 		.wordmark span { font-size: 25px; }
-		.hero { grid-template-columns: minmax(0, 1fr); padding-block: var(--space-10) var(--space-16); gap: var(--space-6); }
+		.hero { grid-template-columns: minmax(0, 1fr); padding-block: var(--space-6) var(--space-16); gap: var(--space-6); }
 		.hero h1 { font-size: clamp(2.625rem, 8vw, 4rem); }
 		.hero-copy > p { max-width: 520px; }
 		.hero-actions .button, .hero-secondary { font-size: 12px; padding-inline: var(--space-4); }

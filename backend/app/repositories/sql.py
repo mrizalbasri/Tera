@@ -18,7 +18,6 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     create_engine,
-    inspect,
     func,
     select,
     text,
@@ -30,6 +29,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.schema import CreateColumn
 
 from app.errors import ApplicationError, ErrorCode
+from app.repositories.transactions import SessionScope
 from app.schemas.core import (
     AuditEvent,
     Claim,
@@ -140,6 +140,19 @@ class AuditEventRow(Base):
     )
 
 
+class WorkflowStepRow(Base):
+    __tablename__ = "workflow_steps"
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
+class RateLimitRow(Base):
+    __tablename__ = "api_rate_limits"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window: Mapped[int] = mapped_column(BigInteger, index=True)
+    count: Mapped[int] = mapped_column()
+
+
 _KINDS = {
     "extraction": ExtractionResult,
     "attempt": ExtractionAttempt,
@@ -156,28 +169,27 @@ _KINDS = {
 class SqlRepositories:
     """Bundle of SQL-backed repositories behind the same protocols."""
 
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, *, initialize_schema: bool = True) -> None:
         url = make_url(database_url)
         if url.get_backend_name() == "postgresql":
             url = url.set(drivername="postgresql+psycopg")
         self._engine = create_engine(
             url,
             future=True,
-            connect_args={"check_same_thread": False} if url.get_backend_name() == "sqlite" else {},
+            connect_args={"check_same_thread": False} if url.get_backend_name() == "sqlite" else {"connect_timeout": 5},
             pool_pre_ping=True,
         )
-        Base.metadata.create_all(self._engine)
-        if url.get_backend_name() == "sqlite":
-            # Old M6/M7 SQLite records remain readable after this additive change.
-            inspector = inspect(self._engine)
-            with self._engine.begin() as connection:
-                for model in (ClaimRow, ReceiptRow, ProcessingRunRow, ChildRow):
-                    columns = {column["name"] for column in inspector.get_columns(model.__tablename__)}
-                    if "insertion_order" not in columns:
-                        connection.execute(text(
-                            f'ALTER TABLE "{model.__tablename__}" ADD COLUMN insertion_order BIGINT'
-                        ))
-        self._session_factory = sessionmaker(self._engine, expire_on_commit=False)
+        from app.repositories.migrations import require_current, upgrade
+
+        try:
+            if initialize_schema:
+                upgrade(self._engine)
+            else:
+                require_current(self._engine)
+        except BaseException:
+            self._engine.dispose()
+            raise
+        self._session_factory = SessionScope(self._engine)
         self.claims = SqlClaimRepository(self._session_factory)
         self.receipts = SqlReceiptRepository(self._session_factory)
         self.runs = SqlProcessingRunRepository(self._session_factory)
@@ -209,10 +221,84 @@ class SqlRepositories:
     def close(self) -> None:
         self._engine.dispose()
 
+    def transaction(self):
+        return self._session_factory.transaction()
+
+    def atomic_step(self, key: str, action) -> dict:
+        failure = None
+        output = {}
+        with self.transaction() as session:
+            saved = session.get(WorkflowStepRow, key)
+            if saved is not None:
+                return dict(saved.payload)
+            try:
+                output = action()
+            except ApplicationError as exc:
+                run = session.get(ProcessingRunRow, key.partition(":")[0])
+                if run is None or run.payload.get("status") != "failed":
+                    raise
+                # A deliberate failed run includes diagnostic attempts and its
+                # audit event. Commit those together, then surface the error.
+                failure = exc
+            if failure is None:
+                session.add(WorkflowStepRow(key=key, payload=output))
+        if failure is not None:
+            raise failure
+        return output
+
+    def ready(self) -> None:
+        from app.repositories.migrations import require_current
+
+        require_current(self._engine)
+        with self._engine.connect() as connection:
+            for table in Base.metadata.sorted_tables:
+                connection.execute(select(table).limit(0))
+
+    def consume_rate_limit(self, key: str, window: int, limit: int) -> bool:
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+        from sqlalchemy import case, delete
+
+        insert = pg_insert if self._engine.dialect.name == "postgresql" else sqlite_insert
+        with self._engine.begin() as connection:
+            connection.execute(delete(RateLimitRow).where(RateLimitRow.window < window - 2))
+            statement = insert(RateLimitRow).values(key=key, window=window, count=1)
+            statement = statement.on_conflict_do_update(
+                index_elements=[RateLimitRow.key],
+                set_={"window": case((RateLimitRow.window < window, window), else_=RateLimitRow.window),
+                      "count": case((RateLimitRow.window >= window, RateLimitRow.count + 1), else_=1)},
+            ).returning(RateLimitRow.count)
+            return connection.scalar(statement) <= limit
+
 
 
 
 class SqlClaimRepository:
+    def get_many(self, claim_ids):
+        with self._sessions() as session:
+            return tuple(Claim.model_validate(r.payload) for r in session.scalars(select(ClaimRow).where(ClaimRow.id.in_([str(i) for i in claim_ids]))))
+    @staticmethod
+    def _filtered(filters):
+        statement = select(ClaimRow)
+        if filters.employee_id is not None:
+            statement = statement.where(ClaimRow.employee_id == filters.employee_id)
+        if filters.status is not None:
+            statement = statement.where(ClaimRow.status == filters.status)
+        day = func.substr(ClaimRow.payload["submitted_at"].as_string(), 1, 10)
+        if filters.period_from is not None:
+            statement = statement.where(day >= filters.period_from.isoformat())
+        if filters.period_to is not None:
+            statement = statement.where(day <= filters.period_to.isoformat())
+        return statement
+
+    def page(self, filters, *, limit: int, offset: int):
+        with self._sessions() as session:
+            statement = self._filtered(filters).order_by(_record_order(session, ClaimRow)).limit(limit).offset(offset)
+            return tuple(Claim.model_validate(r.payload) for r in session.scalars(statement))
+
+    def count(self, filters) -> int:
+        with self._sessions() as session:
+            return session.scalar(select(func.count()).select_from(self._filtered(filters).subquery()))
     def __init__(self, session_factory: sessionmaker) -> None:
         self._sessions = session_factory
 
@@ -312,6 +398,23 @@ class SqlReceiptRepository:
 
 
 class SqlProcessingRunRepository:
+    def pending_claim_ids(self, *, limit: int, offset: int = 0):
+        from sqlalchemy import desc, or_, and_
+
+        with self._sessions() as session:
+            ranked = select(ProcessingRunRow.claim_id, ProcessingRunRow.payload["status"].as_string().label("status"),
+                            func.row_number().over(partition_by=ProcessingRunRow.claim_id,
+                                                   order_by=desc(_record_order(session, ProcessingRunRow))).label("rank")).subquery()
+            statement = select(ranked.c.claim_id).join(ClaimRow, ClaimRow.id == ranked.c.claim_id).where(
+                ranked.c.rank == 1,
+                or_(ranked.c.status.in_(["running", "queued"]),
+                    and_(ClaimRow.status == "processing", ranked.c.status.in_(["needs_clarification", "escalated"]))),
+            ).order_by(ranked.c.claim_id).limit(limit).offset(offset)
+            return tuple(UUID(i) for i in session.scalars(statement))
+    def list_for_claims(self, claim_ids):
+        with self._sessions() as session:
+            statement = select(ProcessingRunRow).where(ProcessingRunRow.claim_id.in_([str(i) for i in claim_ids])).order_by(_record_order(session, ProcessingRunRow))
+            return tuple(ProcessingRun.model_validate(r.payload) for r in session.scalars(statement))
     def __init__(self, session_factory: sessionmaker) -> None:
         self._sessions = session_factory
 
@@ -373,6 +476,18 @@ class SqlProcessingRunRepository:
 
 
 class SqlChildRepository:
+    def latest_for_claim(self, claim_id: UUID):
+        from sqlalchemy import desc
+
+        with self._sessions() as session:
+            statement = select(ChildRow).where(ChildRow.kind == self._kind, ChildRow.claim_id == str(claim_id)).order_by(desc(_record_order(session, ChildRow))).limit(1)
+            row = session.scalars(statement).first()
+            return self._schema.model_validate(row.payload) if row is not None else None
+
+    def list_for_claims(self, claim_ids):
+        with self._sessions() as session:
+            statement = select(ChildRow).where(ChildRow.kind == self._kind, ChildRow.claim_id.in_([str(i) for i in claim_ids])).order_by(_record_order(session, ChildRow))
+            return tuple(self._schema.model_validate(r.payload) for r in session.scalars(statement))
     """Generic child-record repository (findings, signals, decisions, ...)."""
 
     def __init__(self, session_factory: sessionmaker, kind: str, schema: type) -> None:
@@ -516,6 +631,14 @@ class SqlExtractionAttemptRepository(SqlChildRepository):
 
 
 class SqlReviewRepository(SqlChildRepository):
+    def page_open(self, *, limit: int, offset: int):
+        with self._sessions() as session:
+            statement = select(ChildRow).where(ChildRow.kind == self._kind, ChildRow.payload["status"].as_string() == "open").order_by(_record_order(session, ChildRow)).limit(limit).offset(offset)
+            return tuple(Review.model_validate(r.payload) for r in session.scalars(statement))
+
+    def count_open(self) -> int:
+        with self._sessions() as session:
+            return session.scalar(select(func.count()).select_from(ChildRow).where(ChildRow.kind == self._kind, ChildRow.payload["status"].as_string() == "open"))
     """Reviews expose the open-review queue query required by the protocol."""
 
     def list_open(self) -> Sequence[Review]:

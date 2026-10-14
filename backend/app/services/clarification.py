@@ -85,7 +85,21 @@ class ClarificationService:
             outcome = self._processing.process_claim(claim_id)
             return clarification, outcome, True
 
+        claim = self._claims.get(claim_id)
+        latest = self._clarifications.latest_for_claim(claim_id)
+        if claim.status != ClaimStatus.NEEDS_CLARIFICATION or latest is None or latest.id != clarification.id:
+            raise ApplicationError(ErrorCode.INVALID_CLAIM, "Claim is not waiting for this clarification.", 409)
+        self._processing.ensure_clarification_waiting(claim_id)
+        with self._processing.resources.transaction():
+            answered = self._record_answer(claim_id, clarification, answer, answered_by)
+        outcome = self._processing.resume_clarification(claim_id)
+        return answered, outcome, False
+
+    def _record_answer(self, claim_id: UUID, clarification: Clarification,
+                       answer: str, answered_by: str) -> Clarification:
         clean_answer = answer.strip()
+        if not clean_answer:
+            raise ApplicationError(ErrorCode.INVALID_CLAIM, "Answer must not be blank.", 422)
         now = datetime.now(UTC)
         answered = clarification.model_copy(
             update={
@@ -118,7 +132,7 @@ class ClarificationService:
             event_type="clarification.answered",
             actor_type=ActorType.EMPLOYEE,
             safe_payload={
-                "clarification_id": str(clarification_id),
+                "clarification_id": str(clarification.id),
                 "code": clarification.code,
             },
             processing_run_id=clarification.processing_run_id,
@@ -134,5 +148,4 @@ class ClarificationService:
                 }
             )
         )
-        outcome = self._processing.resume_clarification(claim_id)
-        return answered, outcome, False
+        return answered

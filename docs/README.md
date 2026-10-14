@@ -4,6 +4,8 @@ Open this directory as an Obsidian vault.
 
 ## Navigation
 
+- [Panduan tugas frontend Sheren dan Nisa](../frontend/README.md)
+
 - [[BRD_Expense_Reimbursement_Agent|Business requirements]]
 - [[architecture/overview|Architecture overview]]
 - [[architecture/agent-flow|Agent flow]]

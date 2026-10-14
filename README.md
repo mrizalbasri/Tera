@@ -8,6 +8,15 @@ This repository uses:
 - **Frontend:** SvelteKit and TypeScript
 - **Documentation:** Markdown designed to work as an Obsidian vault
 
+## Panduan tugas tim
+
+Pembagian tugas Sheren dan Nisa, langkah onboarding, jadwal, dan kriteria
+selesai ada di [README frontend](frontend/README.md). Keduanya menangani
+frontend; pemilik proyek menangani backend.
+Rencana ini disusun dari working tree lokal pada 14 Oktober 2026; beberapa
+keterangan status fitur di bawah masih merujuk baseline sebelumnya. Pemilik
+perlu membagikan baseline Git yang lengkap sebelum anggota mulai bekerja.
+
 ## Repository layout
 
 ```text

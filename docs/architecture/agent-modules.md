@@ -50,9 +50,13 @@ working without a data migration. State contains only `claim_id`, `run_id`,
 stay outside checkpoints. Review callbacks and results remain invocation-local.
 
 Provider errors, confidence retries, policy fallback, failure recording, replay
-and duplicate-request behavior retain their existing semantics. Automatic recovery
-from a crash in the middle of a node and coordination across multiple workers
-remain outside the supported restart/resume boundary.
+and duplicate-request behavior retain their existing semantics. SQL nodes commit
+their domain writes and completion marker together. Recovery replays completed
+markers and resumes unfinished nodes. PostgreSQL advisory locks coordinate claim
+mutations across workers; SQLite remains a single-process development option.
+An automatic SQL recovery worker scans pending runs every 30 seconds by default.
+Interrupted admin reviews require fresh authenticated input if the decision
+transaction did not commit. See [[../development/backend-operations|Backend operations]].
 
 ## Verification
 

@@ -11,12 +11,12 @@ router = APIRouter(prefix="/operations", tags=["operations"], dependencies=[Depe
 
 @router.get("/metrics")
 def metrics(response: Response, claims: ClaimRepository = Depends(get_claim_repository),
-            runs: ProcessingRunRepository = Depends(get_processing_run_repository)):
+            runs: ProcessingRunRepository = Depends(get_processing_run_repository)) -> dict[str, int | None]:
     response.headers["Cache-Control"] = "no-store"
     return processing_metrics(claims, runs)
 
 
 @router.post("/recover")
 def recover(limit: int = Query(100, ge=1, le=1000),
-            processing: ClaimProcessingService = Depends(get_extraction_service)):
+            processing: ClaimProcessingService = Depends(get_extraction_service)) -> dict[str, int]:
     return processing.recover_pending(limit=limit)

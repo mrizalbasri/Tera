@@ -36,7 +36,7 @@ def require_admin(request: Request, user_id: str = Depends(require_session), set
 
 
 @router.get("/session")
-def session(response: Response, user_id: str = Depends(require_session), settings: Settings = Depends(get_settings)):
+def session(response: Response, user_id: str = Depends(require_session), settings: Settings = Depends(get_settings)) -> dict[str, str | bool]:
     response.headers["Cache-Control"] = "no-store"
     result: dict[str, str | bool] = {"username": user_id, "role": "admin" if settings.demo_mode or is_admin(user_id, settings) else "member"}
     if settings.demo_mode:

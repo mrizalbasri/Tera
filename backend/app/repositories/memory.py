@@ -21,6 +21,14 @@ from app.schemas.core import (
 
 
 class InMemoryClaimRepository:
+    def get_many(self, claim_ids):
+        with self._lock:
+            return tuple(self._claims[i] for i in claim_ids if i in self._claims)
+    def page(self, filters, *, limit: int, offset: int):
+        return tuple(c for c in self.list(employee_id=filters.employee_id) if filters.matches(c))[offset:offset + limit]
+
+    def count(self, filters) -> int:
+        return sum(filters.matches(c) for c in self.list(employee_id=filters.employee_id))
     def __init__(self) -> None:
         self._claims: dict[UUID, Claim] = {}
         self._idempotency: dict[str, UUID] = {}
@@ -77,6 +85,11 @@ class InMemoryReceiptRepository:
 
 
 class InMemoryProcessingRunRepository:
+    def pending_claim_ids(self, *, limit: int, offset: int = 0):
+        with self._lock:
+            return tuple(k for k, records in self._runs.items() if records and records[-1].status in ("running", "queued"))[offset:offset + limit]
+    def list_for_claims(self, claim_ids):
+        return tuple(record for claim_id in claim_ids for record in self.list_for_claim(claim_id))
     def __init__(self) -> None:
         self._runs: dict[UUID, list[ProcessingRun]] = {}
         self._run_keys: dict[str, UUID] = {}
@@ -162,6 +175,8 @@ class InMemoryExtractionAttemptRepository:
 
 
 class InMemoryDecisionRepository:
+    def list_for_claims(self, claim_ids):
+        return tuple(record for claim_id in claim_ids for record in self.list_for_claim(claim_id))
     def __init__(self) -> None:
         self._decisions: dict[UUID, list[Decision]] = {}
         self._lock = RLock()
@@ -203,6 +218,11 @@ class InMemoryClarificationRepository:
 
 
 class InMemoryReviewRepository:
+    def page_open(self, *, limit: int, offset: int):
+        return self.list_open()[offset:offset + limit]
+
+    def count_open(self) -> int:
+        return len(self.list_open())
     def __init__(self) -> None:
         self._reviews: dict[UUID, Review] = {}
         self._lock = RLock()
@@ -289,6 +309,8 @@ class InMemoryPolicyEvaluationRepository:
 
 
 class InMemorySignalRepository:
+    def list_for_claims(self, claim_ids):
+        return tuple(record for claim_id in claim_ids for record in self.list_for_claim(claim_id))
     def __init__(self) -> None:
         self._signals: dict[UUID, list[Signal]] = {}
         self._lock = RLock()

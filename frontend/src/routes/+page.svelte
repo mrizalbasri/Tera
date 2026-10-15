@@ -24,7 +24,7 @@
 
 	type ChatAction = {
 		label: string;
-		kind: 'retry-process' | 'retake' | 'detail';
+		kind: 'retry-upload' | 'retry-process' | 'retake' | 'detail';
 		href?: string;
 	};
 
@@ -78,6 +78,7 @@
 
 	// FR-03: retry proses hanya lewat tombol (bounded, tidak otomatis)
 	let retryableClaimId = $state<string | null>(null);
+	let pendingSubmissionKey = $state<string | null>(null);
 
 	// FR-03: id klaim lama saat retake receipt agar konteks tidak hilang
 	let retakeClaimId = $state<string | null>(null);
@@ -223,9 +224,11 @@
 
 		try {
 			// FR-04: idempotency key per-submit mencegah duplikasi klaim saat retry jaringan
-			const idempotencyKey = crypto.randomUUID();
+			const idempotencyKey = pendingSubmissionKey ?? crypto.randomUUID();
+			pendingSubmissionKey = idempotencyKey;
 			const response = await createClaim({ file, idempotencyKey });
 			claimId = response.claim.id;
+			pendingSubmissionKey = null;
 			const quality = response.receipts[0]?.quality_score;
 			const uploadDetail =
 				`Klaim ${shortClaimRef(claimId)} diterima. Nota "${response.receipts[0]?.original_filename ?? file.name}" tersimpan.` +
@@ -249,6 +252,7 @@
 				from: 'agent',
 				text: `❌ ${message} Notamu masih terlampir — coba kirim ulang.`,
 				isError: true,
+				actions: [{ label: 'Coba upload lagi', kind: 'retry-upload' }],
 				timestamp: formatClock()
 			});
 			scrollToBottom();
@@ -421,7 +425,10 @@
 	}
 
 	function handleAction(message: Message, action: ChatAction) {
-		if (action.kind === 'retry-process' && message.claimId) {
+		if (action.kind === 'retry-upload') {
+			messages = messages.filter((item) => item.id !== message.id);
+			void submitClaim();
+		} else if (action.kind === 'retry-process' && message.claimId) {
 			retryProcess(message.claimId, message.id);
 		} else if (action.kind === 'retake') {
 			// FR-03: simpan claimId lama agar retake melanjutkan klaim yg sama

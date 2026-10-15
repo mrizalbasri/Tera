@@ -409,6 +409,9 @@
 		.summary-grid { grid-template-columns: repeat(2, 1fr); }
 		.page-header { flex-direction: column; }
 		th, td { padding: 0.6rem 0.75rem; }
+		.table-wrap { overflow-x: auto; }
+		.table-wrap table { min-width: 620px; }
+		.export-btn { width: 100%; justify-content: center; }
 	}
 
 	/* ─── Empty State ─── */

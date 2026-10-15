@@ -30,7 +30,7 @@ MAX_FILENAME_LENGTH = 255
 
 @dataclass(frozen=True)
 class ReceiptUpload:
-    """Transport-independent receipt input; the HTTP layer converts UploadFile."""
+    """Transport-independent receipt input after bounded upload reading."""
 
     filename: str | None
     media_type: str | None
@@ -66,10 +66,16 @@ class IntakeService:
         self._settings = settings
         self._resources = resources
 
-    def create_claim(self, **kwargs):
+    def create_claim(
+        self, *, employee_id: str, currency: str, declared_amount: Decimal | None,
+        files: list[ReceiptUpload], idempotency_key: str | None,
+    ) -> tuple[Claim, list[Receipt], bool]:
         with self._resources.claim_lock("receipt-intake") if self._resources else nullcontext():
             with self._resources.transaction() if self._resources else nullcontext():
-                return self._create_claim(**kwargs)
+                return self._create_claim(
+                    employee_id=employee_id, currency=currency, declared_amount=declared_amount,
+                    files=files, idempotency_key=idempotency_key,
+                )
 
     def _create_claim(
         self,
@@ -193,7 +199,7 @@ class IntakeService:
                 return existing
         return None
 
-    def replace_receipt(self, *, claim_id: UUID, upload: ReceiptUpload):
+    def replace_receipt(self, *, claim_id: UUID, upload: ReceiptUpload) -> tuple[Claim, Receipt]:
         with self._resources.claim_lock(claim_id) if self._resources else nullcontext():
             with self._resources.claim_lock("receipt-intake") if self._resources else nullcontext():
                 with self._resources.transaction() if self._resources else nullcontext():

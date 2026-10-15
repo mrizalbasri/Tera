@@ -46,6 +46,7 @@ from app.services.decision import DecisionEngine
 from app.services.extraction import ExtractionService
 from app.services.processing import ClaimProcessingService
 from app.services.intake import IntakeService
+from app.services.uploads import ReceiptUploadService
 from app.services.review import ReviewService
 from app.services.timeline import TimelineService
 from app.services.validation import ValidationService
@@ -227,6 +228,13 @@ def get_intake_service(
 ) -> IntakeService:
     return IntakeService(claims, receipts, storage, quality, audit, settings,
                          resources=graph_resources(_backend(settings), settings))
+
+
+def get_receipt_upload_service(
+    settings: Settings = Depends(get_settings),
+    intake: IntakeService = Depends(get_intake_service),
+) -> ReceiptUploadService:
+    return ReceiptUploadService(intake, settings)
 
 
 def get_extraction_service(

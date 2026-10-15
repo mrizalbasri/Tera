@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     auto_approve_amount_limit: int = 500_000
     auto_approve_min_confidence: float = 0.8
     escalation_amount_threshold: int = 500_000
+    claim_lock_timeout_seconds: float = Field(default=5.0, gt=0, le=60)
+    recovery_interval_seconds: int = Field(default=30, ge=1, le=3600)
+    max_recovery_attempts: int = Field(default=3, ge=1, le=10)
     max_processing_retries: int = 2
     extraction_confidence_threshold: float = 0.8
     max_claim_age_days: int = 14

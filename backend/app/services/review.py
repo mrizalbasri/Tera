@@ -45,6 +45,7 @@ class ReviewService:
         self._audit = audit
         self._processing = processing
 
+
     def list_open(self) -> list[dict]:
         items: list[dict] = []
         for review in self._reviews.list_open():
@@ -64,7 +65,10 @@ class ReviewService:
 
     def decide(self, claim_id: UUID, *, action: Literal["approve", "reject"],
                reason: str, reviewer_reference: str) -> tuple[Claim, Decision, Review]:
+        if not reason.strip() or not reviewer_reference.strip():
+            raise ApplicationError(ErrorCode.INVALID_CLAIM, "Review reason and identity must not be blank.", 422)
         with self._processing.claim_lock(claim_id):
+            self._processing.recover_claim(claim_id)
             self._pending_review(claim_id)
             return self._processing.resume_review(
                 claim_id, lambda run_id: self._apply_decision(
@@ -81,8 +85,8 @@ class ReviewService:
         review = next(
             (
                 item
-                for item in self._reviews.list_open()
-                if item.claim_id == claim_id
+                for item in reversed(self._reviews.list_for_claim(claim_id))
+                if item.status == ReviewStatus.OPEN
             ),
             None,
         )

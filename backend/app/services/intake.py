@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import PurePath
 import time
+from contextlib import nullcontext
 from uuid import UUID, uuid4
 
 from app.audit.events import record_audit_event
@@ -55,6 +56,7 @@ class IntakeService:
         quality: ReceiptQualityChecker,
         audit: AuditRepository,
         settings: Settings,
+        resources=None,
     ) -> None:
         self._claims = claims
         self._receipts = receipts
@@ -62,8 +64,14 @@ class IntakeService:
         self._quality = quality
         self._audit = audit
         self._settings = settings
+        self._resources = resources
 
-    def create_claim(
+    def create_claim(self, **kwargs):
+        with self._resources.claim_lock("receipt-intake") if self._resources else nullcontext():
+            with self._resources.transaction() if self._resources else nullcontext():
+                return self._create_claim(**kwargs)
+
+    def _create_claim(
         self,
         *,
         employee_id: str,
@@ -179,7 +187,13 @@ class IntakeService:
                 return existing
         return None
 
-    def replace_receipt(
+    def replace_receipt(self, *, claim_id: UUID, upload: ReceiptUpload):
+        with self._resources.claim_lock(claim_id) if self._resources else nullcontext():
+            with self._resources.claim_lock("receipt-intake") if self._resources else nullcontext():
+                with self._resources.transaction() if self._resources else nullcontext():
+                    return self._replace_receipt(claim_id=claim_id, upload=upload)
+
+    def _replace_receipt(
         self,
         *,
         claim_id: UUID,

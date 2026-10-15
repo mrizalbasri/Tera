@@ -106,6 +106,7 @@ class ProcessingRun(SchemaBase):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     retry_count: int = Field(default=0, ge=0)
+    recovery_count: int = Field(default=0, ge=0)
     error_code: str | None = Field(default=None, max_length=100)
 
 

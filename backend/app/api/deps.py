@@ -60,8 +60,8 @@ _sql_bundles: WeakSet[SqlRepositories] = WeakSet()
 
 
 @lru_cache
-def _sql_repositories(database_url: str) -> SqlRepositories:
-    repositories = SqlRepositories(database_url)
+def _sql_repositories(database_url: str, initialize_schema: bool = True) -> SqlRepositories:
+    repositories = SqlRepositories(database_url, initialize_schema=initialize_schema)
     _sql_bundles.add(repositories)
     return repositories
 
@@ -76,7 +76,7 @@ def close_sql_repositories() -> None:
 def _backend(settings: Settings):
     """Pick the storage backend bundle from request-scoped settings."""
     if settings.storage_backend == "sql":
-        return _sql_repositories(settings.database_url)
+        return _sql_repositories(settings.database_url, settings.environment != "production")
     return _memory_repositories()
 
 
@@ -225,7 +225,8 @@ def get_intake_service(
     quality: ReceiptQualityChecker = Depends(get_quality_checker),
     audit: AuditRepository = Depends(get_audit_repository),
 ) -> IntakeService:
-    return IntakeService(claims, receipts, storage, quality, audit, settings)
+    return IntakeService(claims, receipts, storage, quality, audit, settings,
+                         resources=graph_resources(_backend(settings), settings))
 
 
 def get_extraction_service(
@@ -279,6 +280,7 @@ def get_extraction_service(
     return ClaimProcessingService(
         claims, runs, extraction,
         graph_resources=graph_resources(_backend(settings), settings),
+        max_recovery_attempts=settings.max_recovery_attempts,
     )
 
 

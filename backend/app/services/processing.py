@@ -1,11 +1,10 @@
 """Claim orchestration. Checkpoints contain references, never receipt content.
 
-Only waiting checkpoints support restart/resume. Domain repositories remain
-the source of truth; completed requests replay without executing graph nodes.
+SQL node transactions and completion markers support crash recovery. Domain
+repositories remain the source of truth; completed requests replay their records.
 """
 
 import logging
-import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -35,13 +34,15 @@ class ClaimProcessingService:
         extraction: ExtractionService,
         *,
         graph_resources: GraphResources,
+        max_recovery_attempts: int = 3,
     ) -> None:
         self._claims = claims
         self._runs = runs
         self._extraction = extraction
         self.resources = graph_resources
+        self._max_recovery_attempts = max_recovery_attempts
         self.graph = build_claim_workflow(
-            ClaimNodes(claims, runs, extraction), graph_resources.saver,
+            ClaimNodes(claims, runs, extraction), graph_resources.saver, graph_resources,
         )
 
     def claim_lock(self, claim_id: UUID):
@@ -60,6 +61,10 @@ class ClaimProcessingService:
         with self.claim_lock(claim_id):
             self._ensure_waiting(claim_id, "wait_clarification")
             return self._process_claim(claim_id, resume=True)
+
+    def ensure_clarification_waiting(self, claim_id: UUID) -> None:
+        with self.claim_lock(claim_id):
+            self._ensure_waiting(claim_id, "wait_clarification")
 
     def resume_review(
         self, claim_id: UUID, apply: Callable[[UUID], tuple[Claim, Decision, Review]],
@@ -84,12 +89,10 @@ class ClaimProcessingService:
     def _ensure_waiting(self, claim_id: UUID, stage: str) -> None:
         config = self._config(claim_id)
         snapshot = self.graph.get_state(config)
-        if snapshot.next:
-            if snapshot.next != (stage,):
-                raise ApplicationError(ErrorCode.INVALID_CLAIM,
-                                       "Claim is not waiting for this action.", 409)
+        if snapshot.next == (stage,):
             return
-        # Compatibility with M7 claims created before checkpoints existed.
+        # A terminal domain commit can precede its waiting checkpoint. Rebuild
+        # only the interrupt; the completed business node must not run again.
         run = self._runs.latest_for_claim(claim_id)
         expected = (ProcessingRunStatus.NEEDS_CLARIFICATION if stage == "wait_clarification"
                     else ProcessingRunStatus.ESCALATED)
@@ -105,11 +108,50 @@ class ClaimProcessingService:
     def _execute_run(self, claim: Claim, run: ProcessingRun) -> ProcessingOutcome:
         config = self._config(claim.id)
         snapshot = self.graph.get_state(config)
-        if snapshot.next == ("wait_clarification",):
-            self.graph.invoke(Command(resume={"run_id": str(run.id)}), config)
-        else:
-            self.graph.invoke(self._state(claim.id, run.id, "extract"), config)
+        try:
+            if snapshot.next == ("wait_clarification",):
+                self.graph.invoke(Command(resume={"run_id": str(run.id)}), config)
+            elif snapshot.next and snapshot.values.get("run_id") == str(run.id):
+                self.graph.invoke(None, config)
+            else:
+                self.graph.invoke(self._state(claim.id, run.id, "extract"), config)
+        except ApplicationError as exc:
+            current = self._runs.get(run.id)
+            if current.status in (ProcessingRunStatus.RUNNING, ProcessingRunStatus.QUEUED):
+                with self.resources.transaction():
+                    self._extraction.complete_run(current, ProcessingRunStatus.FAILED, [], error_code=exc.code)
+            raise
         return self._extraction.replay(claim.id, self._runs.get(run.id))
+
+    def recover_claim(self, claim_id: UUID) -> ProcessingOutcome | None:
+        with self.resources.claim_lock(claim_id, timeout=0):
+            run = self._runs.latest_for_claim(claim_id)
+            claim = self._claims.get(claim_id)
+            if run is not None and claim is not None and claim.status == ClaimStatus.PROCESSING and run.status in (ProcessingRunStatus.NEEDS_CLARIFICATION, ProcessingRunStatus.ESCALATED):
+                return self._process_claim(claim_id, resume=True)
+            if run is None or run.status not in (ProcessingRunStatus.RUNNING, ProcessingRunStatus.QUEUED):
+                return None
+            if run.recovery_count >= self._max_recovery_attempts:
+                with self.resources.transaction():
+                    self._extraction.complete_run(run, ProcessingRunStatus.FAILED, [], error_code="recovery_exhausted")
+                raise ApplicationError("recovery_exhausted", "Processing could not be recovered; retry the claim.", 503)
+            run = self._runs.save(run.model_copy(update={"recovery_count": run.recovery_count + 1}))
+            if claim.status == ClaimStatus.ESCALATED:
+                # Review callbacks are request-local. Rollback leaves the review
+                # open, and only a fresh authenticated admin input may decide it.
+                with self.resources.transaction():
+                    self._extraction.complete_run(run, ProcessingRunStatus.FAILED, [], error_code="review_input_required")
+                self.graph.invoke(self._state(claim.id, run.id, "wait_review"), self._config(claim.id))
+                return self._extraction.replay(claim.id, self._runs.get(run.id))
+            return self._execute_run(claim, run)
+
+    def recover_pending(self, *, limit: int = 100) -> dict[str, int]:
+        from app.services.operations import recover_pending
+
+        return recover_pending(self, limit=limit)
+
+    def pending_claim_ids(self, *, limit: int):
+        return self._runs.pending_claim_ids(limit=limit)
 
     def _process_claim(
         self,
@@ -125,6 +167,10 @@ class ClaimProcessingService:
         run_key = f"run:{claim_id}:{idempotency_key}" if idempotency_key else None
 
         latest_run = self._runs.latest_for_claim(claim_id)
+        if claim.status == ClaimStatus.PROCESSING and latest_run is not None and latest_run.status in (ProcessingRunStatus.NEEDS_CLARIFICATION, ProcessingRunStatus.ESCALATED):
+            resume = True
+        if latest_run is not None and latest_run.status in (ProcessingRunStatus.RUNNING, ProcessingRunStatus.QUEUED):
+            return self.recover_claim(claim_id)
         if (
             not resume
             and latest_run is not None
@@ -142,40 +188,18 @@ class ClaimProcessingService:
         if run_key:
             keyed_run = self._runs.get_run_by_key(run_key)
             if keyed_run is not None:
-                self._await_terminal(keyed_run)
                 return self._keyed_result(claim_id, keyed_run)
 
         run_id = uuid4()
-        if run_key and not self._runs.reserve_run_key(run_key, run_id):
-            winner = self._runs.get_run_by_key(run_key)
-            if winner is None:
-                raise ApplicationError(
-                    ErrorCode.IDEMPOTENCY_IN_PROGRESS,
-                    "A request with this Idempotency-Key is still in progress.",
-                    409,
-                )
-            self._await_terminal(winner)
-            return self._keyed_result(claim_id, winner)
-
-        if latest_run is not None and latest_run.status == ProcessingRunStatus.RUNNING:
-            raise ApplicationError(
-                ErrorCode.INVALID_CLAIM,
-                "A processing run is already in progress.",
-                409,
-            )
-
         current_status = ClaimStatus(claim.status)
-        if current_status is ClaimStatus.RECEIVED:
-            claim = self._extraction.transition_claim(claim, ClaimStatus.PROCESSING)
-        elif current_status is ClaimStatus.PROCESSING and (
+        can_retry = current_status is ClaimStatus.PROCESSING and (
             resume
             or (
                 latest_run is not None
                 and latest_run.status == ProcessingRunStatus.FAILED
             )
-        ):
-            pass
-        else:
+        )
+        if current_status is not ClaimStatus.RECEIVED and not can_retry:
             raise ApplicationError(
                 ErrorCode.INVALID_CLAIM,
                 "Claim cannot be processed in its current state.",
@@ -192,7 +216,12 @@ class ClaimProcessingService:
             retry_count=len(self._runs.list_for_claim(claim_id)),
             error_code=None,
         )
-        self._runs.save(run)
+        with self.resources.transaction():
+            if run_key and not self._runs.reserve_run_key(run_key, run_id):
+                raise ApplicationError(ErrorCode.IDEMPOTENCY_IN_PROGRESS, "Processing request is in progress.", 409)
+            self._runs.save(run)
+            if current_status is ClaimStatus.RECEIVED:
+                claim = self._extraction.transition_claim(claim, ClaimStatus.PROCESSING)
         logger.info("processing run %s queued for claim %s", run.id, claim_id)
         return self._execute_run(claim, run)
 
@@ -205,14 +234,3 @@ class ClaimProcessingService:
                 502,
             )
         return self._extraction.replay(claim_id, run)
-
-    def _await_terminal(self, run: ProcessingRun) -> ProcessingRun:
-        """Wait briefly for a concurrent winner's run to reach a final state."""
-        for _ in range(40):
-            if run.status != ProcessingRunStatus.RUNNING:
-                return run
-            time.sleep(0.05)
-            refreshed = self._runs.get(run.id)
-            if refreshed is not None:
-                run = refreshed
-        return run

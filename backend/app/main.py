@@ -27,9 +27,18 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    worker = None
     try:
+        configured = _app.dependency_overrides.get(get_settings, get_settings)()
+        if configured.storage_backend == "sql":
+            from app.services.recovery import RecoveryWorker
+
+            worker = RecoveryWorker(configured)
+            worker.start()
         yield
     finally:
+        if worker is not None:
+            worker.close()
         close_graph_resources()
         close_sql_repositories()
         close_policy_indexes()

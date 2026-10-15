@@ -67,3 +67,23 @@ Lihat [[backend-operations]] untuk prosedur deployment dan operasi.
   dasar PR. Perubahan frontend lokal tetap di luar commit perbaikan ini.
 - PostgreSQL disposable untuk review memakai localhost port 55439; semua data
   sintetis dan fixture hanya membuat/menghapus database uji miliknya.
+
+## Tindak lanjut recovery klarifikasi
+
+- Reproduksi awal pada SQLite: setelah nota pengganti diunggah, klaim menjadi
+  `processing` tetapi klarifikasi belum dijawab. `recover_claim` membuat run
+  baru; tes regresi gagal karena recovery seharusnya mengembalikan `None`.
+- Recovery langsung, batch admin, dan worker sekarang hanya memproses run
+  `running`/`queued`. Pengulangan proses memutar ulang hasil; `resume=true`
+  ditolak dengan 409 saat run menunggu klarifikasi/review.
+- Endpoint jawaban menyimpan jawaban, konteks, audit, perubahan status, serta
+  run lanjutan `queued` dalam satu transaksi. Crash setelah commit tetap dapat
+  dipulihkan tanpa membuka jalan untuk melewati jawaban wajib.
+- Empat belas tes terarah pada SQLite/PostgreSQL lolos, termasuk nota pengganti,
+  rollback jika antrean gagal, crash setelah jawaban commit, dan review terputus.
+- Handler `session`, `metrics`, `recover` dan seluruh method middleware body
+  limit memiliki anotasi parameter/return, memakai kontrak ASGI Starlette.
+- Suite lengkap setelah perbaikan terakhir: **530 passed, 5 skipped** dalam
+  177,74 detik dengan SQLite/PostgreSQL 18 disposable. Lima skip tetap
+  membutuhkan pgvector lokal. Pemeriksaan anotasi AST dan `git diff --check`
+  juga lolos.

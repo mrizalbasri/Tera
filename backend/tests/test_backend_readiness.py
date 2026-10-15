@@ -434,6 +434,7 @@ def test_recovery_does_not_resume_unanswered_clarification(persistent):
     assert backend.clarifications.latest_for_claim(claim_id) == question
     assert not backend.context.list_for_claim(claim_id)
     assert client.post(f"/claims/{claim_id}/process").status_code == 200
+    assert client.post(f"/claims/{claim_id}/process?resume=true").status_code == 409
     assert backend.runs.latest_for_claim(claim_id) == original_run
     answered = client.post(f"/claims/{claim_id}/clarifications/{question.id}/answer", json={"answer": "4"})
     assert answered.status_code == 200, answered.text

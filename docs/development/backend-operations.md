@@ -58,6 +58,8 @@ dan `escalated` tidak dilanjutkan otomatis. Jawaban klarifikasi, konteks, audit,
 status klaim, dan run lanjutan `queued` disimpan dalam satu transaksi melalui
 endpoint jawaban. Jika crash terjadi setelah commit sebelum graph dilanjutkan,
 recovery memproses run `queued` tersebut. Nota pengganti tidak melewati jawaban.
+`POST /claims/{id}/process?resume=true` mengembalikan 409 bila run masih menunggu
+klarifikasi atau review; kirim input melalui endpoint jawaban/keputusan terkait.
 Review yang belum commit kembali menunggu input admin. Backend tidak membuat
 keputusan admin dari callback yang hilang. Admin mengirim ulang keputusan setelah
 recovery. Review yang sudah commit tetap tersimpan satu kali.

@@ -52,9 +52,12 @@ class ClaimProcessingService:
     def _config(claim_id: UUID) -> dict:
         return {"configurable": {"thread_id": str(claim_id)}}
 
-    def process_claim(self, claim_id: UUID, *,
+    def process_claim(self, claim_id: UUID, *, resume: bool = False,
                       idempotency_key: str | None = None) -> ProcessingOutcome:
         with self.claim_lock(claim_id):
+            run = self._runs.latest_for_claim(claim_id)
+            if resume and run is not None and run.status in (ProcessingRunStatus.NEEDS_CLARIFICATION, ProcessingRunStatus.ESCALATED):
+                raise ApplicationError(ErrorCode.INVALID_CLAIM, "Submit the required clarification or review input first.", 409)
             return self._process_claim(claim_id, idempotency_key=idempotency_key)
 
     def resume_clarification(self, claim_id: UUID) -> ProcessingOutcome:

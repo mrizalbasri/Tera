@@ -3,12 +3,15 @@ from collections import Counter
 from datetime import UTC, datetime
 
 from app.errors import ApplicationError
+from app.repositories.protocols import ClaimRepository, ProcessingRunRepository
 from app.repositories.query import ClaimFilter
+from app.services.durations import elapsed_milliseconds
+from app.services.processing import ClaimProcessingService
 
 logger = logging.getLogger(__name__)
 
 
-def recover_pending(processing, *, limit: int = 100) -> dict[str, int]:
+def recover_pending(processing: ClaimProcessingService, *, limit: int = 100) -> dict[str, int]:
     counts = Counter(recovered=0, busy=0, failed=0, scanned=0)
     # Capture candidates before mutations change the filtered result's offsets.
     ids = processing.pending_claim_ids(limit=limit)
@@ -26,8 +29,8 @@ def recover_pending(processing, *, limit: int = 100) -> dict[str, int]:
     return dict(counts)
 
 
-def processing_metrics(claims, runs) -> dict:
-    counts = Counter()
+def processing_metrics(claims: ClaimRepository, runs: ProcessingRunRepository) -> dict[str, int | None]:
+    counts: Counter[str] = Counter()
     duration_total = duration_count = oldest_seconds = 0
     now = datetime.now(UTC)
     offset = 0
@@ -38,8 +41,9 @@ def processing_metrics(claims, runs) -> dict:
             counts[f"claims_{claim.status}"] += 1
         for run in runs.list_for_claims([c.id for c in batch]):
             counts[f"runs_{run.status}"] += 1
-            if run.started_at and run.completed_at:
-                duration_total += max(0, int((run.completed_at - run.started_at).total_seconds() * 1000))
+            duration = elapsed_milliseconds(run.started_at, run.completed_at)
+            if duration is not None:
+                duration_total += duration
                 duration_count += 1
             if run.status in ("running", "queued"):
                 since = run.started_at or claim_updated[run.claim_id]

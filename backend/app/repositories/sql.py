@@ -7,15 +7,19 @@ Pydantic remains the single source of shape truth.
 """
 
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
+from typing import Any, Generic, TypeVar
 from uuid import UUID, uuid4
 
+from pydantic import BaseModel
 from sqlalchemy import (
     JSON,
     BigInteger,
     Identity,
     LargeBinary,
     String,
+    Select,
     UniqueConstraint,
     create_engine,
     func,
@@ -23,13 +27,17 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.schema import CreateColumn
+from sqlalchemy.sql import SQLColumnExpression
+from sqlalchemy.sql.compiler import DDLCompiler
+from sqlalchemy.sql.elements import TextClause
 
 from app.errors import ApplicationError, ErrorCode
 from app.repositories.transactions import SessionScope
+from app.repositories.query import ClaimFilter
 from app.schemas.core import (
     AuditEvent,
     Claim,
@@ -47,6 +55,7 @@ from app.schemas.core import (
 )
 
 _ID_LENGTH = 36
+Record = TypeVar("Record", bound=BaseModel)
 
 
 class Base(DeclarativeBase):
@@ -60,14 +69,14 @@ class OrderedRecord:
 
 
 @compiles(CreateColumn, "sqlite")
-def _sqlite_order_column(element, compiler, **kwargs):
+def _sqlite_order_column(element: CreateColumn, compiler: DDLCompiler, **kwargs: Any) -> str:
     if element.element.name == "insertion_order":
         # SQLite ignores Identity; this compatibility column must allow NULL.
         return "insertion_order BIGINT"
     return compiler.visit_create_column(element, **kwargs)
 
 
-def _record_order(session: Session, model):
+def _record_order(session: Session, model: type[OrderedRecord]) -> SQLColumnExpression[int] | TextClause:
     return text("rowid") if session.get_bind().dialect.name == "sqlite" else model.insertion_order
 
 
@@ -221,10 +230,10 @@ class SqlRepositories:
     def close(self) -> None:
         self._engine.dispose()
 
-    def transaction(self):
+    def transaction(self) -> AbstractContextManager[Session]:
         return self._session_factory.transaction()
 
-    def atomic_step(self, key: str, action) -> dict:
+    def atomic_step(self, key: str, action: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         failure = None
         output = {}
         with self.transaction() as session:
@@ -274,11 +283,11 @@ class SqlRepositories:
 
 
 class SqlClaimRepository:
-    def get_many(self, claim_ids):
+    def get_many(self, claim_ids: Sequence[UUID]) -> Sequence[Claim]:
         with self._sessions() as session:
             return tuple(Claim.model_validate(r.payload) for r in session.scalars(select(ClaimRow).where(ClaimRow.id.in_([str(i) for i in claim_ids]))))
     @staticmethod
-    def _filtered(filters):
+    def _filtered(filters: ClaimFilter) -> Select[tuple[ClaimRow]]:
         statement = select(ClaimRow)
         if filters.employee_id is not None:
             statement = statement.where(ClaimRow.employee_id == filters.employee_id)
@@ -291,15 +300,15 @@ class SqlClaimRepository:
             statement = statement.where(day <= filters.period_to.isoformat())
         return statement
 
-    def page(self, filters, *, limit: int, offset: int):
+    def page(self, filters: ClaimFilter, *, limit: int, offset: int) -> Sequence[Claim]:
         with self._sessions() as session:
             statement = self._filtered(filters).order_by(_record_order(session, ClaimRow)).limit(limit).offset(offset)
             return tuple(Claim.model_validate(r.payload) for r in session.scalars(statement))
 
-    def count(self, filters) -> int:
+    def count(self, filters: ClaimFilter) -> int:
         with self._sessions() as session:
             return session.scalar(select(func.count()).select_from(self._filtered(filters).subquery()))
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def get(self, claim_id: UUID) -> Claim | None:
@@ -357,7 +366,7 @@ class SqlClaimRepository:
 
 
 class SqlReceiptRepository:
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def save(self, receipt: Receipt) -> Receipt:
@@ -398,7 +407,7 @@ class SqlReceiptRepository:
 
 
 class SqlProcessingRunRepository:
-    def pending_claim_ids(self, *, limit: int, offset: int = 0):
+    def pending_claim_ids(self, *, limit: int, offset: int = 0) -> Sequence[UUID]:
         from sqlalchemy import desc, or_, and_
 
         with self._sessions() as session:
@@ -411,11 +420,11 @@ class SqlProcessingRunRepository:
                     and_(ClaimRow.status == "processing", ranked.c.status.in_(["needs_clarification", "escalated"]))),
             ).order_by(ranked.c.claim_id).limit(limit).offset(offset)
             return tuple(UUID(i) for i in session.scalars(statement))
-    def list_for_claims(self, claim_ids):
+    def list_for_claims(self, claim_ids: Sequence[UUID]) -> Sequence[ProcessingRun]:
         with self._sessions() as session:
             statement = select(ProcessingRunRow).where(ProcessingRunRow.claim_id.in_([str(i) for i in claim_ids])).order_by(_record_order(session, ProcessingRunRow))
             return tuple(ProcessingRun.model_validate(r.payload) for r in session.scalars(statement))
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def save(self, run: ProcessingRun) -> ProcessingRun:
@@ -475,8 +484,10 @@ class SqlProcessingRunRepository:
         return self.get(UUID(row.target_id))
 
 
-class SqlChildRepository:
-    def latest_for_claim(self, claim_id: UUID):
+class SqlChildRepository(Generic[Record]):
+    """Generic child-record repository (findings, signals, decisions, ...)."""
+
+    def latest_for_claim(self, claim_id: UUID) -> Record | None:
         from sqlalchemy import desc
 
         with self._sessions() as session:
@@ -484,18 +495,17 @@ class SqlChildRepository:
             row = session.scalars(statement).first()
             return self._schema.model_validate(row.payload) if row is not None else None
 
-    def list_for_claims(self, claim_ids):
+    def list_for_claims(self, claim_ids: Sequence[UUID]) -> Sequence[Record]:
         with self._sessions() as session:
             statement = select(ChildRow).where(ChildRow.kind == self._kind, ChildRow.claim_id.in_([str(i) for i in claim_ids])).order_by(_record_order(session, ChildRow))
             return tuple(self._schema.model_validate(r.payload) for r in session.scalars(statement))
-    """Generic child-record repository (findings, signals, decisions, ...)."""
 
-    def __init__(self, session_factory: sessionmaker, kind: str, schema: type) -> None:
+    def __init__(self, session_factory: SessionScope, kind: str, schema: type[Record]) -> None:
         self._sessions = session_factory
         self._kind = kind
         self._schema = schema
 
-    def save(self, record) -> object:
+    def save(self, record: Record) -> Record:
         claim_id = self._claim_id_for(record)
         created_at = str(
             getattr(record, "created_at", None) or getattr(record, "timestamp", "")
@@ -519,7 +529,7 @@ class SqlChildRepository:
             session.commit()
         return record
 
-    def _claim_id_for(self, record) -> str:
+    def _claim_id_for(self, record: Record) -> str:
         """Extraction results carry receipt_id; resolve the claim via receipt."""
         if hasattr(record, "claim_id"):
             return str(record.claim_id)
@@ -529,7 +539,7 @@ class SqlChildRepository:
                 return row.claim_id if row else ""
         return ""
 
-    def list_for_claim(self, claim_id: UUID) -> Sequence:
+    def list_for_claim(self, claim_id: UUID) -> Sequence[Record]:
         with self._sessions() as session:
             statement = (
                 select(ChildRow)
@@ -542,7 +552,7 @@ class SqlChildRepository:
                 for row in session.scalars(statement)
             )
 
-    def list_for_receipts(self, receipt_ids: Sequence[UUID]) -> Sequence:
+    def list_for_receipts(self, receipt_ids: Sequence[UUID]) -> Sequence[Record]:
         """Extraction lookup keyed by receipt ids stored inside the payload."""
         if not receipt_ids:
             return ()
@@ -563,7 +573,7 @@ class SqlChildRepository:
 class SqlClaimHistoryRepository:
     """Employee- and vendor-scoped claim history views over SQL (FR-15)."""
 
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def list_for_employee(
@@ -610,7 +620,7 @@ class SqlClaimHistoryRepository:
         return tuple(matched)
 
 
-class SqlExtractionAttemptRepository(SqlChildRepository):
+class SqlExtractionAttemptRepository(SqlChildRepository[ExtractionAttempt]):
     """Attempts are saved with an explicit claim id (protocol shape)."""
 
     def save(self, claim_id: UUID, attempt: ExtractionAttempt) -> ExtractionAttempt:
@@ -630,8 +640,10 @@ class SqlExtractionAttemptRepository(SqlChildRepository):
         return attempt
 
 
-class SqlReviewRepository(SqlChildRepository):
-    def page_open(self, *, limit: int, offset: int):
+class SqlReviewRepository(SqlChildRepository[Review]):
+    """Reviews expose the open-review queue query required by the protocol."""
+
+    def page_open(self, *, limit: int, offset: int) -> Sequence[Review]:
         with self._sessions() as session:
             statement = select(ChildRow).where(ChildRow.kind == self._kind, ChildRow.payload["status"].as_string() == "open").order_by(_record_order(session, ChildRow)).limit(limit).offset(offset)
             return tuple(Review.model_validate(r.payload) for r in session.scalars(statement))
@@ -639,7 +651,6 @@ class SqlReviewRepository(SqlChildRepository):
     def count_open(self) -> int:
         with self._sessions() as session:
             return session.scalar(select(func.count()).select_from(ChildRow).where(ChildRow.kind == self._kind, ChildRow.payload["status"].as_string() == "open"))
-    """Reviews expose the open-review queue query required by the protocol."""
 
     def list_open(self) -> Sequence[Review]:
         with self._sessions() as session:
@@ -660,7 +671,7 @@ class SqlAuditRepository:
 
     MAX_ATTEMPTS = 5
 
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def append(self, event: AuditEvent) -> AuditEvent:
@@ -715,7 +726,7 @@ class SqlAuditRepository:
 class SqlConversationRepository:
     MAX_ENTRIES = 20
 
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def append(self, entry: ConversationEntry) -> ConversationEntry:
@@ -750,7 +761,7 @@ class SqlConversationRepository:
 
 
 class SqlFileStorage:
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def put(self, content: bytes, *, filename: str, media_type: str) -> str:

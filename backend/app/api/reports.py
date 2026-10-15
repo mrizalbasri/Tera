@@ -47,7 +47,7 @@ def report_summary(
 def export_claims_csv(
     period_from: date | None = Query(None), period_to: date | None = Query(None),
     employee_id: str | None = Query(None), claims: ClaimRepository = Depends(get_claim_repository),
-):
+) -> StreamingResponse:
     filters = ClaimFilter(employee_id=employee_id, period_from=period_from, period_to=period_to)
     return StreamingResponse(ReportingService(claims).csv_rows(filters), media_type="text/csv",
                              headers={"Content-Disposition": "attachment; filename=claims-report.csv", "Cache-Control": "no-store"})

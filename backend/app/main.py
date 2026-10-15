@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.claims import router as claims_router
+from app.api.auth import router as auth_router
 from app.api.reviews import router as reviews_router
 from app.api.reports import router as reports_router
 from app.config import get_settings
@@ -43,6 +44,7 @@ app = FastAPI(
     description="API foundation for the Expense Reimbursement Agent.",
 )
 app.include_router(claims_router)
+app.include_router(auth_router)
 app.include_router(reviews_router)
 app.include_router(reports_router)
 

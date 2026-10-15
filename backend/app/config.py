@@ -8,7 +8,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "Expense Agent API"
     environment: Literal["development", "test", "production"] = "development"
+    demo_mode: bool = False
     frontend_origin: str = "http://localhost:5173"
+    clerk_issuer: str = ""
+    clerk_admin_user_ids: str = ""
     storage_backend: Literal["memory", "sql"] = "memory"
     database_url: str = "postgresql+psycopg://postgres:change_me@127.0.0.1:5432/tera"
     graph_checkpoint_path: str = "./expense_agent_checkpoints.db"
@@ -47,6 +50,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_policy_retrieval(self) -> "Settings":
+        if self.demo_mode:
+            if self.environment == "production":
+                raise ValueError("demo_mode is not allowed in production")
+            self.storage_backend = "memory"
+            self.provider_mode = "mock"
+            self.policy_mode = "local"
+            self.anomaly_mode = "rules"
         if self.policy_index_schema in ("public", "pg_catalog", "information_schema", self.graph_checkpoint_schema):
             raise ValueError("policy_index_schema must be separate from domain and checkpoint schemas")
         if self.policy_top_n > self.policy_top_k:

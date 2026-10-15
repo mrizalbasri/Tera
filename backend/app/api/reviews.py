@@ -7,16 +7,17 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_review_service
+from app.api.auth import require_admin
 from app.schemas.core import Claim, Decision, Review, Signal
 from app.services.review import ReviewService
 
-router = APIRouter(prefix="/reviews", tags=["reviews"])
+router = APIRouter(prefix="/reviews", tags=["reviews"], dependencies=[Depends(require_admin)])
 
 
 class ReviewDecisionRequest(BaseModel):
     action: Literal["approve", "reject"]
     reason: str = Field(min_length=1, max_length=2000)
-    reviewer_reference: str = Field(min_length=1, max_length=100)
+    reviewer_reference: str | None = Field(default=None, max_length=100)
 
 
 class ReviewQueueItem(BaseModel):
@@ -57,12 +58,13 @@ def list_open_reviews(
 def decide_review(
     claim_id: UUID,
     request: ReviewDecisionRequest,
+    username: str = Depends(require_admin),
     service: ReviewService = Depends(get_review_service),
 ) -> ReviewDecisionResponse:
     claim, decision, review = service.decide(
         claim_id,
         action=request.action,
         reason=request.reason,
-        reviewer_reference=request.reviewer_reference,
+        reviewer_reference=username,
     )
     return ReviewDecisionResponse(claim=claim, decision=decision, review=review)

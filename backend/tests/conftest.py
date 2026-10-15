@@ -13,6 +13,8 @@ from app.config import Settings, get_settings
 Settings.model_config["env_file"] = None
 
 from app.main import app
+from app.api.auth import require_admin
+from app.api.claim_access import ClaimActor, get_claim_actor
 from app.agent.runtime import close_graph_resources
 from app.integrations.rag.pgvector import close_policy_indexes
 import psycopg
@@ -35,10 +37,15 @@ def isolated_stores(monkeypatch):
         monkeypatch.setenv("GRAPH_CHECKPOINT_PATH", f"{directory}/checkpoints.db")
         settings = Settings(_env_file=None, storage_backend="memory", provider_mode="mock", policy_mode="local", anomaly_mode="rules")
         app.dependency_overrides[get_settings] = lambda: settings
+        # Domain suites isolate authorization; test_auth exercises real sessions.
+        app.dependency_overrides[require_admin] = lambda: "test-admin"
+        app.dependency_overrides[get_claim_actor] = lambda: ClaimActor("test-admin", admin=True, demo=True)
         try:
             yield
         finally:
             app.dependency_overrides.pop(get_settings, None)
+            app.dependency_overrides.pop(require_admin, None)
+            app.dependency_overrides.pop(get_claim_actor, None)
             close_graph_resources()
             close_policy_indexes()
             deps.close_sql_repositories()

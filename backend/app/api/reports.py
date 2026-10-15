@@ -7,6 +7,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from app.api.auth import require_admin
 
 from app.api.deps import (
     get_claim_repository,
@@ -21,7 +22,7 @@ from app.repositories.protocols import (
     SignalRepository,
 )
 
-router = APIRouter(prefix="/reports", tags=["reports"])
+router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(require_admin)])
 
 
 class ReportSummary(BaseModel):

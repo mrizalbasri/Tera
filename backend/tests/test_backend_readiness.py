@@ -73,6 +73,9 @@ from app.schemas.core import Claim
 from app.services.recovery import build_processing
 
 
+from app.services.reporting import ReportingService
+
+
 @pytest.fixture(params=["sqlite", "postgres"])
 def persistent(request, tmp_path):
     url = request.getfixturevalue("postgres_database_url") if request.param == "postgres" else f"sqlite:///{tmp_path / 'claims.db'}"
@@ -200,6 +203,54 @@ def test_legacy_sqlite_migration_keeps_payload_and_adds_order(tmp_path):
         assert connection.scalar(text("SELECT employee_id FROM claims WHERE id = 'legacy'")) == "synthetic"
         assert "insertion_order" in {c["name"] for c in inspect(connection).get_columns("claims")}
     engine.dispose()
+
+
+def test_pagination_filters_ownership_and_total(persistent):
+    backend = deps._backend(persistent)
+    now = datetime.now(UTC)
+    for index in range(7):
+        backend.claims.save(Claim(id=uuid4(), employee_id="owner" if index < 5 else "other",
+                                 status="received", submitted_at=now + timedelta(days=index), currency="IDR",
+                                 created_at=now, updated_at=now))
+    app.dependency_overrides[get_claim_actor] = lambda: ClaimActor("owner")
+    client = TestClient(app)
+    first = client.get("/claims?limit=2&employee_id=other").json()
+    second = client.get("/claims?limit=2&offset=2").json()
+    assert first["total"] == second["total"] == 5
+    assert len(first["items"]) == len(second["items"]) == 2
+    assert not {c["id"] for c in first["items"]} & {c["id"] for c in second["items"]}
+    filtered = client.get("/claims", params={"period_from": (now + timedelta(days=3)).date().isoformat()}).json()
+    assert filtered["total"] == 2
+    for query in ("limit=201", "limit=0", "offset=-1", "status=garbage", "period_from=2026-12-01&period_to=2026-01-01"):
+        assert client.get(f"/claims?{query}").status_code == 422
+
+
+def test_reporting_batches_and_pending_is_not_automated(persistent):
+    client = TestClient(app)
+    for marker in ("one", "two", "three"):
+        create(client, marker)
+    backend = deps._backend(persistent)
+    calls = []
+    event.listen(backend._engine, "before_cursor_execute", lambda *args: calls.append(args[2]))
+    summary = client.get("/reports/summary")
+    assert summary.status_code == 200
+    assert summary.json()["automated_claims"] == 0
+    assert summary.json()["estimated_time_saved_minutes"] == 0
+    # Count is independent of the number of claims in one batch.
+    assert len(calls) <= 5
+    assert client.get("/reports/claims.csv?period_from=2026-12-01&period_to=2026-01-01").status_code == 422
+
+
+def test_csv_streams_batches_and_escapes_formulas():
+    backend = deps._memory_repositories()
+    now = datetime.now(UTC)
+    for index in range(5):
+        backend.claims.save(Claim(id=uuid4(), employee_id="=1+1", currency="IDR", submitted_at=now, created_at=now, updated_at=now))
+    reporting = ReportingService(backend.claims)
+    reporting.BATCH_SIZE = 2
+    chunks = list(reporting.csv_rows(ClaimFilter()))
+    assert len(chunks) == 4
+    assert "'=1+1" in "".join(chunks)
 
 
 @pytest.mark.parametrize("kwargs,expected", [

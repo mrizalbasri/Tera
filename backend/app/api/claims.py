@@ -1,4 +1,5 @@
 from uuid import UUID
+from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
 from starlette.concurrency import run_in_threadpool
@@ -33,6 +34,8 @@ from app.repositories.protocols import (
     SignalRepository,
     ValidationFindingRepository,
 )
+from app.repositories.query import ClaimFilter
+from app.domain.enums import ClaimStatus
 from app.schemas.core import (
     Claim,
     Clarification,
@@ -69,6 +72,8 @@ class ReplacementReceiptResponse(BaseModel):
 class ClaimListResponse(BaseModel):
     items: list[Claim]
     total: int
+    limit: int = 100
+    offset: int = 0
 
 
 class ClaimDetailResponse(BaseModel):
@@ -174,11 +179,17 @@ async def replace_claim_receipt(
 @router.get("", response_model=ClaimListResponse)
 def list_claims(
     employee_id: str | None = Query(None),
+    status: ClaimStatus | None = Query(None),
+    period_from: date | None = Query(None),
+    period_to: date | None = Query(None),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=10_000_000),
     actor: ClaimActor = Depends(get_claim_actor),
     claims: ClaimRepository = Depends(get_claim_repository),
 ) -> ClaimListResponse:
-    items = list(claims.list(employee_id=employee_id if actor.admin else actor.user_id))
-    return ClaimListResponse(items=items, total=len(items))
+    filters = ClaimFilter(employee_id if actor.admin else actor.user_id, status, period_from, period_to)
+    items = list(claims.page(filters, limit=limit, offset=offset))
+    return ClaimListResponse(items=items, total=claims.count(filters), limit=limit, offset=offset)
 
 
 @router.get("/{claim_id}", response_model=ClaimDetailResponse, dependencies=[Depends(require_claim_access)])

@@ -45,3 +45,25 @@ Konfigurasi `.env` serta database aplikasi tidak diubah.
 Perubahan diserahkan di workspace. Deployment publik, aktivasi konfigurasi
 production nyata, dan instalasi pgvector pada mesin pengguna tidak dilakukan.
 Lihat [[backend-operations]] untuk prosedur deployment dan operasi.
+
+## Tindak lanjut review — 15 Oktober 2026
+
+- Migrasi v3 memperbaiki `insertion_order` pada PostgreSQL legacy tanpa versi,
+  v1, dan v2. Tes membuktikan baris lama tetap utuh, nilai identity terisi,
+  insert berikutnya mendapat urutan baru, migrasi bisa diulang, serta kegagalan
+  DDL me-rollback perubahan kolom dan tidak mencatat versi baru.
+- Pembacaan upload berbatas, validasi jumlah/ukuran, parsing nominal, dan
+  penyamaran detail duplikat dipindahkan ke `ReceiptUploadService`. Route
+  menangani kontrak HTTP, identitas pengguna, dan pemanggilan service.
+- API query SQL, reporting, dan operasi memiliki anotasi parameter/return;
+  reporting dan metrik memakai helper durasi yang sama.
+- Tes terarah: **95 passed** untuk readiness, migrasi legacy PostgreSQL,
+  intake, ownership, dan reporting; tes service upload: **5 passed**.
+- Suite backend lengkap dengan SQLite dan PostgreSQL 18 disposable:
+  **526 passed, 5 skipped**, durasi 208,07 detik. Lima skip tetap merupakan
+  integrasi pgvector yang memerlukan extension lokal; tidak ada kegagalan tes.
+- Diff PR #27 terhadap merge-base `main` tidak memuat file frontend. Perubahan
+  UI pada `ClaimChat.svelte`, halaman utama, dan dashboard berasal dari riwayat
+  dasar PR. Perubahan frontend lokal tetap di luar commit perbaikan ini.
+- PostgreSQL disposable untuk review memakai localhost port 55439; semua data
+  sintetis dan fixture hanya membuat/menghapus database uji miliknya.

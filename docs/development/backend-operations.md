@@ -53,8 +53,11 @@ Pemrosesan ulang lewat API juga memulihkan run pending. Recovery berulang dibata
 `MAX_RECOVERY_ATTEMPTS` (default 3) per run. Setelah batas tercapai, run menjadi
 FAILED dengan `recovery_exhausted`; pengguna bisa memulai run baru dengan key baru.
 
-Jawaban klarifikasi, konteks, audit, dan status klaim disimpan atomik. Jika crash
-terjadi sebelum run lanjutan dibuat, recovery mendeteksi input yang tersimpan.
+Recovery hanya mengambil run `running` atau `queued`; `needs_clarification`
+dan `escalated` tidak dilanjutkan otomatis. Jawaban klarifikasi, konteks, audit,
+status klaim, dan run lanjutan `queued` disimpan dalam satu transaksi melalui
+endpoint jawaban. Jika crash terjadi setelah commit sebelum graph dilanjutkan,
+recovery memproses run `queued` tersebut. Nota pengganti tidak melewati jawaban.
 Review yang belum commit kembali menunggu input admin. Backend tidak membuat
 keputusan admin dari callback yang hilang. Admin mengirim ulang keputusan setelah
 recovery. Review yang sudah commit tetap tersimpan satu kali.

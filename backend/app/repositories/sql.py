@@ -408,7 +408,7 @@ class SqlReceiptRepository:
 
 class SqlProcessingRunRepository:
     def pending_claim_ids(self, *, limit: int, offset: int = 0) -> Sequence[UUID]:
-        from sqlalchemy import desc, or_, and_
+        from sqlalchemy import desc
 
         with self._sessions() as session:
             ranked = select(ProcessingRunRow.claim_id, ProcessingRunRow.payload["status"].as_string().label("status"),
@@ -416,8 +416,7 @@ class SqlProcessingRunRepository:
                                                    order_by=desc(_record_order(session, ProcessingRunRow))).label("rank")).subquery()
             statement = select(ranked.c.claim_id).join(ClaimRow, ClaimRow.id == ranked.c.claim_id).where(
                 ranked.c.rank == 1,
-                or_(ranked.c.status.in_(["running", "queued"]),
-                    and_(ClaimRow.status == "processing", ranked.c.status.in_(["needs_clarification", "escalated"]))),
+                ranked.c.status.in_(["running", "queued"]),
             ).order_by(ranked.c.claim_id).limit(limit).offset(offset)
             return tuple(UUID(i) for i in session.scalars(statement))
     def list_for_claims(self, claim_ids: Sequence[UUID]) -> Sequence[ProcessingRun]:

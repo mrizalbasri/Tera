@@ -412,6 +412,56 @@ def test_two_postgres_workers_process_one_claim_once(postgres_database_url, tmp_
                 process.wait(timeout=5)
 
 
+def test_recovery_does_not_resume_unanswered_clarification(persistent):
+    client = TestClient(app)
+    claim_id = create(client, "CATEGORY:MEALS shared", "240000")
+    assert client.post(f"/claims/{claim_id}/process").json()["claim"]["status"] == "needs_clarification"
+    backend = deps._backend(persistent)
+    question = backend.clarifications.latest_for_claim(claim_id)
+    original_run = backend.runs.latest_for_claim(claim_id)
+    # Receipt replacement can move the claim to processing without answering.
+    response = client.post(f"/claims/{claim_id}/receipts", files={
+        "file": ("clearer.pdf", b"%PDF-1.7\nCATEGORY:MEALS shared clearer", "application/pdf"),
+    })
+    assert response.status_code == 201, response.text
+    assert backend.claims.get(claim_id).status == "processing"
+    processing = build_processing(persistent)
+    assert processing.recover_claim(claim_id) is None
+    assert claim_id not in processing.pending_claim_ids(limit=100)
+    assert client.post("/operations/recover").json()["recovered"] == 0
+    assert processing.recover_pending()["recovered"] == 0
+    assert backend.runs.latest_for_claim(claim_id) == original_run
+    assert backend.clarifications.latest_for_claim(claim_id) == question
+    assert not backend.context.list_for_claim(claim_id)
+    assert client.post(f"/claims/{claim_id}/process").status_code == 200
+    assert backend.runs.latest_for_claim(claim_id) == original_run
+    answered = client.post(f"/claims/{claim_id}/clarifications/{question.id}/answer", json={"answer": "4"})
+    assert answered.status_code == 200, answered.text
+    assert backend.clarifications.list_for_claim(claim_id)[0].status == "answered"
+    assert len(backend.runs.list_for_claim(claim_id)) == 2
+
+
+def test_answer_and_queued_run_roll_back_together(persistent, monkeypatch):
+    from app.services.processing import ClaimProcessingService
+
+    client = TestClient(app)
+    claim_id = create(client, "CATEGORY:MEALS shared", "240000")
+    client.post(f"/claims/{claim_id}/process")
+    backend = deps._backend(persistent)
+    question = backend.clarifications.latest_for_claim(claim_id)
+
+    def crash(*args):
+        raise RuntimeError("synthetic queue failure")
+
+    monkeypatch.setattr(ClaimProcessingService, "queue_clarification", crash)
+    with pytest.raises(RuntimeError, match="synthetic queue failure"):
+        client.post(f"/claims/{claim_id}/clarifications/{question.id}/answer", json={"answer": "4"})
+    assert backend.clarifications.latest_for_claim(claim_id) == question
+    assert backend.claims.get(claim_id).status == "needs_clarification"
+    assert len(backend.runs.list_for_claim(claim_id)) == 1
+    assert not backend.context.list_for_claim(claim_id)
+
+
 def test_recovery_after_answer_saved_before_new_run(persistent, monkeypatch):
     from app.services.processing import ClaimProcessingService
 
@@ -428,6 +478,7 @@ def test_recovery_after_answer_saved_before_new_run(persistent, monkeypatch):
     with pytest.raises(RuntimeError):
         client.post(f"/claims/{claim_id}/clarifications/{clarification['id']}/answer", json={"answer": "4"})
     monkeypatch.setattr(ClaimProcessingService, "resume_clarification", original)
+    assert deps._backend(persistent).runs.latest_for_claim(claim_id).status == "queued"
     response = client.post("/operations/recover")
     assert response.json()["recovered"] == 1, response.text
     backend = deps._backend(persistent)

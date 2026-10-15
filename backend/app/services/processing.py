@@ -52,18 +52,36 @@ class ClaimProcessingService:
     def _config(claim_id: UUID) -> dict:
         return {"configurable": {"thread_id": str(claim_id)}}
 
-    def process_claim(self, claim_id: UUID, *, resume: bool = False,
+    def process_claim(self, claim_id: UUID, *,
                       idempotency_key: str | None = None) -> ProcessingOutcome:
         with self.claim_lock(claim_id):
-            return self._process_claim(claim_id, resume=resume, idempotency_key=idempotency_key)
+            return self._process_claim(claim_id, idempotency_key=idempotency_key)
 
     def resume_clarification(self, claim_id: UUID) -> ProcessingOutcome:
         with self.claim_lock(claim_id):
             self._ensure_waiting(claim_id, "wait_clarification")
-            return self._process_claim(claim_id, resume=True)
+            run = self._runs.latest_for_claim(claim_id)
+            if run is None or run.status != ProcessingRunStatus.QUEUED:
+                raise ApplicationError(ErrorCode.INVALID_CLAIM, "Clarification answer has not queued a run.", 409)
+            return self._execute_run(self._claims.get(claim_id), run)
+
+    def queue_clarification(self, claim_id: UUID) -> ProcessingRun:
+        """Called inside the transaction that records the clarification answer."""
+        claim = self._claims.get(claim_id)
+        run = self._runs.latest_for_claim(claim_id)
+        if claim is None or claim.status != ClaimStatus.PROCESSING or run is None or run.status != ProcessingRunStatus.NEEDS_CLARIFICATION:
+            raise ApplicationError(ErrorCode.INVALID_CLAIM, "Claim is not ready for a clarification run.", 409)
+        return self._runs.save(ProcessingRun(
+            id=uuid4(), claim_id=claim_id, status=ProcessingRunStatus.QUEUED,
+            pipeline_version=PIPELINE_VERSION, started_at=None,
+            retry_count=len(self._runs.list_for_claim(claim_id)),
+        ))
 
     def ensure_clarification_waiting(self, claim_id: UUID) -> None:
         with self.claim_lock(claim_id):
+            run = self._runs.latest_for_claim(claim_id)
+            if run is None or run.status != ProcessingRunStatus.NEEDS_CLARIFICATION:
+                raise ApplicationError(ErrorCode.INVALID_CLAIM, "Claim is not waiting for clarification.", 409)
             self._ensure_waiting(claim_id, "wait_clarification")
 
     def resume_review(
@@ -127,9 +145,7 @@ class ClaimProcessingService:
         with self.resources.claim_lock(claim_id, timeout=0):
             run = self._runs.latest_for_claim(claim_id)
             claim = self._claims.get(claim_id)
-            if run is not None and claim is not None and claim.status == ClaimStatus.PROCESSING and run.status in (ProcessingRunStatus.NEEDS_CLARIFICATION, ProcessingRunStatus.ESCALATED):
-                return self._process_claim(claim_id, resume=True)
-            if run is None or run.status not in (ProcessingRunStatus.RUNNING, ProcessingRunStatus.QUEUED):
+            if claim is None or run is None or run.status not in (ProcessingRunStatus.RUNNING, ProcessingRunStatus.QUEUED):
                 return None
             if run.recovery_count >= self._max_recovery_attempts:
                 with self.resources.transaction():
@@ -157,7 +173,6 @@ class ClaimProcessingService:
         self,
         claim_id: UUID,
         *,
-        resume: bool = False,
         idempotency_key: str | None = None,
     ) -> ProcessingOutcome:
         claim = self._claims.get(claim_id)
@@ -167,13 +182,10 @@ class ClaimProcessingService:
         run_key = f"run:{claim_id}:{idempotency_key}" if idempotency_key else None
 
         latest_run = self._runs.latest_for_claim(claim_id)
-        if claim.status == ClaimStatus.PROCESSING and latest_run is not None and latest_run.status in (ProcessingRunStatus.NEEDS_CLARIFICATION, ProcessingRunStatus.ESCALATED):
-            resume = True
         if latest_run is not None and latest_run.status in (ProcessingRunStatus.RUNNING, ProcessingRunStatus.QUEUED):
             return self.recover_claim(claim_id)
         if (
-            not resume
-            and latest_run is not None
+            latest_run is not None
             and latest_run.status
             in (
                 ProcessingRunStatus.SUCCEEDED,
@@ -192,12 +204,10 @@ class ClaimProcessingService:
 
         run_id = uuid4()
         current_status = ClaimStatus(claim.status)
-        can_retry = current_status is ClaimStatus.PROCESSING and (
-            resume
-            or (
-                latest_run is not None
-                and latest_run.status == ProcessingRunStatus.FAILED
-            )
+        can_retry = (
+            current_status is ClaimStatus.PROCESSING
+            and latest_run is not None
+            and latest_run.status == ProcessingRunStatus.FAILED
         )
         if current_status is not ClaimStatus.RECEIVED and not can_retry:
             raise ApplicationError(

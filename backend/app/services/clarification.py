@@ -87,11 +87,12 @@ class ClarificationService:
 
         claim = self._claims.get(claim_id)
         latest = self._clarifications.latest_for_claim(claim_id)
-        if claim.status != ClaimStatus.NEEDS_CLARIFICATION or latest is None or latest.id != clarification.id:
+        if claim.status not in (ClaimStatus.NEEDS_CLARIFICATION, ClaimStatus.PROCESSING) or latest is None or latest.id != clarification.id:
             raise ApplicationError(ErrorCode.INVALID_CLAIM, "Claim is not waiting for this clarification.", 409)
         self._processing.ensure_clarification_waiting(claim_id)
         with self._processing.resources.transaction():
             answered = self._record_answer(claim_id, clarification, answer, answered_by)
+            self._processing.queue_clarification(claim_id)
         outcome = self._processing.resume_clarification(claim_id)
         return answered, outcome, False
 
@@ -139,7 +140,8 @@ class ClarificationService:
         )
 
         claim = self._claims.get(claim_id)
-        apply_transition(ClaimStatus(claim.status), ClaimStatus.PROCESSING)
+        if claim.status != ClaimStatus.PROCESSING:
+            apply_transition(ClaimStatus(claim.status), ClaimStatus.PROCESSING)
         self._claims.save(
             claim.model_copy(
                 update={

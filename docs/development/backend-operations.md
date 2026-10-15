@@ -19,7 +19,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 
 `app.migrate` meng-upgrade tabel domain dan checkpoint. Versi domain tersimpan
 di `schema_migrations`: v1 merupakan baseline domain termasuk kompatibilitas
-SQLite lama; v2 menambah `workflow_steps` dan `api_rate_limits`. Definisi migrasi
+SQLite/PostgreSQL lama; v2 menambah `workflow_steps` dan `api_rate_limits`.
+V3 memperbaiki kolom `insertion_order` yang belum ada pada database legacy
+yang sudah tercatat v1/v2. PostgreSQL memakai identity untuk mengisi baris lama
+dan menghasilkan urutan untuk insert berikutnya. Definisi migrasi
 dibekukan, bukan mengikuti model terbaru. Migrasi bersifat aditif dan bisa diulang.
 Proses production memeriksa versi tanpa menjalankan DDL. Development/test tetap
 memigrasikan otomatis. Buat migrasi baru untuk perubahan skema berikutnya.

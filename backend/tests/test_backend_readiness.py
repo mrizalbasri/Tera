@@ -139,7 +139,7 @@ def test_migration_is_repeatable_preserves_existing_data_and_checks_version(pers
     assert backend.claims.get(claim_id) is not None
     with backend._engine.begin() as connection:
         assert schema_version(connection) == CURRENT_VERSION
-        connection.execute(text("DELETE FROM schema_migrations WHERE version = 2"))
+        connection.execute(text("DELETE FROM schema_migrations WHERE version = :version"), {"version": CURRENT_VERSION})
     with pytest.raises(RuntimeError, match="not current"):
         SqlRepositories(persistent.database_url, initialize_schema=False)
     upgrade(backend._engine)

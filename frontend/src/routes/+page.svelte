@@ -19,6 +19,7 @@
 	import { formatClock, formatDate } from '$lib/formatters/date';
 	import { formatCurrency, formatConfidence } from '$lib/formatters/currency';
 	import { describeReasonCode } from '$lib/formatters/reasonCodes';
+	import { createSubmissionKeyManager } from '$lib/claimSubmission';
 	import type { AgentStepView } from '$lib/types/ui';
 	import type { ClaimStatus, Decision, ProcessClaimResponse } from '$lib/types/claim';
 
@@ -79,6 +80,7 @@
 	// FR-03: retry proses hanya lewat tombol (bounded, tidak otomatis)
 	let retryableClaimId = $state<string | null>(null);
 	let pendingSubmissionKey = $state<string | null>(null);
+	const submissionKeyManager = createSubmissionKeyManager();
 
 	// FR-03: id klaim lama saat retake receipt agar konteks tidak hilang
 	let retakeClaimId = $state<string | null>(null);
@@ -115,6 +117,8 @@
 		if (submitPhase !== 'idle') return;
 
 		selectedFile = file;
+		submissionKeyManager.selectFile(file);
+		pendingSubmissionKey = submissionKeyManager.getKey();
 		if (pendingFileMessageId != null) {
 			updateMessage(pendingFileMessageId, { file: { name: file.name, size: file.size } });
 		} else {
@@ -137,6 +141,8 @@
 		if (messageId === pendingFileMessageId) {
 			selectedFile = null;
 			pendingFileMessageId = null;
+			submissionKeyManager.clear();
+			pendingSubmissionKey = null;
 		}
 	}
 
@@ -224,11 +230,12 @@
 
 		try {
 			// FR-04: idempotency key per-submit mencegah duplikasi klaim saat retry jaringan
-			const idempotencyKey = pendingSubmissionKey ?? crypto.randomUUID();
+			const idempotencyKey = pendingSubmissionKey ?? submissionKeyManager.getKey();
 			pendingSubmissionKey = idempotencyKey;
 			const response = await createClaim({ file, idempotencyKey });
 			claimId = response.claim.id;
 			pendingSubmissionKey = null;
+			submissionKeyManager.clear();
 			const quality = response.receipts[0]?.quality_score;
 			const uploadDetail =
 				`Klaim ${shortClaimRef(claimId)} diterima. Nota "${response.receipts[0]?.original_filename ?? file.name}" tersimpan.` +

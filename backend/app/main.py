@@ -1,8 +1,10 @@
 import logging
+import re
+import time
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -10,9 +12,10 @@ from app.api.claims import router as claims_router
 from app.api.auth import router as auth_router
 from app.api.reviews import router as reviews_router
 from app.api.reports import router as reports_router
+from app.api.operations import router as operations_router
+from app.api.body_limit import BodyLimitMiddleware, RequestTooLarge
 from app.config import get_settings
 from app.errors import ApplicationError
-from app.api.body_limit import BodyLimitMiddleware, RequestTooLarge
 from app.agent.runtime import close_graph_resources
 from app.api.deps import close_sql_repositories, _rag_policy_retriever, _ml_anomaly_scorer
 from app.integrations.rag.pgvector import close_policy_indexes
@@ -31,6 +34,15 @@ async def lifespan(_app: FastAPI):
     worker = None
     try:
         configured = _app.dependency_overrides.get(get_settings, get_settings)()
+        if configured.environment == "production":
+            from app.api.deps import _backend, get_policy_retriever, get_anomaly_scorer
+            from app.agent.runtime import graph_resources
+
+            backend = _backend(configured)
+            backend.ready()
+            graph_resources(backend, configured).ready()
+            get_policy_retriever(configured)
+            get_anomaly_scorer(configured)
         if configured.storage_backend == "sql":
             from app.services.recovery import RecoveryWorker
 
@@ -57,6 +69,7 @@ app.include_router(claims_router)
 app.include_router(auth_router)
 app.include_router(reviews_router)
 app.include_router(reports_router)
+app.include_router(operations_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -72,15 +85,27 @@ app.add_middleware(BodyLimitMiddleware, settings_provider=lambda: app.dependency
 
 @app.middleware("http")
 async def request_context(request: Request, call_next):
-    request_id = request.headers.get("x-request-id") or str(uuid4())
-    response = await call_next(request)
+    supplied = request.headers.get("x-request-id", "")
+    request_id = supplied if re.fullmatch(r"[A-Za-z0-9._-]{1,100}", supplied) else str(uuid4())
+    request.state.request_id = request_id
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.error("http request failed method=%s path=%s status=500 request_id=%s duration_ms=%s",
+                     request.method, request.url.path, request_id, round((time.monotonic() - started) * 1000))
+        raise
     response.headers["X-Request-ID"] = request_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    if request.url.path.startswith(("/claims", "/reviews", "/reports", "/operations", "/auth")):
+        response.headers["Cache-Control"] = "no-store"
     logger.info(
-        "http request method=%s path=%s status=%s request_id=%s",
+        "http request method=%s path=%s status=%s request_id=%s duration_ms=%s",
         request.method,
         request.url.path,
         response.status_code,
         request_id,
+        round((time.monotonic() - started) * 1000),
     )
     return response
 
@@ -105,7 +130,32 @@ async def request_too_large_handler(_request: Request, _exc: RequestTooLarge):
     return JSONResponse({"code": "request_too_large", "message": "Request exceeds the maximum allowed size."}, status_code=413)
 
 
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, _exc: Exception):
+    return JSONResponse({"code": "internal_error", "message": "An unexpected error occurred."}, status_code=500,
+                        headers={"X-Request-ID": getattr(request.state, "request_id", str(uuid4())), "Cache-Control": "no-store"})
+
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": settings.app_name}
+
+
+@app.get("/health/ready")
+def readiness(response: Response, configured=Depends(get_settings)):
+    from app.api.deps import _backend, get_policy_retriever, get_anomaly_scorer
+    from app.agent.runtime import graph_resources
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        backend = _backend(configured)
+        if hasattr(backend, "ready"):
+            backend.ready()
+        graph_resources(backend, configured).ready()
+        get_policy_retriever(configured)
+        get_anomaly_scorer(configured)
+    except Exception as exc:
+        logger.warning("readiness check failed error_type=%s", type(exc).__name__)
+        response.status_code = 503
+        return {"status": "unavailable"}
+    return {"status": "ready"}

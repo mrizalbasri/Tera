@@ -1,78 +1,31 @@
 """Operational regressions use synthetic receipts and disposable databases."""
 
-
 from datetime import UTC, datetime, timedelta
-
-
 from uuid import UUID, uuid4
-
-
 from concurrent.futures import ThreadPoolExecutor
-
-
 from io import BytesIO
-
-
 import os
-
-
 from pathlib import Path
-
-
 import subprocess
-
-
 import sys
 
-
 import pytest
-
-
 from fastapi.testclient import TestClient
-
-
 from sqlalchemy import create_engine, event, inspect, text
 
-
 from app.api import deps
-
-
 from app.api.auth import require_admin, require_session
-
-
 from app.api.claim_access import ClaimActor, get_claim_actor
-
-
 from app.agent.nodes import ClaimNodes
-
-
 from app.agent.runtime import GraphResources, close_graph_resources
-
-
 from app.config import Settings, get_settings
-
-
 from app.errors import ApplicationError
-
-
 from app.main import app
-
-
 from app.repositories.migrations import CURRENT_VERSION, require_current, schema_version, upgrade
-
-
 from app.repositories.query import ClaimFilter
-
-
 from app.repositories.sql import SqlRepositories
-
-
 from app.schemas.core import Claim
-
-
 from app.services.recovery import build_processing
-
-
 from app.services.reporting import ReportingService
 
 
@@ -310,6 +263,21 @@ def test_http_rate_limit_uses_authenticated_identity_and_retry_after():
         app.dependency_overrides.pop(require_session, None)
 
 
+def test_readiness_checks_dependencies_without_exposing_details(persistent, monkeypatch):
+    client = TestClient(app)
+    assert client.get("/health/ready").json() == {"status": "ready"}
+    backend = deps._backend(persistent)
+
+    def broken():
+        raise RuntimeError("private password must never appear")
+
+    monkeypatch.setattr(backend, "ready", broken)
+    response = client.get("/health/ready")
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable"}
+    assert client.get("/health").status_code == 200
+
+
 PRODUCTION = dict(environment="production", storage_backend="sql",
                   database_url="postgresql+psycopg://tera:synthetic-secret@localhost/tera",
                   provider_mode="live", llm_api_key="synthetic-key", frontend_origin="https://tera.example.test",
@@ -410,8 +378,9 @@ def test_real_process_exit_rolls_back_node_and_recovers(persistent):
     backend = deps._backend(persistent)
     assert backend.runs.latest_for_claim(claim_id).status == "running"
     assert not backend.findings.list_for_claim(claim_id)
-    recovery = build_processing(persistent).recover_pending()
-    assert recovery["recovered"] == 1
+    recovery = client.post("/operations/recover")
+    assert recovery.status_code == 200, recovery.text
+    assert recovery.json()["recovered"] == 1
     assert backend.claims.get(claim_id).status == "approved"
     assert len(backend.runs.list_for_claim(claim_id)) == 1
     assert len(backend.attempts.list_for_claim(claim_id)) == 1
@@ -459,8 +428,8 @@ def test_recovery_after_answer_saved_before_new_run(persistent, monkeypatch):
     with pytest.raises(RuntimeError):
         client.post(f"/claims/{claim_id}/clarifications/{clarification['id']}/answer", json={"answer": "4"})
     monkeypatch.setattr(ClaimProcessingService, "resume_clarification", original)
-    response = build_processing(persistent).recover_pending()
-    assert response["recovered"] == 1
+    response = client.post("/operations/recover")
+    assert response.json()["recovered"] == 1, response.text
     backend = deps._backend(persistent)
     assert backend.claims.get(claim_id).status == "approved"
     assert len(backend.context.list_for_claim(claim_id)) == 2
@@ -486,7 +455,7 @@ def test_interrupted_review_requires_admin_retry_and_does_not_duplicate(persiste
     backend = deps._backend(persistent)
     assert backend.claims.get(claim_id).status == "escalated"
     assert len(backend.decisions.list_for_claim(claim_id)) == 1
-    assert build_processing(persistent).recover_pending()["recovered"] == 1
+    assert client.post("/operations/recover").json()["recovered"] == 1
     assert backend.claims.get(claim_id).status == "escalated"
     decision = client.post(f"/reviews/{claim_id}/decision", json={"action": "approve", "reason": "synthetic retry"})
     assert decision.status_code == 200, decision.text
@@ -513,6 +482,37 @@ def test_background_recovery_worker_scans_and_stops(monkeypatch):
     finally:
         worker.close()
     assert not worker.thread.is_alive()
+
+
+def test_operations_are_admin_only():
+    app.dependency_overrides.pop(require_admin, None)
+    app.dependency_overrides[require_session] = lambda: "synthetic-member"
+    try:
+        client = TestClient(app)
+        assert client.get("/operations/metrics").status_code == 403
+        assert client.post("/operations/recover").status_code == 403
+    finally:
+        app.dependency_overrides.pop(require_session, None)
+
+
+def test_production_readiness_does_not_create_missing_checkpoint_schema(postgres_database_url):
+    from sqlalchemy.engine import make_url
+
+    url = make_url(postgres_database_url).set(password="synthetic-secret").render_as_string(hide_password=False)
+    backend = SqlRepositories(url)
+    backend.close()
+    settings = Settings(_env_file=None, **(PRODUCTION | {"database_url": url}))
+    app.dependency_overrides[get_settings] = lambda: settings
+    response = TestClient(app).get("/health/ready")
+    assert response.status_code == 503
+    engine = create_engine(url)
+    try:
+        assert "langgraph" not in inspect(engine).get_schema_names()
+        with pytest.raises(Exception):
+            with TestClient(app):
+                pass
+    finally:
+        engine.dispose()
 
 
 def test_rolled_back_inner_repository_call_cannot_commit_partial_state(persistent):

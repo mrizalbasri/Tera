@@ -94,6 +94,12 @@ class IntakeService:
             raise ApplicationError(
                 ErrorCode.RECEIPT_REQUIRED, "At least one receipt is required.", 422
             )
+        if len(files) > self._settings.max_receipts_per_claim:
+            raise ApplicationError("too_many_receipts", "Too many receipts in one claim.", 422)
+        if sum(len(upload.content) for upload in files) > self._settings.max_upload_total_bytes:
+            raise ApplicationError("upload_too_large", "Combined receipts exceed the upload limit.", 413)
+        if len(employee_id) > 100:
+            raise ApplicationError(ErrorCode.INVALID_CLAIM, "employee_id exceeds 100 characters.", 422)
 
         if idempotency_key:
             existing = self._claims.get_by_idempotency_key(idempotency_key)
@@ -217,6 +223,8 @@ class IntakeService:
             )
 
         candidate = self._prepare_receipt(upload, set())
+        if len(self._receipts.list_for_claim(claim_id)) >= self._settings.max_receipts_per_claim:
+            raise ApplicationError("too_many_receipts", "Claim has reached its receipt limit.", 422)
         if self._receipts.find_claim_id_by_content_hash(candidate.content_hash):
             raise ApplicationError(
                 ErrorCode.DUPLICATE_RECEIPT,
@@ -331,10 +339,10 @@ def parse_declared_amount(value: str | None) -> Decimal | None:
         raise ApplicationError(
             ErrorCode.INVALID_CLAIM, "declared_amount must be a valid decimal.", 422
         ) from exc
-    if amount <= 0:
+    if not amount.is_finite() or amount <= 0 or amount > Decimal("999999999999.99"):
         raise ApplicationError(
             ErrorCode.INVALID_CLAIM,
-            "declared_amount must be greater than zero.",
+            "declared_amount must be finite, positive, and at most 999999999999.99.",
             422,
         )
     return amount

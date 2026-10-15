@@ -29,6 +29,9 @@ def require_session(request: Request, settings: Settings = Depends(get_settings)
 def require_admin(request: Request, user_id: str = Depends(require_session), settings: Settings = Depends(get_settings)) -> str:
     if not settings.demo_mode and not is_admin(user_id, settings):
         raise ApplicationError("admin_access_required", "Akun ini belum memiliki akses admin.", 403)
+    from app.services.rate_limit import enforce_write_limit
+
+    enforce_write_limit(request, user_id, settings)
     return user_id
 
 

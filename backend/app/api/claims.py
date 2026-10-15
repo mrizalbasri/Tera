@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from app.api.claim_access import ClaimActor, get_claim_actor, require_claim_access
@@ -117,16 +118,22 @@ async def create_claim(
     actor: ClaimActor = Depends(get_claim_actor),
     service: IntakeService = Depends(get_intake_service),
 ) -> ClaimResponse:
-    uploads = [
-        ReceiptUpload(
-            filename=upload.filename,
-            media_type=upload.content_type,
-            content=await upload.read(settings.max_receipt_size_bytes + 1),
-        )
-        for upload in files
-    ]
+    if len(files) > settings.max_receipts_per_claim:
+        raise ApplicationError("too_many_receipts", "Too many receipts in one claim.", 422)
+    uploads = []
+    total_bytes = 0
+    for upload in files:
+        remaining = settings.max_upload_total_bytes - total_bytes
+        content = await upload.read(min(settings.max_receipt_size_bytes, remaining) + 1)
+        if len(content) > settings.max_receipt_size_bytes:
+            raise ApplicationError("file_too_large", "Receipt exceeds the maximum allowed size.", 413,
+                                   {"max_bytes": settings.max_receipt_size_bytes})
+        total_bytes += len(content)
+        if total_bytes > settings.max_upload_total_bytes:
+            raise ApplicationError("upload_too_large", "Combined receipts exceed the upload limit.", 413)
+        uploads.append(ReceiptUpload(upload.filename, upload.content_type, content))
     try:
-        claim, receipts, replay = service.create_claim(
+        claim, receipts, replay = await run_in_threadpool(service.create_claim,
             employee_id=actor.employee_id(employee_id),
             currency=currency,
             declared_amount=parse_declared_amount(declared_amount),
@@ -153,7 +160,7 @@ async def replace_claim_receipt(
     actor: ClaimActor = Depends(get_claim_actor),
     service: IntakeService = Depends(get_intake_service),
 ) -> ReplacementReceiptResponse:
-    claim, receipt = service.replace_receipt(
+    claim, receipt = await run_in_threadpool(service.replace_receipt,
         claim_id=claim_id,
         upload=ReceiptUpload(
             filename=file.filename,

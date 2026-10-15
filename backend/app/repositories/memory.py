@@ -393,6 +393,9 @@ class InMemoryRepositories:
     """Bundle of in-memory fakes used by the memory storage backend and tests."""
 
     def __init__(self) -> None:
+        from app.services.rate_limit import MemoryRateLimiter
+
+        self.rate_limiter = MemoryRateLimiter()
         self.claims = InMemoryClaimRepository()
         self.receipts = InMemoryReceiptRepository()
         self.runs = InMemoryProcessingRunRepository()

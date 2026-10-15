@@ -12,6 +12,7 @@ from app.api.reviews import router as reviews_router
 from app.api.reports import router as reports_router
 from app.config import get_settings
 from app.errors import ApplicationError
+from app.api.body_limit import BodyLimitMiddleware, RequestTooLarge
 from app.agent.runtime import close_graph_resources
 from app.api.deps import close_sql_repositories, _rag_policy_retriever, _ml_anomaly_scorer
 from app.integrations.rag.pgvector import close_policy_indexes
@@ -66,6 +67,9 @@ app.add_middleware(
 )
 
 
+app.add_middleware(BodyLimitMiddleware, settings_provider=lambda: app.dependency_overrides.get(get_settings, get_settings)())
+
+
 @app.middleware("http")
 async def request_context(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or str(uuid4())
@@ -87,12 +91,19 @@ async def application_error_handler(
 ) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
+        headers={"Retry-After": str((exc.details or {}).get("retry_after", 1))} if exc.status_code in (429, 503) else None,
         content={
             "code": exc.code,
             "message": exc.message,
             "details": exc.details,
         },
     )
+
+
+@app.exception_handler(RequestTooLarge)
+async def request_too_large_handler(_request: Request, _exc: RequestTooLarge):
+    return JSONResponse({"code": "request_too_large", "message": "Request exceeds the maximum allowed size."}, status_code=413)
+
 
 
 @app.get("/health")

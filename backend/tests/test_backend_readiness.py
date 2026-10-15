@@ -202,6 +202,84 @@ def test_legacy_sqlite_migration_keeps_payload_and_adds_order(tmp_path):
     engine.dispose()
 
 
+@pytest.mark.parametrize("kwargs,expected", [
+    ({"max_receipts_per_claim": 1}, "too_many_receipts"),
+    ({"max_upload_total_bytes": 15}, "upload_too_large"),
+    ({"max_request_bytes": 20}, "request_too_large"),
+])
+def test_upload_limits(kwargs, expected):
+    app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None, **kwargs)
+    response = TestClient(app).post("/claims", data={"employee_id": "synthetic"}, files=[
+        ("files", ("one.pdf", b"%PDF-1.7\none", "application/pdf")),
+        ("files", ("two.pdf", b"%PDF-1.7\ntwo", "application/pdf")),
+    ])
+    assert response.status_code in (413, 422)
+    assert response.json()["code"] == expected
+    assert deps._memory_repositories().claims.count(ClaimFilter()) == 0
+
+
+def test_chunked_request_limit_without_content_length():
+    settings = Settings(_env_file=None, max_request_bytes=12)
+    app.dependency_overrides[get_settings] = lambda: settings
+    response = TestClient(app).post("/claims", headers={"Content-Type": "multipart/form-data; boundary=x"},
+                                    content=iter([b"--x\r\n", b"Content-Disposition: form-data; name=files\r\n\r\n", b"large"]))
+    assert response.status_code == 413, response.text
+    assert response.json()["code"] == "request_too_large"
+
+
+def test_rate_limit_is_shared_between_sql_instances(persistent):
+    first = SqlRepositories(persistent.database_url)
+    second = SqlRepositories(persistent.database_url)
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda i: (first if i % 2 else second).consume_rate_limit("a" * 64, 10, 3), range(10)))
+        assert sum(results) == 3
+        assert first.consume_rate_limit("a" * 64, 11, 3)
+        assert first.consume_rate_limit("b" * 64, 11, 3)
+    finally:
+        first.close()
+        second.close()
+
+
+def test_http_rate_limit_uses_authenticated_identity_and_retry_after():
+    settings = Settings(_env_file=None, rate_limit_write_requests=1)
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides.pop(get_claim_actor, None)
+    app.dependency_overrides[require_session] = lambda: "synthetic"
+    try:
+        client = TestClient(app)
+        create(client)
+        denied = client.post("/claims", files={"files": ("x.pdf", b"%PDF-1.7\nother", "application/pdf")})
+        assert denied.status_code == 429
+        assert int(denied.headers["Retry-After"]) > 0
+        assert client.get("/claims").status_code == 200
+        app.dependency_overrides[require_session] = lambda: "another-user"
+        assert client.post("/claims", files={"files": ("x.pdf", b"%PDF-1.7\nother", "application/pdf")}).status_code == 201
+    finally:
+        app.dependency_overrides.pop(require_session, None)
+
+
+PRODUCTION = dict(environment="production", storage_backend="sql",
+                  database_url="postgresql+psycopg://tera:synthetic-secret@localhost/tera",
+                  provider_mode="live", llm_api_key="synthetic-key", frontend_origin="https://tera.example.test",
+                  clerk_issuer="https://synthetic.clerk.accounts.dev", clerk_admin_user_ids="user_synthetic")
+
+
+@pytest.mark.parametrize("changes", [
+    {"storage_backend": "memory"}, {"database_url": "sqlite:///x.db"}, {"provider_mode": "mock"},
+    {"llm_api_key": ""}, {"provider_fallback": "mock"}, {"clerk_issuer": ""},
+    {"clerk_admin_user_ids": ""}, {"frontend_origin": "http://localhost:5173"},
+    {"database_url": "postgresql://tera:change_me@localhost/tera"}, {"demo_mode": True},
+])
+def test_invalid_production_settings_fail_closed(changes):
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, **(PRODUCTION | changes))
+
+
+def test_valid_production_settings():
+    assert Settings(_env_file=None, **PRODUCTION).environment == "production"
+
+
 def test_postgres_lock_excludes_other_process_and_releases(postgres_database_url):
     resources = GraphResources(database_url=postgres_database_url, lock_timeout=0.1)
     claim_id = uuid4()

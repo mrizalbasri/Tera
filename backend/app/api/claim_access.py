@@ -33,6 +33,9 @@ def get_claim_actor(
     user_id: str = Depends(require_session),
     settings: Settings = Depends(get_settings),
 ) -> ClaimActor:
+    from app.services.rate_limit import enforce_write_limit
+
+    enforce_write_limit(request, user_id, settings)
     return ClaimActor(user_id, settings.demo_mode or is_admin(user_id, settings), settings.demo_mode)
 
 

@@ -8,6 +8,15 @@ This repository uses:
 - **Frontend:** SvelteKit and TypeScript
 - **Documentation:** Markdown designed to work as an Obsidian vault
 
+## Panduan tugas tim
+
+Pembagian tugas Sheren dan Nisa, langkah onboarding, jadwal, dan kriteria
+selesai ada di [README frontend](frontend/README.md). Keduanya menangani
+frontend; pemilik proyek menangani backend.
+Rencana ini disusun dari working tree lokal pada 14 Oktober 2026; beberapa
+keterangan status fitur di bawah masih merujuk baseline sebelumnya. Pemilik
+perlu membagikan baseline Git yang lengkap sebelum anggota mulai bekerja.
+
 ## Repository layout
 
 ```text
@@ -162,7 +171,8 @@ resubmitting saved receipts. Retrying the unchanged upload form reuses its
 idempotency key. Employee/reviewer references are prototype identifiers, not
 authentication or authorization; the review queue is intended for trusted local
 development. No frontend receipt/identity data is saved in localStorage.
-Reports/export and ML anomaly scoring remain separate planned work.
+Reports/export remains planned work. Optional ML anomaly scoring is available
+after explicit local training; see [the ML setup guide](docs/development/ml-anomaly.md).
 
 ## RAG policy retrieval (M7.6)
 
@@ -258,7 +268,27 @@ reports top-1, MRR at top-n, and mean warmed search/reranking latency. These mea
 evidence relevance, not approval accuracy; the full-policy evaluator is unchanged.
 The corpus preserves existing policy behavior, including limits evaluated per
 claim; aggregation per day/night is not introduced in this PR. ML anomaly
-scoring is a separate M7.6 PR.
+scoring is implemented separately from RAG; see the ML setup guide below.
+
+## ML anomaly scoring (M7.6)
+
+`ANOMALY_MODE=rules` remains the default. From `backend/`, train explicitly with
+`python -m app.train_anomaly --verify`. This generates synthetic history, trains
+versioned Isolation Forests, evaluates separate synthetic cases and publishes
+`data/local/anomaly/model.joblib` with a JSON evaluation report. Add
+`--export-dataset data/local/anomaly/synthetic.jsonl` to inspect feature rows.
+Set `ANOMALY_MODE=ml` after training and restart the API. Requests never train,
+download models or modify a model artifact.
+
+The existing scorer protocol, endpoints and decision precedence remain stable.
+High anomaly scores can escalate to a reviewer; they never issue an approval.
+Fewer than three comparable usable prior claims gives neutral zero. Missing or
+invalid model artifacts and prediction failures fall back to rule scoring with
+visible provenance. Signals store numeric features, component scores and detector
+version; timeline entries expose score/source/version. Models and synthetic
+exports are local ignored files. Only load joblib artifacts produced by the
+trusted local training command. Synthetic metrics are not real-world fraud
+accuracy. See [the full setup guide](docs/development/ml-anomaly.md).
 
 ## Documentation in Obsidian
 
@@ -280,7 +310,7 @@ an OpenAI-compatible endpoint, bounded retry, fallback and an image privacy gate
 M7.5 adds LangGraph orchestration and PostgreSQL checkpoint persistence for
 development and deployment, with memory and legacy SQLite compatibility.
 `PROVIDER_MODE=mock` remains the default and needs no API key. M7.6's first PR
-adds optional local RAG policy selection; ML anomaly scoring and reporting/export
-(M8) remain planned.
+adds optional local RAG policy selection. The ML extension adds offline synthetic
+training and optional Isolation Forest scoring; reporting/export (M8) remains planned.
 OCR, frontend work and the large-number validation bug tracked in
 [issue #12](https://github.com/mrizalbasri/Tera/issues/12) are outside M7.5.

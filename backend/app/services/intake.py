@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import PurePath
 import time
+from contextlib import nullcontext
 from uuid import UUID, uuid4
 
 from app.audit.events import record_audit_event
@@ -29,7 +30,7 @@ MAX_FILENAME_LENGTH = 255
 
 @dataclass(frozen=True)
 class ReceiptUpload:
-    """Transport-independent receipt input; the HTTP layer converts UploadFile."""
+    """Transport-independent receipt input after bounded upload reading."""
 
     filename: str | None
     media_type: str | None
@@ -55,6 +56,7 @@ class IntakeService:
         quality: ReceiptQualityChecker,
         audit: AuditRepository,
         settings: Settings,
+        resources=None,
     ) -> None:
         self._claims = claims
         self._receipts = receipts
@@ -62,8 +64,20 @@ class IntakeService:
         self._quality = quality
         self._audit = audit
         self._settings = settings
+        self._resources = resources
 
     def create_claim(
+        self, *, employee_id: str, currency: str, declared_amount: Decimal | None,
+        files: list[ReceiptUpload], idempotency_key: str | None,
+    ) -> tuple[Claim, list[Receipt], bool]:
+        with self._resources.claim_lock("receipt-intake") if self._resources else nullcontext():
+            with self._resources.transaction() if self._resources else nullcontext():
+                return self._create_claim(
+                    employee_id=employee_id, currency=currency, declared_amount=declared_amount,
+                    files=files, idempotency_key=idempotency_key,
+                )
+
+    def _create_claim(
         self,
         *,
         employee_id: str,
@@ -86,6 +100,12 @@ class IntakeService:
             raise ApplicationError(
                 ErrorCode.RECEIPT_REQUIRED, "At least one receipt is required.", 422
             )
+        if len(files) > self._settings.max_receipts_per_claim:
+            raise ApplicationError("too_many_receipts", "Too many receipts in one claim.", 422)
+        if sum(len(upload.content) for upload in files) > self._settings.max_upload_total_bytes:
+            raise ApplicationError("upload_too_large", "Combined receipts exceed the upload limit.", 413)
+        if len(employee_id) > 100:
+            raise ApplicationError(ErrorCode.INVALID_CLAIM, "employee_id exceeds 100 characters.", 422)
 
         if idempotency_key:
             existing = self._claims.get_by_idempotency_key(idempotency_key)
@@ -179,7 +199,13 @@ class IntakeService:
                 return existing
         return None
 
-    def replace_receipt(
+    def replace_receipt(self, *, claim_id: UUID, upload: ReceiptUpload) -> tuple[Claim, Receipt]:
+        with self._resources.claim_lock(claim_id) if self._resources else nullcontext():
+            with self._resources.claim_lock("receipt-intake") if self._resources else nullcontext():
+                with self._resources.transaction() if self._resources else nullcontext():
+                    return self._replace_receipt(claim_id=claim_id, upload=upload)
+
+    def _replace_receipt(
         self,
         *,
         claim_id: UUID,
@@ -203,6 +229,8 @@ class IntakeService:
             )
 
         candidate = self._prepare_receipt(upload, set())
+        if len(self._receipts.list_for_claim(claim_id)) >= self._settings.max_receipts_per_claim:
+            raise ApplicationError("too_many_receipts", "Claim has reached its receipt limit.", 422)
         if self._receipts.find_claim_id_by_content_hash(candidate.content_hash):
             raise ApplicationError(
                 ErrorCode.DUPLICATE_RECEIPT,
@@ -317,10 +345,10 @@ def parse_declared_amount(value: str | None) -> Decimal | None:
         raise ApplicationError(
             ErrorCode.INVALID_CLAIM, "declared_amount must be a valid decimal.", 422
         ) from exc
-    if amount <= 0:
+    if not amount.is_finite() or amount <= 0 or amount > Decimal("999999999999.99"):
         raise ApplicationError(
             ErrorCode.INVALID_CLAIM,
-            "declared_amount must be greater than zero.",
+            "declared_amount must be finite, positive, and at most 999999999999.99.",
             422,
         )
     return amount

@@ -5,11 +5,13 @@
 		fileName,
 		sizeBytes,
 		removable = false,
+		disabled = false,
 		onremove
 	}: {
 		fileName: string;
 		sizeBytes?: number;
 		removable?: boolean;
+		disabled?: boolean;
 		onremove?: () => void;
 	} = $props();
 </script>
@@ -32,6 +34,7 @@
 			type="button"
 			class="remove-btn"
 			onclick={onremove}
+			{disabled}
 			aria-label="Hapus file {fileName}"
 			title="Hapus file"
 		>
@@ -88,8 +91,8 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 26px;
-		height: 26px;
+		width: 44px;
+		height: 44px;
 		border-radius: 50%;
 		border: 1px solid var(--color-border);
 		background: rgba(255, 255, 255, 0.9);

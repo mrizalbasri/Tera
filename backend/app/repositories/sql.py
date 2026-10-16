@@ -7,29 +7,37 @@ Pydantic remains the single source of shape truth.
 """
 
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
+from typing import Any, Generic, TypeVar
 from uuid import UUID, uuid4
 
+from pydantic import BaseModel
 from sqlalchemy import (
     JSON,
     BigInteger,
     Identity,
     LargeBinary,
     String,
+    Select,
     UniqueConstraint,
     create_engine,
-    inspect,
     func,
     select,
     text,
 )
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.schema import CreateColumn
+from sqlalchemy.sql import SQLColumnExpression
+from sqlalchemy.sql.compiler import DDLCompiler
+from sqlalchemy.sql.elements import TextClause
 
 from app.errors import ApplicationError, ErrorCode
+from app.repositories.transactions import SessionScope
+from app.repositories.query import ClaimFilter
 from app.schemas.core import (
     AuditEvent,
     Claim,
@@ -47,6 +55,7 @@ from app.schemas.core import (
 )
 
 _ID_LENGTH = 36
+Record = TypeVar("Record", bound=BaseModel)
 
 
 class Base(DeclarativeBase):
@@ -60,14 +69,14 @@ class OrderedRecord:
 
 
 @compiles(CreateColumn, "sqlite")
-def _sqlite_order_column(element, compiler, **kwargs):
+def _sqlite_order_column(element: CreateColumn, compiler: DDLCompiler, **kwargs: Any) -> str:
     if element.element.name == "insertion_order":
         # SQLite ignores Identity; this compatibility column must allow NULL.
         return "insertion_order BIGINT"
     return compiler.visit_create_column(element, **kwargs)
 
 
-def _record_order(session: Session, model):
+def _record_order(session: Session, model: type[OrderedRecord]) -> SQLColumnExpression[int] | TextClause:
     return text("rowid") if session.get_bind().dialect.name == "sqlite" else model.insertion_order
 
 
@@ -140,6 +149,19 @@ class AuditEventRow(Base):
     )
 
 
+class WorkflowStepRow(Base):
+    __tablename__ = "workflow_steps"
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
+class RateLimitRow(Base):
+    __tablename__ = "api_rate_limits"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window: Mapped[int] = mapped_column(BigInteger, index=True)
+    count: Mapped[int] = mapped_column()
+
+
 _KINDS = {
     "extraction": ExtractionResult,
     "attempt": ExtractionAttempt,
@@ -156,28 +178,27 @@ _KINDS = {
 class SqlRepositories:
     """Bundle of SQL-backed repositories behind the same protocols."""
 
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, *, initialize_schema: bool = True) -> None:
         url = make_url(database_url)
         if url.get_backend_name() == "postgresql":
             url = url.set(drivername="postgresql+psycopg")
         self._engine = create_engine(
             url,
             future=True,
-            connect_args={"check_same_thread": False} if url.get_backend_name() == "sqlite" else {},
+            connect_args={"check_same_thread": False} if url.get_backend_name() == "sqlite" else {"connect_timeout": 5},
             pool_pre_ping=True,
         )
-        Base.metadata.create_all(self._engine)
-        if url.get_backend_name() == "sqlite":
-            # Old M6/M7 SQLite records remain readable after this additive change.
-            inspector = inspect(self._engine)
-            with self._engine.begin() as connection:
-                for model in (ClaimRow, ReceiptRow, ProcessingRunRow, ChildRow):
-                    columns = {column["name"] for column in inspector.get_columns(model.__tablename__)}
-                    if "insertion_order" not in columns:
-                        connection.execute(text(
-                            f'ALTER TABLE "{model.__tablename__}" ADD COLUMN insertion_order BIGINT'
-                        ))
-        self._session_factory = sessionmaker(self._engine, expire_on_commit=False)
+        from app.repositories.migrations import require_current, upgrade
+
+        try:
+            if initialize_schema:
+                upgrade(self._engine)
+            else:
+                require_current(self._engine)
+        except BaseException:
+            self._engine.dispose()
+            raise
+        self._session_factory = SessionScope(self._engine)
         self.claims = SqlClaimRepository(self._session_factory)
         self.receipts = SqlReceiptRepository(self._session_factory)
         self.runs = SqlProcessingRunRepository(self._session_factory)
@@ -209,11 +230,85 @@ class SqlRepositories:
     def close(self) -> None:
         self._engine.dispose()
 
+    def transaction(self) -> AbstractContextManager[Session]:
+        return self._session_factory.transaction()
+
+    def atomic_step(self, key: str, action: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        failure = None
+        output = {}
+        with self.transaction() as session:
+            saved = session.get(WorkflowStepRow, key)
+            if saved is not None:
+                return dict(saved.payload)
+            try:
+                output = action()
+            except ApplicationError as exc:
+                run = session.get(ProcessingRunRow, key.partition(":")[0])
+                if run is None or run.payload.get("status") != "failed":
+                    raise
+                # A deliberate failed run includes diagnostic attempts and its
+                # audit event. Commit those together, then surface the error.
+                failure = exc
+            if failure is None:
+                session.add(WorkflowStepRow(key=key, payload=output))
+        if failure is not None:
+            raise failure
+        return output
+
+    def ready(self) -> None:
+        from app.repositories.migrations import require_current
+
+        require_current(self._engine)
+        with self._engine.connect() as connection:
+            for table in Base.metadata.sorted_tables:
+                connection.execute(select(table).limit(0))
+
+    def consume_rate_limit(self, key: str, window: int, limit: int) -> bool:
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+        from sqlalchemy import case, delete
+
+        insert = pg_insert if self._engine.dialect.name == "postgresql" else sqlite_insert
+        with self._engine.begin() as connection:
+            connection.execute(delete(RateLimitRow).where(RateLimitRow.window < window - 2))
+            statement = insert(RateLimitRow).values(key=key, window=window, count=1)
+            statement = statement.on_conflict_do_update(
+                index_elements=[RateLimitRow.key],
+                set_={"window": case((RateLimitRow.window < window, window), else_=RateLimitRow.window),
+                      "count": case((RateLimitRow.window >= window, RateLimitRow.count + 1), else_=1)},
+            ).returning(RateLimitRow.count)
+            return connection.scalar(statement) <= limit
+
 
 
 
 class SqlClaimRepository:
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def get_many(self, claim_ids: Sequence[UUID]) -> Sequence[Claim]:
+        with self._sessions() as session:
+            return tuple(Claim.model_validate(r.payload) for r in session.scalars(select(ClaimRow).where(ClaimRow.id.in_([str(i) for i in claim_ids]))))
+    @staticmethod
+    def _filtered(filters: ClaimFilter) -> Select[tuple[ClaimRow]]:
+        statement = select(ClaimRow)
+        if filters.employee_id is not None:
+            statement = statement.where(ClaimRow.employee_id == filters.employee_id)
+        if filters.status is not None:
+            statement = statement.where(ClaimRow.status == filters.status)
+        day = func.substr(ClaimRow.payload["submitted_at"].as_string(), 1, 10)
+        if filters.period_from is not None:
+            statement = statement.where(day >= filters.period_from.isoformat())
+        if filters.period_to is not None:
+            statement = statement.where(day <= filters.period_to.isoformat())
+        return statement
+
+    def page(self, filters: ClaimFilter, *, limit: int, offset: int) -> Sequence[Claim]:
+        with self._sessions() as session:
+            statement = self._filtered(filters).order_by(_record_order(session, ClaimRow)).limit(limit).offset(offset)
+            return tuple(Claim.model_validate(r.payload) for r in session.scalars(statement))
+
+    def count(self, filters: ClaimFilter) -> int:
+        with self._sessions() as session:
+            return session.scalar(select(func.count()).select_from(self._filtered(filters).subquery()))
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def get(self, claim_id: UUID) -> Claim | None:
@@ -271,7 +366,7 @@ class SqlClaimRepository:
 
 
 class SqlReceiptRepository:
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def save(self, receipt: Receipt) -> Receipt:
@@ -312,7 +407,23 @@ class SqlReceiptRepository:
 
 
 class SqlProcessingRunRepository:
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def pending_claim_ids(self, *, limit: int, offset: int = 0) -> Sequence[UUID]:
+        from sqlalchemy import desc
+
+        with self._sessions() as session:
+            ranked = select(ProcessingRunRow.claim_id, ProcessingRunRow.payload["status"].as_string().label("status"),
+                            func.row_number().over(partition_by=ProcessingRunRow.claim_id,
+                                                   order_by=desc(_record_order(session, ProcessingRunRow))).label("rank")).subquery()
+            statement = select(ranked.c.claim_id).join(ClaimRow, ClaimRow.id == ranked.c.claim_id).where(
+                ranked.c.rank == 1,
+                ranked.c.status.in_(["running", "queued"]),
+            ).order_by(ranked.c.claim_id).limit(limit).offset(offset)
+            return tuple(UUID(i) for i in session.scalars(statement))
+    def list_for_claims(self, claim_ids: Sequence[UUID]) -> Sequence[ProcessingRun]:
+        with self._sessions() as session:
+            statement = select(ProcessingRunRow).where(ProcessingRunRow.claim_id.in_([str(i) for i in claim_ids])).order_by(_record_order(session, ProcessingRunRow))
+            return tuple(ProcessingRun.model_validate(r.payload) for r in session.scalars(statement))
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def save(self, run: ProcessingRun) -> ProcessingRun:
@@ -372,15 +483,28 @@ class SqlProcessingRunRepository:
         return self.get(UUID(row.target_id))
 
 
-class SqlChildRepository:
+class SqlChildRepository(Generic[Record]):
     """Generic child-record repository (findings, signals, decisions, ...)."""
 
-    def __init__(self, session_factory: sessionmaker, kind: str, schema: type) -> None:
+    def latest_for_claim(self, claim_id: UUID) -> Record | None:
+        from sqlalchemy import desc
+
+        with self._sessions() as session:
+            statement = select(ChildRow).where(ChildRow.kind == self._kind, ChildRow.claim_id == str(claim_id)).order_by(desc(_record_order(session, ChildRow))).limit(1)
+            row = session.scalars(statement).first()
+            return self._schema.model_validate(row.payload) if row is not None else None
+
+    def list_for_claims(self, claim_ids: Sequence[UUID]) -> Sequence[Record]:
+        with self._sessions() as session:
+            statement = select(ChildRow).where(ChildRow.kind == self._kind, ChildRow.claim_id.in_([str(i) for i in claim_ids])).order_by(_record_order(session, ChildRow))
+            return tuple(self._schema.model_validate(r.payload) for r in session.scalars(statement))
+
+    def __init__(self, session_factory: SessionScope, kind: str, schema: type[Record]) -> None:
         self._sessions = session_factory
         self._kind = kind
         self._schema = schema
 
-    def save(self, record) -> object:
+    def save(self, record: Record) -> Record:
         claim_id = self._claim_id_for(record)
         created_at = str(
             getattr(record, "created_at", None) or getattr(record, "timestamp", "")
@@ -404,7 +528,7 @@ class SqlChildRepository:
             session.commit()
         return record
 
-    def _claim_id_for(self, record) -> str:
+    def _claim_id_for(self, record: Record) -> str:
         """Extraction results carry receipt_id; resolve the claim via receipt."""
         if hasattr(record, "claim_id"):
             return str(record.claim_id)
@@ -414,7 +538,7 @@ class SqlChildRepository:
                 return row.claim_id if row else ""
         return ""
 
-    def list_for_claim(self, claim_id: UUID) -> Sequence:
+    def list_for_claim(self, claim_id: UUID) -> Sequence[Record]:
         with self._sessions() as session:
             statement = (
                 select(ChildRow)
@@ -427,7 +551,7 @@ class SqlChildRepository:
                 for row in session.scalars(statement)
             )
 
-    def list_for_receipts(self, receipt_ids: Sequence[UUID]) -> Sequence:
+    def list_for_receipts(self, receipt_ids: Sequence[UUID]) -> Sequence[Record]:
         """Extraction lookup keyed by receipt ids stored inside the payload."""
         if not receipt_ids:
             return ()
@@ -448,7 +572,7 @@ class SqlChildRepository:
 class SqlClaimHistoryRepository:
     """Employee- and vendor-scoped claim history views over SQL (FR-15)."""
 
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def list_for_employee(
@@ -495,7 +619,7 @@ class SqlClaimHistoryRepository:
         return tuple(matched)
 
 
-class SqlExtractionAttemptRepository(SqlChildRepository):
+class SqlExtractionAttemptRepository(SqlChildRepository[ExtractionAttempt]):
     """Attempts are saved with an explicit claim id (protocol shape)."""
 
     def save(self, claim_id: UUID, attempt: ExtractionAttempt) -> ExtractionAttempt:
@@ -515,8 +639,17 @@ class SqlExtractionAttemptRepository(SqlChildRepository):
         return attempt
 
 
-class SqlReviewRepository(SqlChildRepository):
+class SqlReviewRepository(SqlChildRepository[Review]):
     """Reviews expose the open-review queue query required by the protocol."""
+
+    def page_open(self, *, limit: int, offset: int) -> Sequence[Review]:
+        with self._sessions() as session:
+            statement = select(ChildRow).where(ChildRow.kind == self._kind, ChildRow.payload["status"].as_string() == "open").order_by(_record_order(session, ChildRow)).limit(limit).offset(offset)
+            return tuple(Review.model_validate(r.payload) for r in session.scalars(statement))
+
+    def count_open(self) -> int:
+        with self._sessions() as session:
+            return session.scalar(select(func.count()).select_from(ChildRow).where(ChildRow.kind == self._kind, ChildRow.payload["status"].as_string() == "open"))
 
     def list_open(self) -> Sequence[Review]:
         with self._sessions() as session:
@@ -537,7 +670,7 @@ class SqlAuditRepository:
 
     MAX_ATTEMPTS = 5
 
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def append(self, event: AuditEvent) -> AuditEvent:
@@ -592,7 +725,7 @@ class SqlAuditRepository:
 class SqlConversationRepository:
     MAX_ENTRIES = 20
 
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def append(self, entry: ConversationEntry) -> ConversationEntry:
@@ -627,7 +760,7 @@ class SqlConversationRepository:
 
 
 class SqlFileStorage:
-    def __init__(self, session_factory: sessionmaker) -> None:
+    def __init__(self, session_factory: SessionScope) -> None:
         self._sessions = session_factory
 
     def put(self, content: bytes, *, filename: str, media_type: str) -> str:

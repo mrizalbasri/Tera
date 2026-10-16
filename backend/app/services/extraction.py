@@ -378,9 +378,28 @@ class ExtractionService:
     def score_anomaly(self, claim: Claim, run: ProcessingRun) -> None:
         extractions = self.replay(claim.id, run).extractions
         history = self._history.list_for_employee(claim.employee_id, exclude_claim_id=claim.id)
-        self._signals.save(self._anomaly_scorer.score(
+        contextual_score = getattr(self._anomaly_scorer, "score_with_context", None)
+        kwargs = {}
+        if contextual_score is not None:
+            from app.integrations.ml_anomaly.features import CategoryContext, prior_history
+
+            # Read only extraction evidence available before this claim. Category
+            # context stays internal; the public AnomalyScorer/API contract is stable.
+            categories = {}
+            for prior in prior_history(claim, history):
+                receipts = self._receipts.list_for_claim(prior.id)
+                records = self._extractions.list_for_receipts([r.id for r in receipts])
+                available = [r for r in records if r.created_at < claim.submitted_at]
+                latest = max(available, key=lambda r: (r.created_at, str(r.id)), default=None)
+                if latest is not None:
+                    categories[prior.id] = str(latest.category.value)
+            current = max(extractions, key=lambda r: (self.extracted_total([r]), r.created_at, str(r.id)), default=None)
+            kwargs["context"] = CategoryContext(
+                str(current.category.value) if current else None, categories,
+            )
+        self._signals.save((contextual_score or self._anomaly_scorer.score)(
             claim=claim, total=self.extracted_total(extractions), history=history,
-            processing_run_id=run.id,
+            processing_run_id=run.id, **kwargs,
         ))
         degraded = next((r for r in extractions if r.provider_degraded), None)
         if degraded is not None:

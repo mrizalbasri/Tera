@@ -294,6 +294,10 @@ settings = Settings(
     graph_checkpoint_path=str(Path(directory) / "graph.db"),
 )
 app.dependency_overrides[get_settings] = lambda: settings
+from app.api.auth import require_admin
+app.dependency_overrides[require_admin] = lambda: "synthetic"
+from app.api.claim_access import ClaimActor, get_claim_actor
+app.dependency_overrides[get_claim_actor] = lambda: ClaimActor("synthetic", admin=True, demo=True)
 with TestClient(app) as client:
     if phase == "pause":
         shared = kind == "clarification"

@@ -46,6 +46,7 @@ from app.services.decision import DecisionEngine
 from app.services.extraction import ExtractionService
 from app.services.processing import ClaimProcessingService
 from app.services.intake import IntakeService
+from app.services.uploads import ReceiptUploadService
 from app.services.review import ReviewService
 from app.services.timeline import TimelineService
 from app.services.validation import ValidationService
@@ -60,8 +61,8 @@ _sql_bundles: WeakSet[SqlRepositories] = WeakSet()
 
 
 @lru_cache
-def _sql_repositories(database_url: str) -> SqlRepositories:
-    repositories = SqlRepositories(database_url)
+def _sql_repositories(database_url: str, initialize_schema: bool = True) -> SqlRepositories:
+    repositories = SqlRepositories(database_url, initialize_schema=initialize_schema)
     _sql_bundles.add(repositories)
     return repositories
 
@@ -76,7 +77,7 @@ def close_sql_repositories() -> None:
 def _backend(settings: Settings):
     """Pick the storage backend bundle from request-scoped settings."""
     if settings.storage_backend == "sql":
-        return _sql_repositories(settings.database_url)
+        return _sql_repositories(settings.database_url, settings.environment != "production")
     return _memory_repositories()
 
 
@@ -197,7 +198,16 @@ def get_duplicate_detector(
     return AttributeDuplicateDetector(history, receipts, extractions)
 
 
-def get_anomaly_scorer() -> AnomalyScorer:
+@lru_cache(maxsize=4)
+def _ml_anomaly_scorer(model_path: str, threshold: float) -> AnomalyScorer:
+    from app.integrations.ml_anomaly.scorer import SklearnAnomalyScorer
+
+    return SklearnAnomalyScorer(model_path, threshold)
+
+
+def get_anomaly_scorer(settings: Settings = Depends(get_settings)) -> AnomalyScorer:
+    if settings.anomaly_mode == "ml":
+        return _ml_anomaly_scorer(settings.anomaly_model_path, settings.anomaly_escalation_threshold)
     return RuleBasedAnomalyScorer()
 
 
@@ -216,7 +226,15 @@ def get_intake_service(
     quality: ReceiptQualityChecker = Depends(get_quality_checker),
     audit: AuditRepository = Depends(get_audit_repository),
 ) -> IntakeService:
-    return IntakeService(claims, receipts, storage, quality, audit, settings)
+    return IntakeService(claims, receipts, storage, quality, audit, settings,
+                         resources=graph_resources(_backend(settings), settings))
+
+
+def get_receipt_upload_service(
+    settings: Settings = Depends(get_settings),
+    intake: IntakeService = Depends(get_intake_service),
+) -> ReceiptUploadService:
+    return ReceiptUploadService(intake, settings)
 
 
 def get_extraction_service(
@@ -270,6 +288,7 @@ def get_extraction_service(
     return ClaimProcessingService(
         claims, runs, extraction,
         graph_resources=graph_resources(_backend(settings), settings),
+        max_recovery_attempts=settings.max_recovery_attempts,
     )
 
 

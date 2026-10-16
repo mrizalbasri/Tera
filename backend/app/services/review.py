@@ -45,26 +45,41 @@ class ReviewService:
         self._audit = audit
         self._processing = processing
 
-    def list_open(self) -> list[dict]:
+    def count_open(self) -> int:
+        return self._reviews.count_open()
+
+    def list_open(self, *, limit: int = 100, offset: int = 0) -> list[dict]:
         items: list[dict] = []
-        for review in self._reviews.list_open():
-            claim = self._claims.get(review.claim_id)
+        reviews = self._reviews.page_open(limit=limit, offset=offset)
+        ids = [review.claim_id for review in reviews]
+        claims = {claim.id: claim for claim in self._claims.get_many(ids)}
+        decisions = {}
+        signals = {i: [] for i in ids}
+        for decision in self._decisions.list_for_claims(ids):
+            decisions[decision.claim_id] = decision
+        for signal in self._signals.list_for_claims(ids):
+            signals[signal.claim_id].append(signal)
+        for review in reviews:
+            claim = claims.get(review.claim_id)
             if claim is None:
                 continue
-            decision = self._latest_decision(review.claim_id)
+            decision = decisions.get(review.claim_id)
             items.append(
                 {
                     "review": review,
                     "claim": claim,
                     "decision": decision,
-                    "signals": list(self._signals.list_for_claim(review.claim_id)),
+                    "signals": signals[review.claim_id],
                 }
             )
         return items
 
     def decide(self, claim_id: UUID, *, action: Literal["approve", "reject"],
                reason: str, reviewer_reference: str) -> tuple[Claim, Decision, Review]:
+        if not reason.strip() or not reviewer_reference.strip():
+            raise ApplicationError(ErrorCode.INVALID_CLAIM, "Review reason and identity must not be blank.", 422)
         with self._processing.claim_lock(claim_id):
+            self._processing.recover_claim(claim_id)
             self._pending_review(claim_id)
             return self._processing.resume_review(
                 claim_id, lambda run_id: self._apply_decision(
@@ -81,8 +96,8 @@ class ReviewService:
         review = next(
             (
                 item
-                for item in self._reviews.list_open()
-                if item.claim_id == claim_id
+                for item in reversed(self._reviews.list_for_claim(claim_id))
+                if item.status == ReviewStatus.OPEN
             ),
             None,
         )

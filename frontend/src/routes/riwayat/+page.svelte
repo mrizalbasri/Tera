@@ -70,8 +70,8 @@
 	<Toast />
 	<div class="page-header">
 		<div>
-			<h1>Riwayat Pengajuan</h1>
-			<p>Semua nota yang sudah kamu upload dan status prosesnya.</p>
+			<h1>Riwayat klaim</h1>
+			<p>Nota yang sudah diajukan, lengkap dengan status dan tindak lanjutnya.</p>
 		</div>
 		<div class="header-actions">
 			<button class="export-btn" id="btn-export-csv" onclick={exportToCSV}>
@@ -80,7 +80,7 @@
 					<polyline points="17 8 12 3 7 8"/>
 					<line x1="12" y1="3" x2="12" y2="15"/>
 				</svg>
-				Export CSV
+				Unduh CSV
 			</button>
 		</div>
 	</div>
@@ -105,8 +105,8 @@
 				</svg>
 			</div>
 			<h3>Belum ada riwayat klaim</h3>
-			<p>Kamu belum pernah mengajukan klaim reimbursement. Mulai upload nota di halaman Beranda.</p>
-			<a href="/" class="primary-btn">Mulai Upload Nota</a>
+			<p>Nota pertamamu akan memulai riwayat ini. Kirim foto atau PDF nota untuk mengajukan pengeluaran kerja.</p>
+			<a href="/pengajuan" class="primary-btn">Ajukan klaim</a>
 		</div>
 	{:else}
 		<div class="summary-grid">
@@ -171,7 +171,7 @@
 								<td>{formatDate(claim.submitted_at)}</td>
 								<td>{formatCurrency(claim.declared_amount, claim.currency)}</td>
 								<td><StatusBadge status={claim.status} size="sm" /></td>
-								<td><a href="/riwayat/{claim.id}" class="detail-link">Lihat →</a></td>
+								<td><a href="/riwayat/{claim.id}" class="detail-link">Lihat klaim</a></td>
 							</tr>
 						{/each}
 					</tbody>

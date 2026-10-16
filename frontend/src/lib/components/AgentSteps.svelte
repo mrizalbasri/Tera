@@ -12,7 +12,7 @@
 
 <div class="steps-bubble">
 	<div class="steps-header">
-		<span class="steps-title">🤖 {title}</span>
+		<span class="steps-title">{title}</span>
 	</div>
 	<ol class="steps-list">
 		{#each steps as step (step.label)}
@@ -45,13 +45,7 @@
 
 <style>
 	.steps-bubble {
-		padding: 1rem 1.1rem;
-		background: rgba(255, 255, 255, 0.9);
-		backdrop-filter: blur(14px);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
-		border-bottom-left-radius: 4px;
-		box-shadow: 0 2px 12px rgba(26, 107, 92, 0.08);
+		padding: 0;
 	}
 
 	.steps-header {
@@ -81,8 +75,7 @@
 		gap: 0.65rem;
 		padding: 0.5rem 0;
 		position: relative;
-		opacity: 0.45;
-		transition: opacity 0.3s ease;
+		opacity: 1;
 	}
 
 	.step-item.done,
@@ -119,7 +112,7 @@
 		flex-shrink: 0;
 		background: rgba(26, 107, 92, 0.06);
 		border: 1.5px solid var(--color-border);
-		transition: all 0.3s ease;
+		transition: background var(--transition);
 		color: var(--color-text-muted);
 	}
 

@@ -8,6 +8,10 @@ Keep `main` stable. Create a focused branch for each change:
 - `fix/<short-description>`
 - `docs/<short-description>`
 
+Use the corresponding Conventional Commit type for other work, such as
+`refactor/`, `test/`, or `chore/`. Never use `codex/` or any assistant/product
+name as a branch prefix.
+
 ## Pull requests
 
 Open a pull request for every change. Include the motivation, validation steps, and any data or security impact. Do not merge changes that contain secrets, real personal data, `venv`, `.venv`, or `node_modules`.

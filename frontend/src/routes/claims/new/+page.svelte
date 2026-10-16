@@ -41,9 +41,9 @@
 
 <svelte:head><title>Ajukan Klaim</title></svelte:head>
 <main class="page">
-	<a href="/">← Kembali ke chat</a>
-	<h1>Ajukan Klaim</h1>
-	<p>Upload nota untuk membuat klaim baru.</p>
+	<a href="/pengajuan">Kembali ke pengajuan</a>
+	<h1>Ajukan klaim lewat formulir</h1>
+	<p>Unggah foto atau PDF nota. Nominal dapat diisi jika sudah diketahui.</p>
 	<form onsubmit={(event) => { event.preventDefault(); void submit(); }}>
 		<label>
 			Nota

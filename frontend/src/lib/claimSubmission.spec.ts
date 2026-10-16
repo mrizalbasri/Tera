@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSubmissionKeyManager } from './claimSubmission';
 
-const firstFile = {
-	name: 'receipt.jpg',
-	size: 128,
-	type: 'image/jpeg',
-	lastModified: 1
-};
+const firstFile = new File(['receipt'], 'receipt.jpg', { type: 'image/jpeg' });
 
 describe('claim submission idempotency state', () => {
 	it('reuses the key when retrying the unchanged file', () => {
@@ -28,7 +23,20 @@ describe('claim submission idempotency state', () => {
 		manager.selectFile(firstFile);
 		expect(manager.getKey()).toBe('key-1');
 
-		manager.selectFile({ ...firstFile, name: 'replacement.jpg' });
+		manager.selectFile(new File(['receipt'], 'replacement.jpg', { type: 'image/jpeg' }));
+
+		expect(manager.getKey()).toBe('key-2');
+	});
+
+	it('creates a new key for different contents with identical metadata', () => {
+		let sequence = 0;
+		const manager = createSubmissionKeyManager(() => `key-${++sequence}`);
+		const sameMetadataFile = new File(['first'], 'receipt.jpg', { type: 'image/jpeg' });
+		const differentContents = new File(['second'], 'receipt.jpg', { type: 'image/jpeg' });
+
+		manager.selectFile(sameMetadataFile);
+		expect(manager.getKey()).toBe('key-1');
+		manager.selectFile(differentContents);
 
 		expect(manager.getKey()).toBe('key-2');
 	});

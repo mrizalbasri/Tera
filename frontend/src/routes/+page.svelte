@@ -25,7 +25,7 @@
 
 	type ChatAction = {
 		label: string;
-		kind: 'retry-upload' | 'retry-process' | 'retake' | 'detail';
+		kind: 'retry-upload' | 'retry-replacement' | 'retry-process' | 'retake' | 'detail';
 		href?: string;
 	};
 
@@ -160,7 +160,6 @@
 		const file = selectedFile;
 		const isRetake = retakeClaimId !== null;
 		const existingClaimId = retakeClaimId;
-		retakeClaimId = null;
 		submitPhase = isRetake ? 'processing' : 'uploading';
 
 		const stepsId = nextId++;
@@ -187,15 +186,16 @@
 					{ label: 'Membaca nota (OCR)', status: 'active' }
 				]
 			});
-			selectedFile = null;
-			if (pendingFileMessageId != null) {
-				updateMessage(pendingFileMessageId, { removable: false });
-				pendingFileMessageId = null;
-			}
 			scrollToBottom();
 			await sleep(400);
 			try {
 				const replacement = await replaceClaimReceipt({ claimId, file });
+				selectedFile = null;
+				retakeClaimId = null;
+				if (pendingFileMessageId != null) {
+					updateMessage(pendingFileMessageId, { removable: false });
+					pendingFileMessageId = null;
+				}
 				updateMessage(stepsId, {
 					steps: [
 						{
@@ -203,10 +203,11 @@
 							detail: `Nota "${replacement.receipt.original_filename}" tersimpan pada klaim ${shortClaimRef(claimId)}.`,
 							status: 'done'
 						},
-						{ label: 'Membaca nota (OCR)', status: 'active' }
+						{ label: 'Pemeriksaan tersedia di detail klaim', status: 'skipped' }
 					]
 				});
-				await runProcessing(stepsId, claimId, true);
+				submitPhase = 'idle';
+				setTimeout(() => goto(`/claims/${claimId}`), 700);
 			} catch (error) {
 				submitPhase = 'idle';
 				const message = error instanceof Error ? error.message : 'Gagal mengunggah nota pengganti.';
@@ -221,6 +222,7 @@
 					from: 'agent',
 					text: `❌ ${message} Klaim lama tetap tersimpan — coba upload ulang.`,
 					isError: true,
+					actions: [{ label: 'Coba upload nota pengganti lagi', kind: 'retry-replacement' }],
 					timestamp: formatClock()
 				});
 				scrollToBottom();
@@ -246,7 +248,7 @@
 				stepsTitle: 'Memproses nota...',
 				steps: [
 					{ label: 'Mengunggah nota ke server', detail: uploadDetail, status: 'done' },
-					{ label: 'Membaca nota (OCR)', status: 'active' }
+					{ label: 'Pemeriksaan tersedia di detail klaim', status: 'skipped' }
 				]
 			});
 			scrollToBottom();
@@ -273,9 +275,15 @@
 			pendingFileMessageId = null;
 		}
 
-		submitPhase = 'processing';
-		await sleep(700);
-		await runProcessing(stepsId, claimId);
+		submitPhase = 'idle';
+		messages.push({
+			id: nextId++,
+			from: 'agent',
+			text: `📩 Klaim ${shortClaimRef(claimId)} berhasil diajukan. Buka detail klaim untuk memulai pemeriksaan.`,
+			claimId,
+			timestamp: formatClock()
+		});
+		setTimeout(() => goto(`/claims/${claimId}`), 700);
 	}
 
 	/** FR-09: hubungkan permintaan klarifikasi dengan id klarifikasi terbuka. */
@@ -433,6 +441,9 @@
 
 	function handleAction(message: Message, action: ChatAction) {
 		if (action.kind === 'retry-upload') {
+			messages = messages.filter((item) => item.id !== message.id);
+			void submitClaim();
+		} else if (action.kind === 'retry-replacement') {
 			messages = messages.filter((item) => item.id !== message.id);
 			void submitClaim();
 		} else if (action.kind === 'retry-process' && message.claimId) {

@@ -1,22 +1,15 @@
-export type SubmissionFile = Pick<File, 'name' | 'size' | 'type' | 'lastModified'>;
-
-function fileFingerprint(file: SubmissionFile) {
-	return `${file.name}:${file.size}:${file.type}:${file.lastModified}`;
-}
-
 export function createSubmissionKeyManager(generateKey: () => string = () => crypto.randomUUID()) {
 	let key: string | null = null;
-	let fingerprint: string | null = null;
+	let selectedFile: File | null = null;
 
 	return {
-		selectFile(file: SubmissionFile) {
-			const nextFingerprint = fileFingerprint(file);
-			if (fingerprint !== nextFingerprint) key = null;
-			fingerprint = nextFingerprint;
+		selectFile(file: File) {
+			if (selectedFile !== file) key = null;
+			selectedFile = file;
 		},
 		clear() {
 			key = null;
-			fingerprint = null;
+			selectedFile = null;
 		},
 		getKey() {
 			key ??= generateKey();

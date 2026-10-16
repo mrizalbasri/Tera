@@ -985,6 +985,44 @@
 	}
 
 	@media (max-width: 768px) {
-		.detail-grid { grid-template-columns: 1fr; }
+		.detail-page {
+			width: 100%;
+			min-width: 0;
+		}
+
+		.detail-grid {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.glass-panel {
+			padding: 1rem;
+			min-width: 0;
+		}
+
+		.info-row {
+			align-items: flex-start;
+			flex-direction: column;
+			gap: 0.35rem;
+		}
+
+		.info-val,
+		.field-value {
+			text-align: left;
+			justify-content: flex-start;
+			max-width: 100%;
+		}
+
+		.mono {
+			overflow-wrap: anywhere;
+		}
+
+		.evidence-row {
+			flex-direction: column;
+			gap: 0.5rem;
+		}
+
+		.timeline-meta {
+			flex-wrap: wrap;
+		}
 	}
 </style>

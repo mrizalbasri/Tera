@@ -8,6 +8,7 @@
 	import {
 		answerClarification,
 		createClaim,
+		getClaim,
 		listClarifications,
 		MAX_RECEIPT_SIZE_BYTES,
 		ALLOWED_RECEIPT_TYPES,
@@ -19,12 +20,13 @@
 	import { formatClock, formatDate } from '$lib/formatters/date';
 	import { formatCurrency, formatConfidence } from '$lib/formatters/currency';
 	import { describeReasonCode } from '$lib/formatters/reasonCodes';
+	import { createSubmissionKeyManager } from '$lib/claimSubmission';
 	import type { AgentStepView } from '$lib/types/ui';
 	import type { ClaimStatus, Decision, ProcessClaimResponse } from '$lib/types/claim';
 
 	type ChatAction = {
 		label: string;
-		kind: 'retry-process' | 'retake' | 'detail';
+		kind: 'retry-upload' | 'retry-replacement' | 'retry-process' | 'retake' | 'detail';
 		href?: string;
 	};
 
@@ -51,7 +53,7 @@
 		{
 			id: 1,
 			from: 'agent',
-				text: 'Kirim foto atau PDF nota pengeluaranmu. Tera akan membaca nota, memeriksa kebijakan, dan menampilkan tindak lanjutnya di sini.',
+			text: 'Halo! 👋 Kirimkan foto nota transaksimu, dan biarkan Tera memproses klaimnya secara otomatis.',
 			timestamp: formatClock()
 		}
 	]);
@@ -78,6 +80,8 @@
 
 	// FR-03: retry proses hanya lewat tombol (bounded, tidak otomatis)
 	let retryableClaimId = $state<string | null>(null);
+	let pendingSubmissionKey = $state<string | null>(null);
+	const submissionKeyManager = createSubmissionKeyManager();
 
 	// FR-03: id klaim lama saat retake receipt agar konteks tidak hilang
 	let retakeClaimId = $state<string | null>(null);
@@ -114,6 +118,8 @@
 		if (submitPhase !== 'idle') return;
 
 		selectedFile = file;
+		submissionKeyManager.selectFile(file);
+		pendingSubmissionKey = submissionKeyManager.getKey();
 		if (pendingFileMessageId != null) {
 			updateMessage(pendingFileMessageId, { file: { name: file.name, size: file.size } });
 		} else {
@@ -136,6 +142,9 @@
 		if (messageId === pendingFileMessageId) {
 			selectedFile = null;
 			pendingFileMessageId = null;
+			submissionKeyManager.clear();
+			pendingSubmissionKey = null;
+			retakeClaimId = null;
 		}
 	}
 
@@ -153,7 +162,6 @@
 		const file = selectedFile;
 		const isRetake = retakeClaimId !== null;
 		const existingClaimId = retakeClaimId;
-		retakeClaimId = null;
 		submitPhase = isRetake ? 'processing' : 'uploading';
 
 		const stepsId = nextId++;
@@ -180,15 +188,22 @@
 					{ label: 'Membaca nota (OCR)', status: 'active' }
 				]
 			});
-			selectedFile = null;
-			if (pendingFileMessageId != null) {
-				updateMessage(pendingFileMessageId, { removable: false });
-				pendingFileMessageId = null;
-			}
 			scrollToBottom();
+			let receiptCountBefore: number | null = null;
+			try {
+				receiptCountBefore = (await getClaim(claimId)).receipts.length;
+			} catch {
+				// The replacement request remains retryable if the preflight check is unavailable.
+			}
 			await sleep(400);
 			try {
 				const replacement = await replaceClaimReceipt({ claimId, file });
+				selectedFile = null;
+				retakeClaimId = null;
+				if (pendingFileMessageId != null) {
+					updateMessage(pendingFileMessageId, { removable: false });
+					pendingFileMessageId = null;
+				}
 				updateMessage(stepsId, {
 					steps: [
 						{
@@ -196,13 +211,38 @@
 							detail: `Nota "${replacement.receipt.original_filename}" tersimpan pada klaim ${shortClaimRef(claimId)}.`,
 							status: 'done'
 						},
-						{ label: 'Membaca nota (OCR)', status: 'active' }
+						{ label: 'Pemeriksaan tersedia di detail klaim', status: 'skipped' }
 					]
 				});
-				await runProcessing(stepsId, claimId, true);
+				submitPhase = 'idle';
+				setTimeout(() => goto(`/claims/${claimId}`), 700);
 			} catch (error) {
 				submitPhase = 'idle';
 				const message = error instanceof Error ? error.message : 'Gagal mengunggah nota pengganti.';
+				if (receiptCountBefore !== null) {
+					try {
+						const refreshed = await getClaim(claimId);
+						if (refreshed.receipts.length > receiptCountBefore) {
+							selectedFile = null;
+							retakeClaimId = null;
+							if (pendingFileMessageId != null) {
+								updateMessage(pendingFileMessageId, { removable: false });
+								pendingFileMessageId = null;
+							}
+							messages.push({
+								id: nextId++,
+								from: 'agent',
+								text: `✅ Nota pengganti sudah tersimpan pada klaim ${shortClaimRef(claimId)}. Buka detail untuk memulai pemeriksaan.`,
+								claimId,
+								timestamp: formatClock()
+							});
+							setTimeout(() => goto(`/claims/${claimId}`), 700);
+							return;
+						}
+					} catch {
+						// Keep the bounded retry action when the confirmation request also fails.
+					}
+				}
 				updateMessage(stepsId, {
 					steps: [
 						{ label: 'Mengunggah nota pengganti ke server', detail: message, status: 'failed' },
@@ -212,8 +252,9 @@
 				messages.push({
 					id: nextId++,
 					from: 'agent',
-					text: `${message} Klaim lama tetap tersimpan. Coba unggah ulang.`,
+					text: `❌ ${message} Klaim lama tetap tersimpan — coba upload ulang.`,
 					isError: true,
+					actions: [{ label: 'Coba upload nota pengganti lagi', kind: 'retry-replacement' }],
 					timestamp: formatClock()
 				});
 				scrollToBottom();
@@ -223,9 +264,12 @@
 
 		try {
 			// FR-04: idempotency key per-submit mencegah duplikasi klaim saat retry jaringan
-			const idempotencyKey = crypto.randomUUID();
+			const idempotencyKey = pendingSubmissionKey ?? submissionKeyManager.getKey();
+			pendingSubmissionKey = idempotencyKey;
 			const response = await createClaim({ file, idempotencyKey });
 			claimId = response.claim.id;
+			pendingSubmissionKey = null;
+			submissionKeyManager.clear();
 			const quality = response.receipts[0]?.quality_score;
 			const uploadDetail =
 				`Klaim ${shortClaimRef(claimId)} diterima. Nota "${response.receipts[0]?.original_filename ?? file.name}" tersimpan.` +
@@ -236,7 +280,7 @@
 				stepsTitle: 'Memproses nota...',
 				steps: [
 					{ label: 'Mengunggah nota ke server', detail: uploadDetail, status: 'done' },
-					{ label: 'Membaca nota (OCR)', status: 'active' }
+					{ label: 'Pemeriksaan tersedia di detail klaim', status: 'skipped' }
 				]
 			});
 			scrollToBottom();
@@ -247,8 +291,9 @@
 			messages.push({
 				id: nextId++,
 				from: 'agent',
-				text: `${message} Notamu masih terlampir. Coba kirim ulang.`,
+				text: `❌ ${message} Notamu masih terlampir — coba kirim ulang.`,
 				isError: true,
+				actions: [{ label: 'Coba upload lagi', kind: 'retry-upload' }],
 				timestamp: formatClock()
 			});
 			scrollToBottom();
@@ -262,9 +307,15 @@
 			pendingFileMessageId = null;
 		}
 
-		submitPhase = 'processing';
-		await sleep(700);
-		await runProcessing(stepsId, claimId);
+		submitPhase = 'idle';
+		messages.push({
+			id: nextId++,
+			from: 'agent',
+			text: `📩 Klaim ${shortClaimRef(claimId)} berhasil diajukan. Buka detail klaim untuk memulai pemeriksaan.`,
+			claimId,
+			timestamp: formatClock()
+		});
+		setTimeout(() => goto(`/claims/${claimId}`), 700);
 	}
 
 	/** FR-09: hubungkan permintaan klarifikasi dengan id klarifikasi terbuka. */
@@ -313,7 +364,7 @@
 			messages.push({
 				id: nextId++,
 				from: 'agent',
-				text: message,
+				text: `❌ ${message}`,
 				isError: true,
 				actions: [{ label: 'Coba proses lagi', kind: 'retry-process' }],
 				timestamp: formatClock()
@@ -353,7 +404,7 @@
 			messages.push({
 				id: nextId++,
 				from: 'agent',
-				text: `Butuh tindakanmu untuk klaim ${shortClaimRef(claimId)}: ${clarification.message}`,
+				text: `⚠️ Butuh tindakanmu untuk klaim ${shortClaimRef(claimId)}: ${clarification.message}`,
 				claimId,
 				actions: [{ label: 'Upload nota yang lebih jelas', kind: 'retake' }],
 				timestamp: formatClock()
@@ -388,7 +439,7 @@
 		messages.push({
 			id: nextId++,
 			from: 'agent',
-			text: `Klaim ${shortClaimRef(claimId)} berhasil diajukan.`,
+			text: `📩 Klaim ${shortClaimRef(claimId)} berhasil diajukan.`,
 			claimId,
 			claimStatus: status,
 			timestamp: formatClock()
@@ -421,7 +472,13 @@
 	}
 
 	function handleAction(message: Message, action: ChatAction) {
-		if (action.kind === 'retry-process' && message.claimId) {
+		if (action.kind === 'retry-upload') {
+			messages = messages.filter((item) => item.id !== message.id);
+			void submitClaim();
+		} else if (action.kind === 'retry-replacement') {
+			messages = messages.filter((item) => item.id !== message.id);
+			void submitClaim();
+		} else if (action.kind === 'retry-process' && message.claimId) {
 			retryProcess(message.claimId, message.id);
 		} else if (action.kind === 'retake') {
 			// FR-03: simpan claimId lama agar retake melanjutkan klaim yg sama
@@ -432,15 +489,7 @@
 	}
 
 	async function sendText() {
-		if (submittingAnswer || isProcessing) return;
-		if (selectedFile) {
-			await submitClaim();
-			return;
-		}
-		if (!awaitingClarification) {
-			composerError = 'Pilih nota terlebih dahulu untuk mengajukan klaim.';
-			return;
-		}
+		if (submittingAnswer) return;
 		const text = draft.trim();
 		if (!text) {
 			// FR-09: jawaban/pesan kosong ditolak dengan pesan inline
@@ -450,6 +499,13 @@
 			return;
 		}
 		composerError = null;
+
+		if (!awaitingClarification) {
+			messages.push({ id: nextId++, from: 'user', text, timestamp: formatClock() });
+			draft = '';
+			scrollToBottom();
+			return;
+		}
 
 		// FR-09: POST jawaban ke backend; kegagalan mempertahankan input
 		const clarification = awaitingClarification;
@@ -472,7 +528,7 @@
 				messages.push({
 					id: nextId++,
 					from: 'agent',
-					text: `Jawaban terkirim. Pemeriksaan klaim ${resumedRef} dilanjutkan dan keputusan sudah tersedia.`,
+					text: `✅ Jawaban terkirim. Pemrosesan klaim ${resumedRef} dilanjutkan dan backend menerbitkan keputusan.`,
 					claimId: clarification.claimId,
 					claimStatus: response.claim.status,
 					decision: response.decision,
@@ -483,7 +539,7 @@
 				messages.push({
 					id: nextId++,
 					from: 'agent',
-					text: `Pemeriksaan dilanjutkan. Masih ada informasi yang perlu diperbaiki: ${response.clarification.message}`,
+					text: `🔁 Pemrosesan dilanjutkan, namun backend masih meminta perbaikan: ${response.clarification.message}`,
 					claimId: clarification.claimId,
 					actions: [{ label: 'Upload nota yang lebih jelas', kind: 'retake' }],
 					timestamp: formatClock()
@@ -493,7 +549,7 @@
 				messages.push({
 					id: nextId++,
 					from: 'agent',
-					text: `Jawaban terkirim untuk klaim ${resumedRef}. Pantau kelanjutannya di halaman detail.`,
+					text: `✅ Jawaban terkirim untuk klaim ${resumedRef}. Pantau kelanjutannya di halaman detail.`,
 					claimId: clarification.claimId,
 					claimStatus: response.claim.status,
 					actions: [{ label: 'Lihat detail klaim →', kind: 'detail', href: `/riwayat/${clarification.claimId}` }],
@@ -512,7 +568,7 @@
 </script>
 
 <svelte:head>
-	<title>Ajukan klaim · Tera</title>
+	<title>Beranda | Tera Expense Agent</title>
 	<meta name="description" content="Upload nota dan ajukan klaim reimbursement dengan mudah menggunakan Tera." />
 </svelte:head>
 
@@ -522,11 +578,19 @@
 	<header class="chat-header">
 		<div class="header-left">
 			<div class="agent-avatar" aria-hidden="true">
-				<img src="/logo.webp" width="40" height="40" alt="" />
+				<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+					<rect x="3" y="11" width="18" height="10" rx="2"/>
+					<circle cx="12" cy="5" r="2"/>
+					<path d="M12 7v4"/>
+					<circle cx="8.5" cy="15" r="1.5"/>
+					<circle cx="15.5" cy="15" r="1.5"/>
+				</svg>
 			</div>
 			<div>
-				<h1>Ajukan klaim</h1>
-				<span class="status-online">{isProcessing ? 'Nota sedang diperiksa' : awaitingClarification ? 'Informasi tambahan diperlukan' : 'Mulai dari nota pengeluaranmu'}</span>
+				<h1>Tera AI Agent</h1>
+				<span class="status-online">
+					<span class="dot" aria-hidden="true"></span> Online · Siap memproses nota
+				</span>
 			</div>
 		</div>
 	</header>
@@ -540,7 +604,7 @@
 		{#each messages as message (message.id)}
 			<div class="msg-row {message.from}">
 				{#if message.from === 'agent'}
-					<div class="avatar agent-mini" aria-hidden="true">T</div>
+					<div class="avatar agent-mini" aria-hidden="true">AI</div>
 				{/if}
 
 				{#if message.typing}
@@ -567,7 +631,6 @@
 								fileName={message.file.name}
 								sizeBytes={message.file.size}
 								removable={message.removable ?? false}
-								disabled={isProcessing}
 								onremove={() => removeSelectedFile(message.id)}
 							/>
 						{:else}
@@ -598,7 +661,7 @@
 				{/if}
 
 				{#if message.from === 'user'}
-					<div class="avatar user-mini" aria-hidden="true">K</div>
+					<div class="avatar user-mini" aria-hidden="true">S</div>
 				{/if}
 			</div>
 		{/each}
@@ -636,22 +699,21 @@
 			type="text"
 			placeholder={submittingAnswer
 				? 'Mengirim jawaban...'
-				: selectedFile ? 'Nota siap dikirim' : awaitingClarification
+				: awaitingClarification
 					? 'Tulis jawaban klarifikasi...'
-					: 'Pilih nota untuk mulai'}
+					: 'Tulis pesan atau tanyakan sesuatu...'}
 			bind:value={draft}
 			id="chat-text-input"
 			aria-label="Pesan"
 			aria-invalid={composerError ? 'true' : undefined}
-			disabled={submittingAnswer || isProcessing}
-			readonly={!awaitingClarification}
+			disabled={submittingAnswer}
 		/>
-		<button type="submit" class="send-btn" id="btn-kirim-pesan" disabled={submittingAnswer || isProcessing} aria-label={awaitingClarification && !selectedFile ? 'Kirim jawaban' : 'Kirim nota'}>
+		<button type="submit" class="send-btn" id="btn-kirim-pesan" disabled={submittingAnswer}>
 			<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 				<line x1="22" y1="2" x2="11" y2="13"/>
 				<polygon points="22 2 15 22 11 13 2 9 22 2"/>
 			</svg>
-			<span>{isProcessing ? 'Memproses' : awaitingClarification && !selectedFile ? 'Kirim jawaban' : 'Kirim nota'}</span>
+			<span>Kirim</span>
 		</button>
 	</form>
 </section>
@@ -660,10 +722,8 @@
 	.chat-page {
 		display: flex;
 		flex-direction: column;
-		height: calc(100dvh - 152px);
-		min-height: 420px;
-		max-width: 880px;
-		margin-inline: auto;
+		height: calc(100dvh - 3.5rem);
+		max-width: 800px;
 	}
 
 	/* Header */
@@ -671,8 +731,14 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0 0 var(--space-6);
-		margin-bottom: var(--space-4);
+		padding: 1rem 1.25rem;
+		background: rgba(255, 255, 255, 0.75);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
+		margin-bottom: 0.75rem;
+		box-shadow: var(--shadow-md);
 	}
 
 	.header-left {
@@ -684,17 +750,18 @@
 	.agent-avatar {
 		width: 44px;
 		height: 44px;
-		background: transparent;
-		border-radius: var(--radius-sm);
+		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+		border-radius: 50%;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		color: white;
+		box-shadow: 0 2px 12px rgba(26, 107, 92, 0.3);
 		flex-shrink: 0;
 	}
 
 	.chat-header h1 {
-		font-size: 1.75rem;
+		font-size: 1rem;
 		font-weight: 700;
 		margin: 0 0 0.1rem;
 		color: var(--color-text);
@@ -709,14 +776,27 @@
 		font-weight: 500;
 	}
 
+	.dot {
+		width: 7px;
+		height: 7px;
+		background: #22c55e;
+		border-radius: 50%;
+		animation: pulse 2s infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; transform: scale(1); }
+		50% { opacity: 0.55; transform: scale(0.8); }
+	}
+
 	/* Tip */
 	.tip-banner {
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
 		padding: 0.6rem 1rem;
-		background: var(--color-light);
-		border: 1px solid var(--color-border);
+		background: linear-gradient(135deg, rgba(26, 107, 92, 0.07) 0%, rgba(46, 204, 168, 0.05) 100%);
+		border: 1px solid rgba(26, 107, 92, 0.12);
 		border-radius: var(--radius-sm);
 		font-size: 0.77rem;
 		color: var(--color-primary);
@@ -729,7 +809,6 @@
 	/* Messages */
 	.messages {
 		flex: 1;
-		min-height: 0;
 		display: flex;
 		flex-direction: column;
 		gap: 0.6rem;
@@ -749,6 +828,7 @@
 		display: flex;
 		align-items: flex-end;
 		gap: 0.5rem;
+		animation: fadeSlide 0.22s ease-out;
 	}
 
 	.msg-row.user { justify-content: flex-end; }
@@ -772,19 +852,17 @@
 	}
 
 	.agent-mini {
-		background: var(--color-light);
-		color: var(--color-primary-dark);
+		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+		color: white;
 	}
 
 	.user-mini {
-		background: var(--color-soft);
-		color: var(--color-text-muted);
+		background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+		color: white;
 	}
 
 	.bubble {
-		max-width: 82%;
-		min-width: 0;
-		overflow-wrap: anywhere;
+		max-width: 72%;
 		padding: 0.75rem 1rem;
 		border-radius: var(--radius-md);
 		line-height: 1.55;
@@ -794,16 +872,20 @@
 	.bubble p { margin: 0; }
 
 	.bubble.agent {
-		background: var(--color-surface);
+		background: rgba(255, 255, 255, 0.85);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
 		border: 1px solid var(--color-border);
 		color: var(--color-text);
 		border-bottom-left-radius: 4px;
+		box-shadow: 0 2px 10px rgba(26, 107, 92, 0.07);
 	}
 
 	.bubble.user {
-		background: var(--color-light);
-		color: var(--color-ink);
+		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+		color: white;
 		border-bottom-right-radius: 4px;
+		box-shadow: 0 2px 12px rgba(26, 107, 92, 0.25);
 	}
 
 	.bubble.error-bubble {
@@ -840,14 +922,14 @@
 		padding: 0.5rem 0.9rem;
 		border-radius: var(--radius-sm);
 		border: 1.5px solid var(--color-border);
-		background: var(--color-surface);
+		background: rgba(255, 255, 255, 0.9);
 		color: var(--color-primary);
 		font: inherit;
 		font-size: 0.78rem;
 		font-weight: 600;
 		cursor: pointer;
 		text-decoration: none;
-		transition: background var(--transition);
+		transition: all var(--transition);
 	}
 
 	.action-btn:hover:not(:disabled) {
@@ -856,13 +938,14 @@
 	}
 
 	.action-btn.primary {
-		background: var(--color-primary);
+		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
 		border-color: transparent;
 		color: white;
+		box-shadow: 0 2px 8px rgba(26, 107, 92, 0.25);
 	}
 
 	.action-btn:disabled {
-		opacity: 1;
+		opacity: 0.5;
 		cursor: not-allowed;
 	}
 
@@ -879,11 +962,11 @@
 		display: block;
 		font-size: 0.65rem;
 		margin-top: 0.35rem;
-		opacity: 1;
+		opacity: 0.5;
 		text-align: right;
 	}
 
-	.bubble.user .bubble-time { color: var(--color-text-muted); }
+	.bubble.user .bubble-time { color: rgba(255,255,255,0.85); }
 	.bubble.agent .bubble-time { color: var(--color-text-muted); }
 
 	/* Composer */
@@ -893,7 +976,6 @@
 		padding-top: 0.85rem;
 		border-top: 1px solid var(--color-border);
 		margin-top: 0.5rem;
-		flex-shrink: 0;
 	}
 
 	.composer-error {
@@ -908,7 +990,8 @@
 		align-items: center;
 		gap: 0.4rem;
 		padding: 0.65rem 1rem;
-		background: var(--color-surface);
+		background: rgba(255, 255, 255, 0.85);
+		backdrop-filter: blur(10px);
 		border: 1.5px solid var(--color-border);
 		border-radius: var(--radius-sm);
 		color: var(--color-primary);
@@ -916,8 +999,7 @@
 		font-size: 0.82rem;
 		font-weight: 600;
 		cursor: pointer;
-		transition: background var(--transition);
-		min-height: 44px;
+		transition: all var(--transition);
 		white-space: nowrap;
 	}
 
@@ -930,18 +1012,19 @@
 
 	.text-input {
 		flex: 1;
-		min-width: 0;
 		padding: 0.65rem 1rem;
-		background: var(--color-surface);
+		background: rgba(255, 255, 255, 0.85);
+		backdrop-filter: blur(10px);
 		border: 1.5px solid var(--color-border);
 		border-radius: var(--radius-sm);
 		font: inherit;
 		font-size: 0.875rem;
 		color: var(--color-text);
-		transition: border-color var(--transition);
+		transition: all var(--transition);
+		outline: none;
 	}
 
-	.text-input::placeholder { color: var(--color-text-muted); }
+	.text-input::placeholder { color: rgba(74, 123, 115, 0.55); }
 
 	.text-input:focus {
 		border-color: var(--color-primary);
@@ -958,7 +1041,7 @@
 		align-items: center;
 		gap: 0.4rem;
 		padding: 0.65rem 1.1rem;
-		background: var(--color-primary);
+		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
 		border: none;
 		border-radius: var(--radius-sm);
 		color: white;
@@ -966,23 +1049,23 @@
 		font-size: 0.82rem;
 		font-weight: 600;
 		cursor: pointer;
-		transition: background var(--transition);
-		min-height: 44px;
+		transition: all var(--transition);
+		box-shadow: 0 2px 8px rgba(26, 107, 92, 0.3);
 		white-space: nowrap;
 	}
 
 	.send-btn:hover {
-		background: var(--color-primary-dark);
+		background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+		transform: translateY(-1px);
+		box-shadow: 0 4px 14px rgba(26, 107, 92, 0.38);
 	}
 
 	.send-btn:active { transform: translateY(0); }
 
-	@media (max-width: 768px) {
-		.chat-page { height: calc(100dvh - 182px); min-height: 420px; }
-		.composer { flex-wrap: wrap; }
-		.text-input { flex-basis: 100%; order: -1; }
-		.upload-btn, .send-btn { flex: 1; justify-content: center; padding: var(--space-3); }
-		.bubble { max-width: calc(100% - 36px); }
+	@media (max-width: 680px) {
+		.chat-page { height: calc(100dvh - 9rem); }
+		.upload-btn span, .send-btn span { display: none; }
+		.upload-btn, .send-btn { padding: 0.65rem 0.85rem; }
 	}
 
 	/* ─── Typing Dots ─── */

@@ -8,6 +8,7 @@
 	import {
 		answerClarification,
 		createClaim,
+		getClaim,
 		listClarifications,
 		MAX_RECEIPT_SIZE_BYTES,
 		ALLOWED_RECEIPT_TYPES,
@@ -187,6 +188,12 @@
 				]
 			});
 			scrollToBottom();
+			let receiptCountBefore: number | null = null;
+			try {
+				receiptCountBefore = (await getClaim(claimId)).receipts.length;
+			} catch {
+				// The replacement request remains retryable if the preflight check is unavailable.
+			}
 			await sleep(400);
 			try {
 				const replacement = await replaceClaimReceipt({ claimId, file });
@@ -211,6 +218,30 @@
 			} catch (error) {
 				submitPhase = 'idle';
 				const message = error instanceof Error ? error.message : 'Gagal mengunggah nota pengganti.';
+				if (receiptCountBefore !== null) {
+					try {
+						const refreshed = await getClaim(claimId);
+						if (refreshed.receipts.length > receiptCountBefore) {
+							selectedFile = null;
+							retakeClaimId = null;
+							if (pendingFileMessageId != null) {
+								updateMessage(pendingFileMessageId, { removable: false });
+								pendingFileMessageId = null;
+							}
+							messages.push({
+								id: nextId++,
+								from: 'agent',
+								text: `✅ Nota pengganti sudah tersimpan pada klaim ${shortClaimRef(claimId)}. Buka detail untuk memulai pemeriksaan.`,
+								claimId,
+								timestamp: formatClock()
+							});
+							setTimeout(() => goto(`/claims/${claimId}`), 700);
+							return;
+						}
+					} catch {
+						// Keep the bounded retry action when the confirmation request also fails.
+					}
+				}
 				updateMessage(stepsId, {
 					steps: [
 						{ label: 'Mengunggah nota pengganti ke server', detail: message, status: 'failed' },

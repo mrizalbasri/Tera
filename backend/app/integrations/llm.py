@@ -22,6 +22,7 @@ Design invariants (spec M7 + FR-13):
 """
 
 import logging
+import re
 import time
 from datetime import UTC, date, datetime
 from decimal import Decimal, DecimalException
@@ -105,8 +106,8 @@ _PROVIDER_ERROR_MAP: tuple[
 class LlmExtractionOutput(BaseModel):
     """The structured contract the vision model must return."""
 
-    vendor: str = Field(min_length=1, max_length=255)
-    receipt_date: str
+    vendor: str | None = Field(min_length=1, max_length=255)
+    receipt_date: str | None
     # Bound magnitude and scale before derived prices or downstream formatting.
     total: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
     currency: str = Field(min_length=3, max_length=3)
@@ -265,8 +266,22 @@ class LlmReceiptExtractor:
         output: LlmExtractionOutput,
         attempt: int,
     ) -> ExtractionResult:
+        warnings = list(output.warnings)
+        uncertain = r"blur|unread|illegib|estimat|infer|default|placeholder|missing|not (?:found|visible|available)"
+        date_uncertain = any(
+            "date" in warning.lower() and re.search(uncertain, warning, re.IGNORECASE)
+            for warning in warnings
+        )
+        vendor_uncertain = any(
+            "vendor" in warning.lower() and re.search(uncertain, warning, re.IGNORECASE)
+            for warning in warnings
+        )
         try:
-            receipt_date = date.fromisoformat(output.receipt_date)
+            receipt_date = (
+                date.fromisoformat(output.receipt_date)
+                if output.receipt_date and output.receipt_date.strip() and not date_uncertain
+                else None
+            )
         except ValueError as exc:
             raise classified_error(
                 ErrorCode.MALFORMED_EXTRACTION,
@@ -274,6 +289,11 @@ class LlmReceiptExtractor:
                 "Live extraction returned a malformed receipt date.",
                 502,
             ) from exc
+        vendor = output.vendor if not vendor_uncertain else None
+        if receipt_date is None and "receipt_date_unreadable" not in warnings:
+            warnings.append("receipt_date_unreadable")
+        if vendor is None and "vendor_unreadable" not in warnings:
+            warnings.append("vendor_unreadable")
         total = output.total
         # Keep enough precision that a tiny total over a huge quantity never
         # rounds the unit price down to zero (the schema requires > 0); a
@@ -304,10 +324,10 @@ class LlmReceiptExtractor:
                 id=uuid4(),
                 receipt_id=receipt.id,
                 vendor=FieldConfidence(
-                    value=output.vendor, confidence=output.confidence
+                    value=vendor, confidence=output.confidence if vendor is not None else Decimal("0")
                 ),
                 receipt_date=FieldConfidence(
-                    value=receipt_date, confidence=output.confidence
+                    value=receipt_date, confidence=output.confidence if receipt_date is not None else Decimal("0")
                 ),
                 total=FieldConfidence(value=total, confidence=output.confidence),
                 currency=FieldConfidence(
@@ -318,13 +338,13 @@ class LlmReceiptExtractor:
                 ),
                 line_items=[
                     ExtractedLineItem(
-                        description=output.vendor,
+                        description=vendor or "Receipt summary",
                         quantity=output.quantity,
                         unit_price=unit_price,
                         total=total,
                     )
                 ],
-                warnings=list(output.warnings),
+                warnings=warnings,
                 provider=(
                     f"{self.provider_name}:{self._settings.llm_model}:attempt-{attempt}"
                 ),

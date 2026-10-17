@@ -171,6 +171,58 @@ def _valid_output() -> LlmExtractionOutput:
     )
 
 
+@pytest.mark.parametrize("value", [None, ""])
+def test_unreadable_date_preserves_total_without_inventing_date(value):
+    output = _valid_output().model_dump()
+    output["receipt_date"] = value
+    extractor, _ = _extractor(structured=lambda _m: output)
+    result = extractor.extract(receipt=_receipt(), content=_jpeg_bytes(),
+                               declared_amount=None, attempt=1)
+    assert result.receipt_date.value is None
+    assert result.receipt_date.confidence == 0
+    assert result.total.value == Decimal("60000")
+    assert "receipt_date_unreadable" in result.warnings
+
+
+def test_admitted_placeholder_date_is_not_treated_as_observed():
+    output = _valid_output().model_dump()
+    output.update(receipt_date="1970-01-01",
+                  warnings=["Receipt date blurred; default date used"])
+    extractor, _ = _extractor(structured=lambda _m: output)
+    result = extractor.extract(receipt=_receipt(), content=_jpeg_bytes(),
+                               declared_amount=None, attempt=1)
+    assert result.receipt_date.value is None
+    assert result.receipt_date.confidence == 0
+
+
+def test_missing_date_requests_clarification_once_and_preserves_evidence():
+    output = _valid_output().model_dump()
+    output["receipt_date"] = None
+    extractor, stub = _extractor(structured=lambda _m: output)
+    app.dependency_overrides[get_receipt_extractor] = lambda: extractor
+    try:
+        created = client.post("/claims", data={"employee_id": "date-test"},
+                              files={"files": ("receipt.jpg", _jpeg_bytes(), "image/jpeg")})
+        claim_id = created.json()["claim"]["id"]
+        response = client.post(f"/claims/{claim_id}/process")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["claim"]["status"] == "needs_clarification"
+        assert body["clarification"]["fields"] == ["receipt_date"]
+        assert len(stub.calls) == 1
+        assert body["extractions"][0]["total"]["value"] == "60000"
+        assert body["extractions"][0]["receipt_date"]["value"] is None
+        detail = client.get(f"/claims/{claim_id}").json()
+        assert detail["extractions"][0]["receipt_date"]["value"] is None
+        assert body["decision"] is None
+        replay = client.post(f"/claims/{claim_id}/process")
+        assert replay.status_code == 200
+        assert replay.json() == body
+        assert len(stub.calls) == 1
+    finally:
+        app.dependency_overrides.pop(get_receipt_extractor, None)
+
+
 @pytest.mark.parametrize("total,quantity", [
     ("1e30", "1"), ("1e999999", "1e-999999"), ("0.01", "1e30"),
     ("1e30", "1e30"), ("1e-30", "1"), ("60000", "1e-30"),

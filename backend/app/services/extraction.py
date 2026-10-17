@@ -201,6 +201,16 @@ class ExtractionService:
                     extraction_id=attempt_results[0].id if attempt_results else None,
                 )
             )
+            missing_fields = [
+                field for field in _CONFIDENCE_FIELDS
+                if any(getattr(result, field).value is None for result in attempt_results)
+            ]
+            if missing_fields:
+                for result in attempt_results:
+                    self._extractions.save(result.model_copy(update={"processing_run_id": run.id}))
+                return self._request_clarification(
+                    claim, run, attempts, {field: confidence[field] for field in missing_fields},
+                )
             threshold = Decimal(str(self._settings.extraction_confidence_threshold))
             if all(value >= threshold for value in confidence.values()):
                 for result in attempt_results:

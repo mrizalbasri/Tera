@@ -36,6 +36,8 @@ service-account*.json
 *.sqlite3-journal
 data/local/
 backend/data/local/
+# Downloaded receipt datasets stay local.
+/data/*.parquet
 
 # Editors and operating-system files
 .idea/

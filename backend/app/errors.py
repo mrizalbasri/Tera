@@ -29,6 +29,7 @@ class ErrorCode(StrEnum):
     IDEMPOTENCY_IN_PROGRESS = "idempotency_in_progress"
     NOT_FOUND = "not_found"
     INVALID_STATE_TRANSITION = "invalid_state_transition"
+    REVIEW_QUEUE_CHANGED = "review_queue_changed"
 
 
 # Exception machinery/context managers must be able to attach traceback notes.

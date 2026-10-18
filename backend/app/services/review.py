@@ -4,7 +4,9 @@ The reviewer's confirm/override is recorded as a NEW decision attributed to
 the reviewer — the agent's escalated decision is preserved for audit.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -49,8 +51,19 @@ class ReviewService:
         return self._reviews.count_open()
 
     def list_open(self, *, limit: int = 100, offset: int = 0) -> list[dict]:
-        items: list[dict] = []
         reviews = self._reviews.page_open(limit=limit, offset=offset)
+        return self._queue_items(reviews)
+
+    def open_queue_page(self, *, limit: int, offset: int, snapshot: str | None = None) -> tuple[list[dict], int, str]:
+        reviews = self._reviews.list_open()
+        version = sha256("".join(str(review.id) for review in reviews).encode()).hexdigest()
+        if snapshot is not None and snapshot != version:
+            raise ApplicationError(ErrorCode.REVIEW_QUEUE_CHANGED,
+                                   "Review queue changed while loading. Reload the queue.", 409)
+        return self._queue_items(reviews[offset:offset + limit]), len(reviews), version
+
+    def _queue_items(self, reviews: Sequence[Review]) -> list[dict]:
+        items: list[dict] = []
         ids = [review.claim_id for review in reviews]
         claims = {claim.id: claim for claim in self._claims.get_many(ids)}
         decisions = {}

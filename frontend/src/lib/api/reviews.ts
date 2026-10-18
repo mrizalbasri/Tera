@@ -13,8 +13,14 @@ export async function listReviews(): Promise<ReviewQueueResponse> {
 	const limit = 100;
 	let offset = 0;
 	let total: number | undefined;
+	let snapshot: string | undefined;
 	do {
-		const response = await apiRequest<ReviewQueueResponse>(`/reviews?limit=${limit}&offset=${offset}`);
+		const versionQuery = snapshot === undefined ? '' : `&snapshot=${encodeURIComponent(snapshot)}`;
+		const response = await apiRequest<ReviewQueueResponse>(`/reviews?limit=${limit}&offset=${offset}${versionQuery}`);
+		if (snapshot !== undefined && response.snapshot !== snapshot) {
+			throw new Error('Antrean review berubah saat dimuat. Silakan muat ulang.');
+		}
+		snapshot = response.snapshot;
 		if (total !== undefined && response.total !== total) {
 			throw new Error('Antrean review berubah saat dimuat. Silakan muat ulang.');
 		}

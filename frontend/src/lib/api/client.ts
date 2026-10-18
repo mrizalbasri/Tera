@@ -33,6 +33,7 @@ const USER_MESSAGES: Record<string, string> = {
 	malformed_extraction: 'Pembacaan nota gagal. Coba upload nota yang lebih jelas.',
 	not_found: 'Data tidak ditemukan.',
 	invalid_state_transition: 'Status klaim tidak bisa diubah sekarang.',
+	review_queue_changed: 'Antrean review berubah saat dimuat. Silakan muat ulang.',
 	policy_unavailable: 'Kebijakan belum tersedia. Coba lagi setelah layanan pulih.',
 	provider_unavailable: 'Layanan pembaca nota belum tersedia. Coba lagi nanti.',
 	provider_timeout: 'Pembacaan nota melewati batas waktu. Coba lagi.',

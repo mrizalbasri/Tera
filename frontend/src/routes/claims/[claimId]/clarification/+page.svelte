@@ -45,14 +45,15 @@
 <main class="page">
 	<a href={`/claims/${encodeURIComponent(page.params.claimId ?? '')}`}>← Kembali ke klaim</a>
 	<h1>Jawaban Klarifikasi</h1>
+	{#if error}
+		<p id="clarification-error" class="error" role="alert">{error}</p>
+	{/if}
 	{#if loading}
 		<p>Memuat klarifikasi...</p>
-	{:else if error}
-		<p class="error" role="alert">{error}</p>
 	{:else if clarification}
 		<section>
 			<p>{clarification.question}</p>
-			<textarea bind:value={answer} placeholder="Tulis jawaban yang akan disimpan di backend"></textarea>
+			<textarea bind:value={answer} aria-label="Jawaban klarifikasi" aria-describedby={error ? 'clarification-error' : undefined} placeholder="Tulis jawaban yang akan disimpan di backend"></textarea>
 			<button type="button" onclick={submit} disabled={submitting || !answer.trim()}>
 				{submitting ? 'Mengirim...' : 'Kirim jawaban'}
 			</button>

@@ -117,6 +117,25 @@ class LlmExtractionOutput(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+def _uncertain_fields(warnings: list[str]) -> set[str]:
+    field = r"\b(?:vendor|(?:receipt\s+)?date)\b"
+    coordinated_fields = rf"{field}(?:\s+(?:and|&)\s+{field})*"
+    uncertain = r"\b(?:blur\w*|unread\w*|illegib\w*|estimat\w*|infer\w*|default\w*|placeholder\w*|missing|not (?:found|visible|available))\b"
+    fields: set[str] = set()
+    for warning in warnings:
+        for clause in re.split(r"[,;.!?\n]|\b(?:but|while)\b", warning.replace("_", " ").lower()):
+            mentions = list(re.finditer(coordinated_fields, clause))
+            for index, mention in enumerate(mentions):
+                end = mentions[index + 1].start() if index + 1 < len(mentions) else len(clause)
+                # Scope each predicate to its field; a leading adjective belongs
+                # to the first field (e.g. "unreadable vendor").
+                start = 0 if index == 0 else mention.start()
+                if re.search(uncertain, clause[start:end]):
+                    for name in re.findall(field, mention.group()):
+                        fields.add("vendor" if name == "vendor" else "receipt_date")
+    return fields
+
+
 class LlmReceiptExtractor:
     """Live ReceiptExtractor implementation via LangChain structured output."""
 
@@ -267,19 +286,11 @@ class LlmReceiptExtractor:
         attempt: int,
     ) -> ExtractionResult:
         warnings = list(output.warnings)
-        uncertain = r"blur|unread|illegib|estimat|infer|default|placeholder|missing|not (?:found|visible|available)"
-        date_uncertain = any(
-            "date" in warning.lower() and re.search(uncertain, warning, re.IGNORECASE)
-            for warning in warnings
-        )
-        vendor_uncertain = any(
-            "vendor" in warning.lower() and re.search(uncertain, warning, re.IGNORECASE)
-            for warning in warnings
-        )
+        uncertain_fields = _uncertain_fields(warnings)
         try:
             receipt_date = (
                 date.fromisoformat(output.receipt_date)
-                if output.receipt_date and output.receipt_date.strip() and not date_uncertain
+                if output.receipt_date and output.receipt_date.strip() and "receipt_date" not in uncertain_fields
                 else None
             )
         except ValueError as exc:
@@ -289,7 +300,7 @@ class LlmReceiptExtractor:
                 "Live extraction returned a malformed receipt date.",
                 502,
             ) from exc
-        vendor = output.vendor if not vendor_uncertain else None
+        vendor = output.vendor if "vendor" not in uncertain_fields else None
         if receipt_date is None and "receipt_date_unreadable" not in warnings:
             warnings.append("receipt_date_unreadable")
         if vendor is None and "vendor_unreadable" not in warnings:

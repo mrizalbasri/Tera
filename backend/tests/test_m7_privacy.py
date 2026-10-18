@@ -195,6 +195,46 @@ def test_admitted_placeholder_date_is_not_treated_as_observed():
     assert result.receipt_date.confidence == 0
 
 
+@pytest.mark.parametrize("warning,missing", [
+    ("Vendor readable, receipt date blurred", "receipt_date"),
+    ("Receipt date readable, vendor missing", "vendor"),
+    ("Vendor readable; receipt date blurred", "receipt_date"),
+    ("Vendor readable and receipt date blurred", "receipt_date"),
+    ("Receipt date readable but vendor missing", "vendor"),
+    ("Receipt date blurred and vendor readable", "receipt_date"),
+    ("Vendor missing. Receipt date readable", "vendor"),
+    ("receipt_date_unreadable", "receipt_date"),
+    ("Unreadable vendor; receipt date readable", "vendor"),
+])
+def test_uncertainty_warning_only_invalidates_the_affected_field(warning, missing):
+    output = _valid_output().model_dump()
+    output["warnings"] = [warning]
+    extractor, _ = _extractor(structured=lambda _m: output)
+    result = extractor.extract(receipt=_receipt(), content=_jpeg_bytes(),
+                               declared_amount=None, attempt=1)
+    preserved = "vendor" if missing == "receipt_date" else "receipt_date"
+    assert getattr(result, missing).value is None
+    assert getattr(result, missing).confidence == 0
+    assert getattr(result, preserved).value is not None
+    assert getattr(result, preserved).confidence == Decimal("0.9")
+    assert f"{preserved}_unreadable" not in result.warnings
+    assert result.total.value == Decimal("60000")
+
+
+@pytest.mark.parametrize("warning", [
+    "Vendor and receipt date unreadable",
+    "Vendor missing; receipt date blurred",
+])
+def test_uncertainty_warning_can_invalidate_both_fields(warning):
+    output = _valid_output().model_dump()
+    output["warnings"] = [warning]
+    extractor, _ = _extractor(structured=lambda _m: output)
+    result = extractor.extract(receipt=_receipt(), content=_jpeg_bytes(),
+                               declared_amount=None, attempt=1)
+    assert result.vendor.value is None
+    assert result.receipt_date.value is None
+
+
 def test_missing_date_requests_clarification_once_and_preserves_evidence():
     output = _valid_output().model_dump()
     output["receipt_date"] = None

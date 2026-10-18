@@ -41,15 +41,22 @@
 		if (!review || !action || !reason.trim() || submitting) return;
 		submitting = true;
 		try {
-			await decideReview({
+			const saved = await decideReview({
 				claimId: review.claim.id,
 				action,
 				reason: reason.trim(),
 				reviewerReference: CURRENT_REVIEWER_ID
 			});
+			review = { ...review, claim: saved.claim, review: saved.review, decision: saved.decision };
+			if (detail) {
+				detail = {
+					...detail,
+					claim: saved.claim,
+					decisions: [...detail.decisions.filter((item) => item.id !== saved.decision.id), saved.decision]
+				};
+			}
 			action = null;
 			reason = '';
-			await load();
 		} catch (cause) {
 			error = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
 		} finally {

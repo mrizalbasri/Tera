@@ -53,7 +53,7 @@
 		{
 			id: 1,
 			from: 'agent',
-			text: 'Halo! 👋 Kirimkan foto nota transaksimu, dan biarkan Tera memproses klaimnya secara otomatis.',
+			text: 'Kirim foto atau PDF nota untuk mulai mengajukan klaim. Jika ada data yang belum terbaca, Tera akan meminta klarifikasi.',
 			timestamp: formatClock()
 		}
 	]);
@@ -489,7 +489,11 @@
 	}
 
 	async function sendText() {
-		if (submittingAnswer) return;
+		if (submittingAnswer || isProcessing) return;
+		if (selectedFile) {
+			await submitClaim();
+			return;
+		}
 		const text = draft.trim();
 		if (!text) {
 			// FR-09: jawaban/pesan kosong ditolak dengan pesan inline
@@ -502,6 +506,7 @@
 
 		if (!awaitingClarification) {
 			messages.push({ id: nextId++, from: 'user', text, timestamp: formatClock() });
+			messages.push({ id: nextId++, from: 'agent', text: 'Untuk mengajukan klaim, pilih foto atau PDF melalui tombol Upload nota, lalu tekan Kirim nota. Jawaban teks digunakan saat Tera meminta klarifikasi.', timestamp: formatClock() });
 			draft = '';
 			scrollToBottom();
 			return;
@@ -568,7 +573,7 @@
 </script>
 
 <svelte:head>
-	<title>Beranda | Tera Expense Agent</title>
+	<title>Ajukan klaim · Tera</title>
 	<meta name="description" content="Upload nota dan ajukan klaim reimbursement dengan mudah menggunakan Tera." />
 </svelte:head>
 
@@ -578,18 +583,12 @@
 	<header class="chat-header">
 		<div class="header-left">
 			<div class="agent-avatar" aria-hidden="true">
-				<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-					<rect x="3" y="11" width="18" height="10" rx="2"/>
-					<circle cx="12" cy="5" r="2"/>
-					<path d="M12 7v4"/>
-					<circle cx="8.5" cy="15" r="1.5"/>
-					<circle cx="15.5" cy="15" r="1.5"/>
-				</svg>
+				<img src="/logo.webp" width="28" height="28" alt="" />
 			</div>
 			<div>
 				<h1>Tera AI Agent</h1>
-				<span class="status-online">
-					<span class="dot" aria-hidden="true"></span> Online · Siap memproses nota
+				<span class="status-online" role="status">
+					{isProcessing ? 'Sedang memproses nota' : awaitingClarification ? 'Menunggu jawaban klarifikasi' : 'Kirim nota untuk mulai pemeriksaan'}
 				</span>
 			</div>
 		</div>
@@ -668,7 +667,7 @@
 	</div>
 
 	{#if composerError}
-		<p class="composer-error" role="alert">{composerError}</p>
+		<p id="composer-error" class="composer-error" role="alert">{composerError}</p>
 	{/if}
 
 	<form
@@ -701,14 +700,15 @@
 				? 'Mengirim jawaban...'
 				: awaitingClarification
 					? 'Tulis jawaban klarifikasi...'
-					: 'Tulis pesan atau tanyakan sesuatu...'}
+					: selectedFile ? 'Nota siap dikirim' : 'Pilih nota melalui tombol upload'}
 			bind:value={draft}
 			id="chat-text-input"
 			aria-label="Pesan"
 			aria-invalid={composerError ? 'true' : undefined}
+			aria-describedby={composerError ? 'composer-error' : undefined}
 			disabled={submittingAnswer}
 		/>
-		<button type="submit" class="send-btn" id="btn-kirim-pesan" disabled={submittingAnswer}>
+		<button type="submit" class="send-btn" id="btn-kirim-pesan" aria-label={selectedFile ? 'Kirim nota' : awaitingClarification ? 'Kirim jawaban klarifikasi' : 'Kirim pesan'} disabled={submittingAnswer || isProcessing}>
 			<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 				<line x1="22" y1="2" x2="11" y2="13"/>
 				<polygon points="22 2 15 22 11 13 2 9 22 2"/>
@@ -722,7 +722,8 @@
 	.chat-page {
 		display: flex;
 		flex-direction: column;
-		height: calc(100dvh - 3.5rem);
+		flex: 1;
+		min-height: 0;
 		max-width: 800px;
 	}
 
@@ -732,13 +733,11 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 1rem 1.25rem;
-		background: rgba(255, 255, 255, 0.75);
-		backdrop-filter: blur(16px);
-		-webkit-backdrop-filter: blur(16px);
+		background: var(--color-surface);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-lg);
 		margin-bottom: 0.75rem;
-		box-shadow: var(--shadow-md);
+		box-shadow: none;
 	}
 
 	.header-left {
@@ -750,13 +749,13 @@
 	.agent-avatar {
 		width: 44px;
 		height: 44px;
-		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+		background: var(--color-light);
 		border-radius: 50%;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		color: white;
-		box-shadow: 0 2px 12px rgba(26, 107, 92, 0.3);
+		box-shadow: none;
 		flex-shrink: 0;
 	}
 
@@ -776,26 +775,13 @@
 		font-weight: 500;
 	}
 
-	.dot {
-		width: 7px;
-		height: 7px;
-		background: #22c55e;
-		border-radius: 50%;
-		animation: pulse 2s infinite;
-	}
-
-	@keyframes pulse {
-		0%, 100% { opacity: 1; transform: scale(1); }
-		50% { opacity: 0.55; transform: scale(0.8); }
-	}
-
 	/* Tip */
 	.tip-banner {
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
 		padding: 0.6rem 1rem;
-		background: linear-gradient(135deg, rgba(26, 107, 92, 0.07) 0%, rgba(46, 204, 168, 0.05) 100%);
+		background: var(--color-light);
 		border: 1px solid rgba(26, 107, 92, 0.12);
 		border-radius: var(--radius-sm);
 		font-size: 0.77rem;
@@ -809,6 +795,7 @@
 	/* Messages */
 	.messages {
 		flex: 1;
+		min-height: 0;
 		display: flex;
 		flex-direction: column;
 		gap: 0.6rem;
@@ -872,9 +859,7 @@
 	.bubble p { margin: 0; }
 
 	.bubble.agent {
-		background: rgba(255, 255, 255, 0.85);
-		backdrop-filter: blur(12px);
-		-webkit-backdrop-filter: blur(12px);
+		background: var(--color-surface);
 		border: 1px solid var(--color-border);
 		color: var(--color-text);
 		border-bottom-left-radius: 4px;
@@ -962,7 +947,7 @@
 		display: block;
 		font-size: 0.65rem;
 		margin-top: 0.35rem;
-		opacity: 0.5;
+		opacity: 1;
 		text-align: right;
 	}
 
@@ -990,8 +975,7 @@
 		align-items: center;
 		gap: 0.4rem;
 		padding: 0.65rem 1rem;
-		background: rgba(255, 255, 255, 0.85);
-		backdrop-filter: blur(10px);
+		background: var(--color-surface);
 		border: 1.5px solid var(--color-border);
 		border-radius: var(--radius-sm);
 		color: var(--color-primary);
@@ -1013,8 +997,7 @@
 	.text-input {
 		flex: 1;
 		padding: 0.65rem 1rem;
-		background: rgba(255, 255, 255, 0.85);
-		backdrop-filter: blur(10px);
+		background: var(--color-surface);
 		border: 1.5px solid var(--color-border);
 		border-radius: var(--radius-sm);
 		font: inherit;
@@ -1024,7 +1007,7 @@
 		outline: none;
 	}
 
-	.text-input::placeholder { color: rgba(74, 123, 115, 0.55); }
+	.text-input::placeholder { color: var(--color-text-muted); }
 
 	.text-input:focus {
 		border-color: var(--color-primary);
@@ -1041,7 +1024,7 @@
 		align-items: center;
 		gap: 0.4rem;
 		padding: 0.65rem 1.1rem;
-		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+		background: var(--color-primary);
 		border: none;
 		border-radius: var(--radius-sm);
 		color: white;
@@ -1050,12 +1033,12 @@
 		font-weight: 600;
 		cursor: pointer;
 		transition: all var(--transition);
-		box-shadow: 0 2px 8px rgba(26, 107, 92, 0.3);
+		box-shadow: none;
 		white-space: nowrap;
 	}
 
 	.send-btn:hover {
-		background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+		background: var(--color-primary-dark);
 		transform: translateY(-1px);
 		box-shadow: 0 4px 14px rgba(26, 107, 92, 0.38);
 	}
@@ -1063,9 +1046,8 @@
 	.send-btn:active { transform: translateY(0); }
 
 	@media (max-width: 680px) {
-		.chat-page { height: calc(100dvh - 9rem); }
 		.upload-btn span, .send-btn span { display: none; }
-		.upload-btn, .send-btn { padding: 0.65rem 0.85rem; }
+		.upload-btn, .send-btn { padding: 0.65rem 0.85rem; min-width: 44px; flex-shrink: 0; }
 	}
 
 	/* ─── Typing Dots ─── */

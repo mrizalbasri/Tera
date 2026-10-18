@@ -7,6 +7,13 @@
 	import '$lib/workspace.css';
 	let { children } = $props();
 	let menuOpen = $state(false);
+	let menuButton = $state<HTMLButtonElement>();
+	function closeMenu(event: KeyboardEvent) {
+		if (event.key === 'Escape' && menuOpen) {
+			menuOpen = false;
+			menuButton?.focus();
+		}
+	}
 	const isLanding = $derived(page.url.pathname === '/');
 	const menu = [
 		{ href: '/pengajuan', label: 'Ajukan klaim' },
@@ -17,6 +24,7 @@
 	];
 	const currentPage = $derived(menu.find((item) => page.url.pathname.startsWith(item.href))?.label ?? 'Detail klaim');
 </script>
+<svelte:window onkeydown={closeMenu} />
 <svelte:head><link rel="icon" type="image/webp" href="/logo.webp" /><meta name="theme-color" content="#0f766e" /></svelte:head>
 <a class="skip-link" href="#main-content">Lewati ke konten</a>
 {#if isLanding}
@@ -26,7 +34,7 @@
 	<aside class="sidebar">
 		<div class="workspace-brand-row">
 			<a href="/" class="brand" aria-label="Tera, beranda"><img src="/logo.webp" alt="" width="36" height="36" /><strong>Tera</strong></a>
-			<button type="button" class="mobile-menu secondary" aria-expanded={menuOpen} aria-controls="workspace-nav" onclick={() => (menuOpen = !menuOpen)}>{menuOpen ? 'Tutup menu' : 'Menu'}</button>
+			<button bind:this={menuButton} type="button" class="mobile-menu secondary" aria-expanded={menuOpen} aria-controls="workspace-nav" onclick={() => (menuOpen = !menuOpen)}>{menuOpen ? 'Tutup menu' : 'Menu'}</button>
 		</div>
 		<nav id="workspace-nav" class:open={menuOpen} aria-label="Menu utama">
 			{#each menu as item}

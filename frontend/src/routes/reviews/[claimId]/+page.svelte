@@ -109,7 +109,7 @@
 					<button type="button" class="reject" onclick={() => (action = 'reject')}>Tolak</button>
 				</div>
 				{#if action}
-					<textarea bind:value={reason} placeholder="Alasan keputusan wajib diisi"></textarea>
+					<textarea bind:value={reason} aria-label="Alasan keputusan" required placeholder="Alasan keputusan wajib diisi"></textarea>
 					<button type="button" onclick={submitDecision} disabled={submitting || !reason.trim()}>
 						{submitting ? 'Menyimpan...' : `Konfirmasi ${action === 'approve' ? 'persetujuan' : 'penolakan'}`}
 					</button>

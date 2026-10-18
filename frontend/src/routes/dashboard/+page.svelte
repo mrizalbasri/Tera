@@ -10,10 +10,22 @@
 	let claims = $state<Claim[]>([]);
 	let loading = $state(true);
 	let error = $state('');
+	let searchQuery = $state('');
 	const approved = $derived(claims.filter((claim) => claim.status === 'approved').length);
 	const review = $derived(claims.filter((claim) => claim.status === 'escalated').length);
 	const clarification = $derived(claims.filter((claim) => claim.status === 'needs_clarification').length);
 	const recent = $derived([...claims].sort((a, b) => b.submitted_at.localeCompare(a.submitted_at)).slice(0, 8));
+	const filteredRecent = $derived(
+		recent.filter((claim) => {
+			const q = searchQuery.trim().toLowerCase();
+			if (!q) return true;
+			return (
+				shortClaimRef(claim.id).toLowerCase().includes(q) ||
+				claim.employee_id.toLowerCase().includes(q) ||
+				claim.status.toLowerCase().includes(q)
+			);
+		})
+	);
 
 	async function load() {
 		loading = true;
@@ -44,16 +56,45 @@
 			<div class="attention"><div><h2>Ada klaim yang perlu ditindaklanjuti.</h2><p>{review} pengajuan menunggu review dan {clarification} memerlukan informasi tambahan.</p></div><a class="button secondary" href={review > 0 ? '/reviews' : '/riwayat'}>{review > 0 ? 'Buka review' : 'Lihat riwayat'}</a></div>
 		{/if}
 		<section class="recent-claims">
-			<div class="section-top"><h2>Pengajuan terbaru</h2><a href="/riwayat">Lihat riwayat</a></div>
+			<div class="section-top">
+				<div class="section-heading">
+					<h2>Pengajuan terbaru</h2>
+					<input
+						type="search"
+						bind:value={searchQuery}
+						placeholder="Cari ref, karyawan, atau status..."
+						aria-label="Filter pengajuan terbaru"
+						class="search-input"
+					/>
+				</div>
+				<a href="/riwayat">Lihat riwayat</a>
+			</div>
 			<div class="table-wrap" role="region" aria-label="Pengajuan terbaru">
-				<table>
-					<thead><tr><th>Klaim</th><th>Karyawan</th><th>Diajukan</th><th>Nominal</th><th>Status</th><th><span class="sr-only">Detail</span></th></tr></thead>
-					<tbody>
-						{#each recent as claim (claim.id)}
-							<tr><td>{shortClaimRef(claim.id)}</td><td>{claim.employee_id}</td><td>{formatDateTime(claim.submitted_at)}</td><td class="amount">{formatCurrency(claim.declared_amount, claim.currency)}</td><td><StatusBadge status={claim.status} size="sm" /></td><td><a class="detail-link" href={`/riwayat/${encodeURIComponent(claim.id)}`}>Lihat klaim</a></td></tr>
-						{/each}
-					</tbody>
-				</table>
+				{#if filteredRecent.length === 0}
+					<p class="search-empty">Tidak ada pengajuan terbaru yang cocok dengan pencarian "{searchQuery}".</p>
+				{:else}
+					<table>
+						<thead><tr><th>Klaim</th><th>Karyawan</th><th>Diajukan</th><th>Nominal</th><th>Status</th><th><span class="sr-only">Detail</span></th></tr></thead>
+						<tbody>
+							{#each filteredRecent as claim (claim.id)}
+								<tr>
+									<td>{shortClaimRef(claim.id)}</td>
+									<td>{claim.employee_id}</td>
+									<td>{formatDateTime(claim.submitted_at)}</td>
+									<td class="amount">{formatCurrency(claim.declared_amount, claim.currency)}</td>
+									<td><StatusBadge status={claim.status} size="sm" /></td>
+									<td>
+										{#if claim.status === 'escalated'}
+											<a class="detail-link review-link" href={`/reviews/${encodeURIComponent(claim.id)}`}>Tinjau klaim</a>
+										{:else}
+											<a class="detail-link" href={`/riwayat/${encodeURIComponent(claim.id)}`}>Lihat klaim</a>
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{/if}
 			</div>
 		</section>
 	{/if}
@@ -72,11 +113,30 @@
 	.attention h2 { font-size: var(--text-md); margin: 0; }
 	.attention p { margin: var(--space-2) 0 0; color: var(--color-text-muted); font-size: var(--text-xs); }
 	.recent-claims { margin-top: var(--space-10); }
-	.recent-claims .section-top > a { font-size: var(--text-xs); display: inline-flex; align-items: center; min-height: 44px; white-space: nowrap; }
+	.section-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-4); }
+	.section-heading { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+	.section-top > a { font-size: var(--text-xs); display: inline-flex; align-items: center; min-height: 44px; white-space: nowrap; }
+	.search-input {
+		font-size: var(--text-xs);
+		padding: 0.4rem 0.65rem;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg, #ffffff);
+		color: var(--color-text);
+		min-width: 220px;
+	}
+	.search-input:focus { border-color: var(--color-primary, #0f766e); outline: none; }
+	.search-empty { padding: var(--space-6); color: var(--color-text-muted); font-size: var(--text-sm); text-align: center; }
+	.review-link { font-weight: 600; color: #0f766e; }
 	.dashboard-empty { padding: var(--space-20) var(--space-6); text-align: center; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 	.dashboard-empty h2 { font-size: var(--text-xl); margin: var(--space-6) 0 var(--space-3); }
 	.dashboard-empty p { color: var(--color-text-muted); max-width: 480px; margin: 0 auto var(--space-6); }
 	.state-panel { padding: var(--space-12); text-align: center; }
 	.sr-only { position: absolute; width: 1px; height: 1px; overflow: clip; clip-path: inset(50%); }
-	@media (max-width: 768px) { .dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dashboard-empty { padding-block: var(--space-12); } }
+	@media (max-width: 768px) {
+		.dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+		.dashboard-empty { padding-block: var(--space-12); }
+		.section-top { flex-direction: column; align-items: stretch; }
+		.search-input { width: 100%; min-width: 0; }
+	}
 </style>

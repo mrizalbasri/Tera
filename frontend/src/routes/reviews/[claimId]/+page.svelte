@@ -40,6 +40,7 @@
 	async function submitDecision() {
 		if (!review || !action || !reason.trim() || submitting) return;
 		submitting = true;
+		error = '';
 		try {
 			await decideReview({
 				claimId: review.claim.id,
@@ -51,7 +52,11 @@
 			reason = '';
 			await load();
 		} catch (cause) {
-			error = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
+			if (cause instanceof ApiError && cause.status === 409) {
+				error = 'Keputusan sudah pernah disimpan sebelumnya (konflik 409). Muat ulang untuk melihat keputusan terbaru.';
+			} else {
+				error = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
+			}
 		} finally {
 			submitting = false;
 		}
@@ -104,15 +109,24 @@
 		{#if review.review.status === 'open'}
 			<section class="panel decision-panel">
 				<h2>Keputusan reviewer</h2>
-				<div class="actions">
-					<button type="button" class="approve" onclick={() => (action = 'approve')}>Setujui</button>
-					<button type="button" class="reject" onclick={() => (action = 'reject')}>Tolak</button>
-				</div>
-				{#if action}
-					<textarea bind:value={reason} placeholder="Alasan keputusan wajib diisi"></textarea>
-					<button type="button" onclick={submitDecision} disabled={submitting || !reason.trim()}>
-						{submitting ? 'Menyimpan...' : `Konfirmasi ${action === 'approve' ? 'persetujuan' : 'penolakan'}`}
-					</button>
+				{#if !action}
+					<div class="actions">
+						<button type="button" class="approve" onclick={() => (action = 'approve')}>Setujui klaim</button>
+						<button type="button" class="reject" onclick={() => (action = 'reject')}>Tolak klaim</button>
+					</div>
+				{:else}
+					<div class="confirm-box">
+						<p>Konfirmasi: <strong>{action === 'approve' ? 'Setujui klaim' : 'Tolak klaim'}</strong></p>
+						<textarea bind:value={reason} placeholder="Alasan keputusan wajib diisi berdasarkan bukti klaim..."></textarea>
+						<div class="actions">
+							<button type="button" class={action === 'approve' ? 'approve' : 'reject'} onclick={submitDecision} disabled={submitting || !reason.trim()}>
+								{submitting ? 'Menyimpan...' : `Ya, simpan ${action === 'approve' ? 'persetujuan' : 'penolakan'}`}
+							</button>
+							<button type="button" class="secondary" onclick={() => { action = null; reason = ''; }} disabled={submitting}>
+								Batal
+							</button>
+						</div>
+					</div>
 				{/if}
 			</section>
 		{/if}
@@ -131,9 +145,12 @@
 	.row { display: flex; justify-content: space-between; padding: .55rem 0; border-bottom: 1px solid var(--color-border); }
 	.evidence { display: grid; gap: .25rem; padding: .75rem 0; border-bottom: 1px solid var(--color-border); }
 	.evidence span { color: var(--color-text-muted); font-size: .9rem; }
-	.actions { display: flex; gap: .75rem; }
-	textarea { display: block; width: 100%; min-height: 90px; margin: 1rem 0; padding: .75rem; }
-	button { padding: .6rem 1rem; cursor: pointer; }
-	.approve { color: #166534; } .reject { color: #991b1b; }
+	.actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+	.confirm-box { margin-top: 0.5rem; }
+	textarea { display: block; width: 100%; min-height: 90px; margin: 0.75rem 0; padding: .75rem; font-family: inherit; }
+	button { padding: .6rem 1rem; cursor: pointer; border-radius: var(--radius-sm, 6px); font-size: var(--text-sm, 0.875rem); }
+	.approve { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; font-weight: 600; }
+	.reject { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; font-weight: 600; }
+	.secondary { background: var(--color-surface, #f8fafc); color: var(--color-text-muted, #64748b); border: 1px solid var(--color-border, #e2e8f0); }
 	.error { color: #991b1b; }
 </style>

@@ -9,18 +9,31 @@ export const CURRENT_REVIEWER_ID = 'reviewer-001';
 
 export async function listReviews(): Promise<ReviewQueueResponse> {
 	const items: ReviewQueueItem[] = [];
+	const reviewIds = new Set<string>();
 	const limit = 100;
 	let offset = 0;
-	let total: number;
+	let total: number | undefined;
 	do {
 		const response = await apiRequest<ReviewQueueResponse>(`/reviews?limit=${limit}&offset=${offset}`);
+		if (total !== undefined && response.total !== total) {
+			throw new Error('Antrean review berubah saat dimuat. Silakan muat ulang.');
+		}
 		total = response.total;
 		if (response.items.length === 0 && offset < total) {
 			throw new Error('Antrean review berubah saat dimuat. Silakan muat ulang.');
 		}
+		for (const item of response.items) {
+			if (reviewIds.has(item.review.id)) {
+				throw new Error('Antrean review berubah saat dimuat. Silakan muat ulang.');
+			}
+			reviewIds.add(item.review.id);
+		}
 		items.push(...response.items);
 		offset += limit;
 	} while (offset < total);
+	if (items.length !== total) {
+		throw new Error('Antrean review berubah saat dimuat. Silakan muat ulang.');
+	}
 	return { items, total };
 }
 

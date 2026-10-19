@@ -700,8 +700,44 @@
 			animation: navbar-enter 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
 		}
 
-		.scroll-reveal .audience-layout article, .scroll-reveal .faq-list details {
+		/* Coordinated Scroll Reveal for all sections below hero */
+		.scroll-reveal .section-intro,
+		.scroll-reveal .workflow-controls,
+		.scroll-reveal .workflow-detail,
+		.scroll-reveal .team-heading,
+		.scroll-reveal .audience-layout article,
+		.scroll-reveal .faq-intro,
+		.scroll-reveal .faq-list details,
+		.scroll-reveal .closing-copy,
+		.closing :global(.receipt-artwork) {
 			transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1), transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+			will-change: transform, opacity;
+		}
+
+		/* Workflow section (#cara-kerja) */
+		.scroll-reveal:global(.awaiting-reveal) .section-intro {
+			opacity: 0;
+			transform: translateX(-16px);
+		}
+
+		.scroll-reveal:global(.awaiting-reveal) .workflow-controls {
+			opacity: 0;
+			transform: translateX(-20px);
+		}
+
+		.scroll-reveal:global(.awaiting-reveal) .workflow-detail {
+			opacity: 0;
+			transform: translateX(20px) scale(0.985);
+		}
+
+		.scroll-reveal .workflow-detail {
+			transition-delay: 100ms;
+		}
+
+		/* Team section (#untuk-tim) */
+		.scroll-reveal:global(.awaiting-reveal) .team-heading {
+			opacity: 0;
+			transform: translateX(-16px);
 		}
 
 		.scroll-reveal:global(.awaiting-reveal) .audience-layout article:first-child {
@@ -714,8 +750,22 @@
 			transform: translateX(20px);
 		}
 
+		.scroll-reveal .audience-layout article:last-child {
+			transition-delay: 90ms;
+		}
+
+		/* FAQ section (#faq) */
+		.scroll-reveal:global(.awaiting-reveal) .faq-intro {
+			opacity: 0;
+			transform: translateX(-16px);
+		}
+
+		.scroll-reveal .faq-list details:nth-child(1) {
+			transition-delay: 40ms;
+		}
+
 		.scroll-reveal .faq-list details:nth-child(2) {
-			transition-delay: 80ms;
+			transition-delay: 100ms;
 		}
 
 		.scroll-reveal .faq-list details:nth-child(3) {
@@ -723,12 +773,31 @@
 		}
 
 		.scroll-reveal .faq-list details:nth-child(4) {
-			transition-delay: 240ms;
+			transition-delay: 220ms;
 		}
 
 		.scroll-reveal:global(.awaiting-reveal) .faq-list details {
 			opacity: 0;
-			transform: scale(0.99);
+			transform: translateY(12px);
+		}
+
+		.faq-list details[open] p {
+			animation: faq-open 220ms cubic-bezier(0.16, 1, 0.3, 1);
+		}
+
+		/* Closing section */
+		.scroll-reveal:global(.awaiting-reveal) .closing-copy {
+			opacity: 0;
+			transform: translateX(-24px);
+		}
+
+		.closing:global(.awaiting-reveal) :global(.receipt-artwork) {
+			opacity: 0;
+			transform: translateX(24px) scale(0.96);
+		}
+
+		.closing :global(.receipt-artwork) {
+			transition-delay: 80ms;
 		}
 
 		.hero-copy > h1 {
@@ -765,13 +834,17 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		:global(.landing .scroll-reveal), .menu-toggle svg path, .navbar-shell {
-			transition: none;
-			animation: none;
+		:global(.landing .scroll-reveal),
+		:global(.landing .scroll-reveal) *,
+		.menu-toggle svg path,
+		.navbar-shell {
+			transition: none !important;
+			animation: none !important;
 		}
-		:global(.landing .awaiting-reveal) {
-			opacity: 1;
-			transform: none;
+		:global(.landing .awaiting-reveal),
+		:global(.landing .awaiting-reveal) * {
+			opacity: 1 !important;
+			transform: none !important;
 		}
 	}
 
@@ -947,6 +1020,8 @@
 		color: var(--color-text-muted);
 		text-align: left;
 		white-space: normal;
+		cursor: pointer;
+		transition: color 200ms ease, transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.workflow-controls button:last-child {
@@ -955,6 +1030,10 @@
 
 	.workflow-controls button.chosen, .workflow-controls button:hover {
 		color: var(--color-primary-dark);
+	}
+
+	.workflow-controls button:hover, .workflow-controls button.chosen {
+		transform: translateX(4px);
 	}
 
 	.step-number {
@@ -978,6 +1057,8 @@
 	.step-select {
 		margin-left: auto;
 		font-size: 20px;
+		display: inline-block;
+		transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.workflow-detail {
@@ -1101,6 +1182,11 @@
 	.audience-layout article {
 		border-top: 1px solid var(--color-border);
 		padding-top: var(--space-6);
+		transition: border-color 220ms ease;
+	}
+
+	.audience-layout article:hover {
+		border-color: var(--color-primary-light);
 	}
 
 	.audience-label {
@@ -1130,6 +1216,11 @@
 		display: flex;
 		gap: var(--space-4);
 		align-items: center;
+		transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 220ms ease;
+	}
+
+	.employee-note:hover {
+		transform: translateY(-2px);
 	}
 
 	.employee-note > span {
@@ -1203,6 +1294,11 @@
 		font-weight: 600;
 		cursor: pointer;
 		list-style: none;
+		transition: color 180ms ease;
+	}
+
+	.faq-list summary:hover {
+		color: var(--color-primary-dark);
 	}
 
 	.faq-list summary::-webkit-details-marker {
@@ -1214,10 +1310,13 @@
 		color: var(--color-primary);
 		font-size: 22px;
 		font-weight: 400;
+		line-height: 1;
+		display: inline-block;
+		transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	.faq-list details[open] summary::after {
-		content: '−';
+		transform: rotate(45deg);
 	}
 
 	.faq-list details p {
@@ -1227,6 +1326,17 @@
 		color: var(--color-text-muted);
 		font-size: var(--text-sm);
 		line-height: 1.8;
+	}
+
+	@keyframes faq-open {
+		from {
+			opacity: 0;
+			transform: translateY(-6px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.closing {
@@ -1267,11 +1377,14 @@
 		border-color: var(--color-mint);
 		flex-shrink: 0;
 		border-radius: var(--radius-pill);
+		transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 	}
 
 	.closing-button:hover {
 		background: var(--color-light);
 		border-color: var(--color-light);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 	}
 
 	.landing-footer {
@@ -1299,6 +1412,11 @@
 		display: flex;
 		align-items: center;
 		white-space: nowrap;
+		transition: color 180ms ease;
+	}
+
+	.landing-footer > a:not(.wordmark):hover {
+		color: var(--color-ink);
 	}
 
 	@media (max-width: 960px) {

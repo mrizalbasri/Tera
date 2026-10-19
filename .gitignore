@@ -57,3 +57,5 @@ coverage/
 
 .zcode/
 .zcodeignore
+.hallmark/
+.omo/

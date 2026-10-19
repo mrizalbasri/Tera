@@ -88,3 +88,19 @@ def test_report_summary_and_csv_reflect_claims_and_zero_amount() -> None:
     assert lines[0] == "claim_id,employee_id,submitted_at,currency,declared_amount,status"
     assert claim_id in lines[1]
     assert ",0.00,received" in lines[1] or ",0,received" in lines[1]
+
+
+def test_get_receipt_content_returns_file() -> None:
+    created = _create_claim(
+        employee_id="content-employee",
+        content=b"%PDF-1.7\ntest receipt content\n%%EOF",
+        filename="my-nota.pdf",
+    )
+    claim_id = created["claim"]["id"]
+    receipt_id = created["receipts"][0]["id"]
+
+    response = client.get(f"/claims/{claim_id}/receipts/{receipt_id}/content")
+    assert response.status_code == 200
+    assert response.content == b"%PDF-1.7\ntest receipt content\n%%EOF"
+    assert response.headers["content-type"] == "application/pdf"
+    assert 'filename="my-nota.pdf"' in response.headers.get("content-disposition", "")

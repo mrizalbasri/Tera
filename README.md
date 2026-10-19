@@ -1,12 +1,88 @@
-# Expense Agent
+<p align="center">
+  <img src="frontend/static/logo.webp" alt="Logo Tera" width="120" />
+</p>
 
-Expense Agent is a prototype AI agent for processing employee expense reimbursement claims. The business requirements are documented in [`docs/BRD_Expense_Reimbursement_Agent.md`](docs/BRD_Expense_Reimbursement_Agent.md).
+# Tera
 
-This repository uses:
+Tera adalah aplikasi reimbursement karyawan dengan agent untuk membaca nota,
+memeriksa klaim terhadap kebijakan perusahaan, dan membantu tim keuangan
+meninjau pengajuan. Kebutuhan bisnis tersedia di
+[dokumen BRD](docs/BRD_Expense_Reimbursement_Agent.md).
 
-- **Backend:** FastAPI and Python
-- **Frontend:** SvelteKit and TypeScript
-- **Documentation:** Markdown designed to work as an Obsidian vault
+## Masalah dan solusi
+
+Pemeriksaan reimbursement manual mengharuskan tim keuangan membaca nota,
+mencocokkan nominal, memeriksa kebijakan perusahaan, dan mencari klaim duplikat.
+Informasi yang kurang jelas juga memerlukan klarifikasi dari karyawan.
+
+Tera membantu memproses klaim dari unggahan nota: mengekstrak data, menjalankan
+validasi dan evaluasi kebijakan, lalu mencatat keputusan beserta alasannya.
+Klaim yang membutuhkan informasi tambahan masuk ke alur klarifikasi; klaim
+yang memerlukan pertimbangan manusia masuk ke antrean review.
+
+## Fitur utama dan target pengguna
+
+| Pengguna | Kebutuhan dan fitur |
+| --- | --- |
+| Karyawan | Mengunggah nota, mengajukan klaim, melihat riwayat/status, dan menjawab klarifikasi |
+| Tim keuangan / reviewer | Memeriksa bukti, temuan validasi, kebijakan, sinyal duplikasi/anomali, lalu menyetujui atau menolak dengan alasan |
+| Admin | Mengakses antrean review dan laporan serta mengunduh CSV |
+
+Pemrosesan menggunakan LangGraph dengan checkpoint untuk menunggu klarifikasi
+atau review. Ekstraksi tersedia melalui provider mock atau model vision yang
+mendukung endpoint OpenAI-compatible. Retrieval kebijakan dengan pgvector dan
+skor anomali Isolation Forest dapat diaktifkan secara terpisah.
+Login normal memakai Clerk; mode demo lokal tersedia tanpa akun.
+
+## Tech stack dan arsitektur
+
+![SvelteKit](https://img.shields.io/badge/SvelteKit-FF3E00?style=flat&logo=svelte&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat&logo=vite&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat&logo=fastapi&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?style=flat&logo=langchain&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?style=flat&logo=langgraph&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-D71F00?style=flat&logo=sqlalchemy&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=flat&logo=scikitlearn&logoColor=white)
+![Clerk](https://img.shields.io/badge/Clerk-6C47FF?style=flat&logo=clerk&logoColor=white)
+![pytest](https://img.shields.io/badge/pytest-0A9EDC?style=flat&logo=pytest&logoColor=white)
+![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=flat&logo=vitest&logoColor=white)
+
+| Bagian | Teknologi |
+| --- | --- |
+| Antarmuka | Svelte 5, SvelteKit, TypeScript, Vite |
+| API dan kontrak | Python, FastAPI, Pydantic |
+| Agent | LangChain, LangGraph, provider vision OpenAI-compatible |
+| Penyimpanan | SQLAlchemy, PostgreSQL, checkpoint LangGraph; memory untuk demo |
+| Kebijakan dan anomali | pgvector, SentenceTransformers, scikit-learn |
+| Autentikasi | Clerk, verifikasi JWT di backend |
+| Pengujian | pytest, Vitest, svelte-check |
+
+Browser mengakses SvelteKit, yang meneruskan permintaan `/api` ke FastAPI.
+Route API memanggil service untuk intake dan pemrosesan. Workflow menjalankan
+ekstraksi, validasi, evaluasi kebijakan, deteksi duplikasi, skor anomali, dan
+keputusan. Repository menyimpan klaim dan bukti; audit mencatat peristiwa
+pemrosesan. Lihat [arsitektur sistem](docs/architecture/overview.md) dan
+[alur agent](docs/architecture/agent-flow.md).
+
+## Website, screenshot, dan dokumentasi
+
+URL website live belum tercantum dalam dokumentasi repository. Untuk mencoba
+secara lokal, buka [Tera lokal](http://localhost:5173) setelah menjalankan kedua
+server di bawah. Dokumentasi API interaktif tersedia di
+[Swagger UI lokal](http://127.0.0.1:8000/docs).
+
+Tampilan workspace pengajuan klaim:
+
+![Workspace pengajuan klaim Tera](docs/development/screenshots/tera-claim-workspace.png)
+
+- [Indeks dokumentasi](docs/README.md)
+- [Business requirements](docs/BRD_Expense_Reimbursement_Agent.md)
+- [Login, akses pengguna, dan mode demo](docs/admin-login.md)
+- [Operasional backend](docs/development/backend-operations.md)
+- [Kontribusi dan validasi](CONTRIBUTING.md)
 
 ## Panduan tugas tim
 
@@ -47,6 +123,37 @@ flow and checkpoint compatibility constraints.
 
 ## Local setup
 
+Siapkan Python beserta `venv`, Node.js yang kompatibel dengan Vite 8, dan pnpm
+sesuai field `packageManager` di `frontend/package.json`. PostgreSQL diperlukan
+untuk penyimpanan SQL; Docker diperlukan bila memakai `compose.yaml` untuk
+pgvector. Mode demo memory tidak membutuhkan database atau API key.
+Jalankan backend dan frontend pada dua terminal terpisah dari root repository.
+
+### Environment variables
+
+Salin `backend/.env.example` dan `frontend/.env.example` ke `.env` pada folder
+masing-masing. Jangan menimpa `.env` lokal yang sudah dikonfigurasi.
+
+| File | Variabel | Penggunaan |
+| --- | --- | --- |
+| Backend | `DEMO_MODE`, `ENVIRONMENT` | Untuk mencoba tanpa login, set `DEMO_MODE=true` dan `ENVIRONMENT=development`; demo memaksa memory, mock, kebijakan local, dan anomali rules |
+| Backend | `FRONTEND_ORIGIN` | Origin frontend untuk pemeriksaan permintaan; default `http://localhost:5173` |
+| Backend | `CLERK_ISSUER`, `CLERK_ADMIN_USER_IDS` | Mode normal: issuer Clerk yang cocok dengan frontend dan daftar user ID admin dipisahkan koma; daftar kosong tidak memberi akses admin |
+| Frontend | `VITE_CLERK_PUBLISHABLE_KEY` | Mode normal: publishable key dari instance Clerk yang sama |
+| Frontend | `BACKEND_URL` | Origin FastAPI, default `http://127.0.0.1:8000`; hanya digunakan server |
+| Backend | `STORAGE_BACKEND`, `DATABASE_URL`, `GRAPH_CHECKPOINT_SCHEMA` | Pilih `memory` atau `sql`; mode SQL membutuhkan URL database dan schema checkpoint |
+| Backend | `PROVIDER_MODE` | Default `mock`; pilih `live` untuk ekstraksi model vision |
+| Backend | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | Konfigurasi endpoint, model, dan kredensial untuk provider live |
+| Backend | `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`, `PROVIDER_FALLBACK`, `LLM_IMAGE_PRIVACY_MODE` | Batas panggilan provider, fallback, dan pengiriman gambar |
+| Backend | `POLICY_MODE`, `POLICY_RERANK_MODE` | Default `local` dan `none`; mode RAG/reranker membutuhkan seed model dan indeks |
+| Backend | `ANOMALY_MODE`, `ANOMALY_MODEL_PATH` | Default `rules`; mode `ml` membutuhkan model hasil training lokal |
+
+Nilai batas unggahan, confidence, retry pemrosesan, recovery, dan rate limit
+tersedia di [contoh konfigurasi backend](backend/.env.example). Referensi
+frontend ada di [contoh konfigurasi frontend](frontend/.env.example).
+Restart server setelah perubahan konfigurasi. Gunakan data sintetis pada demo;
+data memory hilang ketika backend direstart. Mode demo ditolak di production.
+
 ### Backend
 
 ```powershell
@@ -55,6 +162,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
+# Untuk percobaan lokal tanpa Clerk, ubah DEMO_MODE=true di .env.
 uvicorn app.main:app --reload
 ```
 
@@ -142,6 +250,7 @@ SQLite compatibility tests still run.
 ```powershell
 cd frontend
 pnpm install
+Copy-Item .env.example .env
 pnpm dev
 ```
 
@@ -159,19 +268,21 @@ uses that page for evidence inspection, reviewer identity, reason and confirmati
 The analytics page retains prototype/sample metrics from the dashboard work;
 it is not a verified production reporting or automation-accuracy dashboard.
 
-- `/`: save synthetic receipt files and employee reference.
-- `/riwayat`: search persisted claims by employee reference and status.
+- `/`: landing page Tera.
+- `/pengajuan`: upload receipts and submit a claim.
+- `/riwayat`: view claim history and status for the signed-in user.
 - `/claims/{claim_id}`: explicitly start/retry processing, inspect extraction,
   validation, policy evidence and timeline, answer clarification, or review an
   escalated claim with a reason and confirmation.
-- `/review`: load the backend's open review queue.
+- `/reviews`: load the admin review queue.
+- `/reports`: admin reports and CSV download.
 
 Intake and processing are separate steps so processing failures do not require
 resubmitting saved receipts. Retrying the unchanged upload form reuses its
-idempotency key. Employee/reviewer references are prototype identifiers, not
-authentication or authorization; the review queue is intended for trusted local
-development. No frontend receipt/identity data is saved in localStorage.
-Reports/export remains planned work. Optional ML anomaly scoring is available
+idempotency key. In normal mode, Clerk sessions identify employees and reviewers;
+admin access requires the backend allowlist. Demo mode bypasses login for local
+synthetic data. See [the access guide](docs/admin-login.md).
+Optional ML anomaly scoring is available
 after explicit local training; see [the ML setup guide](docs/development/ml-anomaly.md).
 
 ## RAG policy retrieval (M7.6)
@@ -311,6 +422,8 @@ M7.5 adds LangGraph orchestration and PostgreSQL checkpoint persistence for
 development and deployment, with memory and legacy SQLite compatibility.
 `PROVIDER_MODE=mock` remains the default and needs no API key. M7.6's first PR
 adds optional local RAG policy selection. The ML extension adds offline synthetic
-training and optional Isolation Forest scoring; reporting/export (M8) remains planned.
+training and optional Isolation Forest scoring. The current working tree also
+includes Clerk access controls, a local demo mode, and reports/CSV;
+see [the access guide](docs/admin-login.md) for their setup and limitations.
 OCR, frontend work and the large-number validation bug tracked in
 [issue #12](https://github.com/mrizalbasri/Tera/issues/12) are outside M7.5.

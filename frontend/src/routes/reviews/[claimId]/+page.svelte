@@ -4,7 +4,7 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
 	import { getClaim } from '$lib/api/claims';
-	import { listReviews, decideReview, CURRENT_REVIEWER_ID } from '$lib/api/reviews';
+	import { listReviews, decideReview } from '$lib/api/reviews';
 	import { ApiError } from '$lib/api/client';
 	import { formatCurrency } from '$lib/formatters/currency';
 	import { formatDateTime } from '$lib/formatters/date';
@@ -41,15 +41,21 @@
 		if (!review || !action || !reason.trim() || submitting) return;
 		submitting = true;
 		try {
-			await decideReview({
+			const saved = await decideReview({
 				claimId: review.claim.id,
 				action,
-				reason: reason.trim(),
-				reviewerReference: CURRENT_REVIEWER_ID
+				reason: reason.trim()
 			});
+			review = { ...review, claim: saved.claim, review: saved.review, decision: saved.decision };
+			if (detail) {
+				detail = {
+					...detail,
+					claim: saved.claim,
+					decisions: [...detail.decisions.filter((item) => item.id !== saved.decision.id), saved.decision]
+				};
+			}
 			action = null;
 			reason = '';
-			await load();
 		} catch (cause) {
 			error = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
 		} finally {
@@ -109,7 +115,7 @@
 					<button type="button" class="reject" onclick={() => (action = 'reject')}>Tolak</button>
 				</div>
 				{#if action}
-					<textarea bind:value={reason} placeholder="Alasan keputusan wajib diisi"></textarea>
+					<textarea bind:value={reason} aria-label="Alasan keputusan" required placeholder="Alasan keputusan wajib diisi"></textarea>
 					<button type="button" onclick={submitDecision} disabled={submitting || !reason.trim()}>
 						{submitting ? 'Menyimpan...' : `Konfirmasi ${action === 'approve' ? 'persetujuan' : 'penolakan'}`}
 					</button>

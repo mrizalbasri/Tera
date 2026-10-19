@@ -10,8 +10,7 @@ import type {
 } from '$lib/types/claim';
 
 /**
- * Identitas karyawan sementara sampai halaman login tersedia.
- * Dipakai sebagai employee_id saat membuat klaim dan filter daftar riwayat.
+ * Identitas contoh untuk mode demo. Saat login aktif, backend memakai ID akun Clerk.
  */
 export const CURRENT_EMPLOYEE_ID = 'salesman-001';
 

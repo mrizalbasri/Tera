@@ -1,7 +1,7 @@
 from uuid import UUID
 from datetime import date
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from app.api.claim_access import ClaimActor, get_claim_actor, require_claim_access
@@ -14,6 +14,7 @@ from app.api.deps import (
     get_extraction_attempt_repository,
     get_extraction_repository,
     get_extraction_service,
+    get_file_storage,
     get_receipt_upload_service,
     get_policy_evaluation_repository,
     get_receipt_repository,
@@ -27,6 +28,7 @@ from app.repositories.protocols import (
     DecisionRepository,
     ExtractionAttemptRepository,
     ExtractionRepository,
+    FileStorage,
     PolicyEvaluationRepository,
     ReceiptRepository,
     SignalRepository,
@@ -188,6 +190,33 @@ def get_claim(
         policy_evaluations=list(evaluations.list_for_claim(claim_id)),
         signals=[signal if actor.admin else employee_signal(signal) for signal in signals.list_for_claim(claim_id)],
         decisions=[decision if actor.admin else employee_decision(decision) for decision in decisions.list_for_claim(claim_id)],
+    )
+
+
+@router.get(
+    "/{claim_id}/receipts/{receipt_id}/content",
+    dependencies=[Depends(require_claim_access)],
+)
+def get_receipt_content(
+    claim_id: UUID,
+    receipt_id: UUID,
+    receipts: ReceiptRepository = Depends(get_receipt_repository),
+    storage: FileStorage = Depends(get_file_storage),
+) -> Response:
+    matching = [r for r in receipts.list_for_claim(claim_id) if r.id == receipt_id]
+    if not matching:
+        raise NotFoundError("Receipt", str(receipt_id))
+    receipt = matching[0]
+    content = storage.get(receipt.storage_reference)
+    if content is None:
+        raise NotFoundError("Receipt content", str(receipt_id))
+    return Response(
+        content=content,
+        media_type=receipt.media_type,
+        headers={
+            "Content-Disposition": f'inline; filename="{receipt.original_filename}"',
+            "Cache-Control": "private, max-age=3600",
+        },
     )
 
 

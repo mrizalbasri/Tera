@@ -2,6 +2,7 @@
 	import TeraReceiptArtwork from '$lib/components/TeraReceiptArtwork.svelte';
 	import TeraBrandRibbon from '$lib/components/TeraBrandRibbon.svelte';
 	import { reveal } from '$lib/actions/reveal';
+	let { data } = $props();
 	let mobileMenu = $state(false);
 	let productMenu = $state(false);
 	let productButton = $state<HTMLButtonElement>();
@@ -48,6 +49,7 @@
 			<a href="#cara-kerja" onclick={closeMenus}>Cara kerja</a>
 			<a href="#untuk-tim" onclick={closeMenus}>Untuk tim</a>
 			<a href="#faq" onclick={closeMenus}>FAQ</a>
+			<a href={data.demoMode ? '/reviews' : '/login'} onclick={closeMenus}>{data.demoMode ? 'Buka review' : 'Login admin'}</a>
 			</div>
 		</nav>
 		<div class="nav-actions">
@@ -82,17 +84,21 @@
 					{/each}
 				</div>
 				<div class="workflow-detail" id="workflow-detail" aria-live="polite">
-					<span class="detail-position">Langkah {activeStep + 1} dari {workflow.length}</span><h3>{selected.label}</h3><p>{selected.detail}</p>
-					{#if activeStep === 0}
-						<dl class="extraction-example"><div><dt>Vendor</dt><dd>Terbaca dari nota</dd></div><div><dt>Tanggal</dt><dd>Tanggal transaksi</dd></div><div><dt>Nominal</dt><dd>Total pengeluaran</dd></div><div><dt>Kategori</dt><dd>Jenis pengeluaran</dd></div></dl>
-					{:else if activeStep === 1}
-						<ul class="detail-list"><li>Kelengkapan data nota</li><li>Ketentuan kategori pengeluaran</li><li>Batas nominal sesuai kebijakan</li></ul>
-					{:else if activeStep === 2}
-						<ul class="detail-list"><li>Kecocokan dengan pengajuan sebelumnya</li><li>Indikasi pengeluaran tidak wajar</li><li>Bukti dan alasan setiap temuan</li></ul>
-					{:else}
-						<ul class="detail-list"><li>Keputusan beserta alasannya</li><li>Klarifikasi ketika informasi kurang</li><li>Review manusia saat perlu ditinjau</li></ul>
-					{/if}
-					<a class="quiet-link" href="/pengajuan">Coba dengan notamu <span aria-hidden="true">↗</span></a>
+					{#key activeStep}
+						<div class="workflow-detail-body">
+							<span class="detail-position">Langkah {activeStep + 1} dari {workflow.length}</span><h3>{selected.label}</h3><p>{selected.detail}</p>
+							{#if activeStep === 0}
+								<dl class="extraction-example"><div><dt>Vendor</dt><dd>Terbaca dari nota</dd></div><div><dt>Tanggal</dt><dd>Tanggal transaksi</dd></div><div><dt>Nominal</dt><dd>Total pengeluaran</dd></div><div><dt>Kategori</dt><dd>Jenis pengeluaran</dd></div></dl>
+							{:else if activeStep === 1}
+								<ul class="detail-list"><li>Kelengkapan data nota</li><li>Ketentuan kategori pengeluaran</li><li>Batas nominal sesuai kebijakan</li></ul>
+							{:else if activeStep === 2}
+								<ul class="detail-list"><li>Kecocokan dengan pengajuan sebelumnya</li><li>Indikasi pengeluaran tidak wajar</li><li>Bukti dan alasan setiap temuan</li></ul>
+							{:else}
+								<ul class="detail-list"><li>Keputusan beserta alasannya</li><li>Klarifikasi ketika informasi kurang</li><li>Review manusia saat perlu ditinjau</li></ul>
+							{/if}
+							<a class="quiet-link" href="/pengajuan">Coba dengan notamu <span aria-hidden="true">↗</span></a>
+						</div>
+					{/key}
 				</div>
 			</div>
 		</section>
@@ -225,9 +231,17 @@
 	.step-description { display: block; font-size: var(--text-xs); line-height: 1.8; font-weight: 400; margin-top: var(--space-2); color: var(--color-text-muted); }
 	.step-select { margin-left: auto; font-size: 20px; }
 	.workflow-detail { padding: var(--space-10); background: var(--color-soft); border-radius: var(--radius-md); display: flex; flex-direction: column; align-items: flex-start; }
+	.workflow-detail-body { width: 100%; display: flex; flex-direction: column; align-items: flex-start; }
+	@media (prefers-reduced-motion: no-preference) {
+		.workflow-detail-body { animation: step-fade 220ms var(--ease-out); }
+	}
+	@keyframes step-fade {
+		from { opacity: 0; transform: translateY(6px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
 	.detail-position { color: var(--color-text-muted); font-size: var(--text-xs); margin-bottom: var(--space-5); }
 	.workflow-detail h3 { font-size: var(--text-xl); letter-spacing: -.03em; margin: 0 0 var(--space-3); }
-	.workflow-detail > p { color: var(--color-text-muted); font-size: var(--text-sm); margin: 0 0 var(--space-6); }
+	.workflow-detail-body > p { color: var(--color-text-muted); font-size: var(--text-sm); margin: 0 0 var(--space-6); }
 	.extraction-example { width: 100%; font-size: var(--text-xs); margin: 0 0 var(--space-6); }
 	.extraction-example > div { display: flex; justify-content: space-between; gap: var(--space-3); padding-block: var(--space-3); border-bottom: 1px solid var(--color-border); }
 	.extraction-example dt { color: var(--color-text-muted); }

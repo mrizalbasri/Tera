@@ -155,13 +155,13 @@
 			<span>Jejak keputusan</span>
 		</div>
 
-		<section use:reveal class="workflow-section scroll-reveal" id="cara-kerja" aria-labelledby="workflow-title">
-			<div class="section-intro">
+		<section class="workflow-section" id="cara-kerja" aria-labelledby="workflow-title">
+			<div use:reveal class="section-intro scroll-reveal">
 				<h2 id="workflow-title">Bukan sekadar<br />menyimpan nota.</h2>
 				<p>Setiap pengajuan punya alur pemeriksaan. Kamu bisa melihat apa yang dibaca, apa yang perlu diperbaiki, dan mengapa sebuah keputusan diambil.</p>
 			</div>
 			<div class="workflow-layout">
-				<div class="workflow-controls" aria-label="Jelajahi alur pemeriksaan">
+				<div use:reveal class="workflow-controls scroll-reveal" aria-label="Jelajahi alur pemeriksaan">
 					{#each workflow as step, i}
 						<button
 							type="button"
@@ -179,7 +179,7 @@
 						</button>
 					{/each}
 				</div>
-				<div class="workflow-detail" id="workflow-detail" aria-live="polite">
+				<div use:reveal class="workflow-detail scroll-reveal" id="workflow-detail" aria-live="polite">
 					{#key activeStep}
 						<div class="workflow-detail-body">
 							<span class="detail-position">Langkah {activeStep + 1} dari {workflow.length}</span>
@@ -218,13 +218,13 @@
 			</div>
 		</section>
 
-		<section use:reveal class="team-section scroll-reveal" id="untuk-tim" aria-labelledby="team-title">
-			<div class="team-heading">
+		<section class="team-section" id="untuk-tim" aria-labelledby="team-title">
+			<div use:reveal class="team-heading scroll-reveal">
 				<h2 id="team-title">Tera memeriksa.<br /><span>Tim tetap memegang kendali.</span></h2>
 				<p>Satu tempat untuk mengajukan, melengkapi, dan meninjau pengeluaran kerja.</p>
 			</div>
 			<div class="audience-layout">
-				<article class="employee-section">
+				<article use:reveal class="employee-section scroll-reveal">
 					<span class="audience-label">Untuk karyawan</span>
 					<h3>Ajukan sekali.<br />Pantau sampai jelas.</h3>
 					<p>Unggah foto atau PDF nota, ikuti progres pemeriksaan, dan lengkapi informasi ketika Tera meminta klarifikasi.</p>
@@ -234,7 +234,7 @@
 						<p>Nota, hasil pembacaan, dan status pengajuan ada dalam satu klaim.</p>
 					</div>
 				</article>
-				<article class="finance-section">
+				<article use:reveal class="finance-section scroll-reveal">
 					<span class="audience-label">Untuk finance dan reviewer</span>
 					<h3>Lihat buktinya.<br />Tentukan tindak lanjutnya.</h3>
 					<p>Tinjau klaim yang diteruskan beserta alasan dan sinyal risikonya. Keputusan reviewer ikut tercatat dalam jejak pemeriksaan.</p>
@@ -248,13 +248,13 @@
 			</div>
 		</section>
 
-		<section use:reveal class="faq-section scroll-reveal" id="faq" aria-labelledby="faq-title">
-			<div class="faq-intro">
+		<section class="faq-section" id="faq" aria-labelledby="faq-title">
+			<div use:reveal class="faq-intro scroll-reveal">
 				<h2 id="faq-title">Sebelum mengirim<br />nota pertamamu.</h2>
 				<p>Beberapa hal tentang pengajuan dan pemeriksaan di Tera.</p>
 				<a class="quiet-link" href="/pengajuan">Mulai pengajuan <span aria-hidden="true">↗</span></a>
 			</div>
-			<div class="faq-list">
+			<div use:reveal class="faq-list scroll-reveal">
 				<details>
 					<summary>Apa yang diperiksa Tera?</summary>
 					<p>Tera membaca informasi pada nota, mencocokkan pengeluaran dengan kebijakan perusahaan, serta memeriksa duplikat dan indikasi anomali. Hasilnya tersimpan bersama klaim.</p>
@@ -274,15 +274,17 @@
 			</div>
 		</section>
 
-		<section use:reveal class="closing scroll-reveal" aria-labelledby="closing-title">
+		<section class="closing" aria-labelledby="closing-title">
 			<TeraBrandRibbon dark />
-			<div class="closing-copy">
+			<div use:reveal class="closing-copy scroll-reveal">
 				<img src="/logo.webp" width="40" height="40" alt="" />
 				<h2 id="closing-title">Ubah nota.<br /><span>Rapikan pengeluaran.</span></h2>
 				<p>Tera membantu memeriksa detailnya,<br />agar kamu bisa fokus ke pekerjaan berikutnya.</p>
 				<a class="button closing-button" href="/pengajuan">Ajukan klaim pertamamu <span aria-hidden="true">→</span></a>
 			</div>
-			<TeraReceiptArtwork compact />
+			<div use:reveal class="closing-preview scroll-reveal">
+				<TeraReceiptArtwork compact />
+			</div>
 		</section>
 	</main>
 
@@ -701,84 +703,69 @@
 		}
 
 		/* Coordinated Scroll Reveal for all sections below hero */
-		.scroll-reveal .section-intro,
-		.scroll-reveal .workflow-controls,
-		.scroll-reveal .workflow-detail,
-		.scroll-reveal .team-heading,
-		.scroll-reveal .audience-layout article,
-		.scroll-reveal .faq-intro,
-		.scroll-reveal .faq-list details,
-		.scroll-reveal .closing-copy,
-		.closing :global(.receipt-artwork) {
+		.section-intro,
+		.workflow-controls,
+		.workflow-detail,
+		.team-heading,
+		.employee-section,
+		.finance-section,
+		.faq-intro,
+		.faq-list,
+		.closing-copy,
+		.closing-preview {
 			transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1), transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
 			will-change: transform, opacity;
 		}
 
 		/* Workflow section (#cara-kerja) */
-		.scroll-reveal:global(.awaiting-reveal) .section-intro {
-			opacity: 0;
-			transform: translateX(-16px);
-		}
-
-		.scroll-reveal:global(.awaiting-reveal) .workflow-controls {
+		.section-intro:global(.awaiting-reveal) {
 			opacity: 0;
 			transform: translateX(-20px);
 		}
 
-		.scroll-reveal:global(.awaiting-reveal) .workflow-detail {
+		.workflow-controls:global(.awaiting-reveal) {
 			opacity: 0;
-			transform: translateX(20px) scale(0.985);
+			transform: translateX(-24px);
 		}
 
-		.scroll-reveal .workflow-detail {
-			transition-delay: 100ms;
+		.workflow-detail:global(.awaiting-reveal) {
+			opacity: 0;
+			transform: translateX(24px) scale(0.985);
+		}
+
+		.workflow-detail {
+			transition-delay: 80ms;
 		}
 
 		/* Team section (#untuk-tim) */
-		.scroll-reveal:global(.awaiting-reveal) .team-heading {
-			opacity: 0;
-			transform: translateX(-16px);
-		}
-
-		.scroll-reveal:global(.awaiting-reveal) .audience-layout article:first-child {
+		.team-heading:global(.awaiting-reveal) {
 			opacity: 0;
 			transform: translateX(-20px);
 		}
 
-		.scroll-reveal:global(.awaiting-reveal) .audience-layout article:last-child {
+		.employee-section:global(.awaiting-reveal) {
 			opacity: 0;
-			transform: translateX(20px);
+			transform: translateX(-24px);
 		}
 
-		.scroll-reveal .audience-layout article:last-child {
-			transition-delay: 90ms;
+		.finance-section:global(.awaiting-reveal) {
+			opacity: 0;
+			transform: translateX(24px);
+		}
+
+		.finance-section {
+			transition-delay: 80ms;
 		}
 
 		/* FAQ section (#faq) */
-		.scroll-reveal:global(.awaiting-reveal) .faq-intro {
+		.faq-intro:global(.awaiting-reveal) {
 			opacity: 0;
-			transform: translateX(-16px);
+			transform: translateX(-20px);
 		}
 
-		.scroll-reveal .faq-list details:nth-child(1) {
-			transition-delay: 40ms;
-		}
-
-		.scroll-reveal .faq-list details:nth-child(2) {
-			transition-delay: 100ms;
-		}
-
-		.scroll-reveal .faq-list details:nth-child(3) {
-			transition-delay: 160ms;
-		}
-
-		.scroll-reveal .faq-list details:nth-child(4) {
-			transition-delay: 220ms;
-		}
-
-		.scroll-reveal:global(.awaiting-reveal) .faq-list details {
+		.faq-list:global(.awaiting-reveal) {
 			opacity: 0;
-			transform: translateY(12px);
+			transform: translateX(20px);
 		}
 
 		.faq-list details[open] p {
@@ -786,17 +773,17 @@
 		}
 
 		/* Closing section */
-		.scroll-reveal:global(.awaiting-reveal) .closing-copy {
+		.closing-copy:global(.awaiting-reveal) {
 			opacity: 0;
 			transform: translateX(-24px);
 		}
 
-		.closing:global(.awaiting-reveal) :global(.receipt-artwork) {
+		.closing-preview:global(.awaiting-reveal) {
 			opacity: 0;
 			transform: translateX(24px) scale(0.96);
 		}
 
-		.closing :global(.receipt-artwork) {
+		.closing-preview {
 			transition-delay: 80ms;
 		}
 
@@ -1369,6 +1356,12 @@
 		color: var(--color-light);
 		font-size: var(--text-sm);
 		margin: var(--space-6) 0;
+	}
+
+	.closing-preview {
+		display: grid;
+		place-items: center;
+		width: 100%;
 	}
 
 	.closing-button {

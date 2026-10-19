@@ -634,6 +634,7 @@
 	/* Scroll Reveal & Entrance Animations */
 	:global(.landing .scroll-reveal) {
 		transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1), transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+		will-change: transform, opacity;
 	}
 
 	:global(.landing .awaiting-reveal) {
@@ -993,22 +994,27 @@
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
+		will-change: transform, opacity;
 	}
 
 	@media (prefers-reduced-motion: no-preference) {
+		:global(html) {
+			scroll-behavior: smooth;
+		}
+
 		.workflow-detail-body {
-			animation: step-fade 220ms var(--ease-out);
+			animation: step-fade 240ms cubic-bezier(0.16, 1, 0.3, 1);
 		}
 	}
 
 	@keyframes step-fade {
 		from {
 			opacity: 0;
-			transform: translateY(6px);
+			transform: scale(0.985);
 		}
 		to {
 			opacity: 1;
-			transform: translateY(0);
+			transform: scale(1);
 		}
 	}
 

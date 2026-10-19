@@ -48,6 +48,8 @@
 		right: -9%;
 		object-fit: contain;
 		z-index: 1;
+		will-change: transform, opacity;
+		backface-visibility: hidden;
 	}
 
 	.receipt-checks {
@@ -62,6 +64,8 @@
 		box-shadow: var(--shadow-receipt);
 		z-index: 2;
 		transform: rotate(-3deg);
+		will-change: transform, opacity;
+		backface-visibility: hidden;
 	}
 
 	.checks-heading {
@@ -142,7 +146,7 @@
 		}
 		to {
 			opacity: 1;
-			transform: translateX(0) translateY(0) rotate(0deg) scale(1);
+			transform: translateX(0) translateY(0) rotate(-1deg) scale(1);
 		}
 	}
 
@@ -153,7 +157,7 @@
 		}
 		to {
 			opacity: 1;
-			transform: translateX(0) translateY(0) rotate(-3deg) scale(1);
+			transform: translateX(0) translateY(-4px) rotate(-3deg) scale(1);
 		}
 	}
 
@@ -231,7 +235,7 @@
 
 	@keyframes paper-float-mobile {
 		0%, 100% {
-			transform: translateY(0) rotate(-0.5deg);
+			transform: translateY(0) rotate(-1deg);
 		}
 		50% {
 			transform: translateY(-10px) rotate(1deg);

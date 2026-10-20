@@ -253,6 +253,7 @@ export interface ReviewQueueItem {
 export interface ReviewQueueResponse {
 	items: ReviewQueueItem[];
 	total: number;
+	snapshot?: string;
 }
 
 export interface ReviewDecisionResponse {

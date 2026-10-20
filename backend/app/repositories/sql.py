@@ -656,6 +656,7 @@ class SqlReviewRepository(SqlChildRepository[Review]):
             rows = session.scalars(
                 select(ChildRow)
                 .where(ChildRow.kind == self._kind)
+                .where(ChildRow.payload["status"].as_string() == "open")
                 .order_by(_record_order(session, ChildRow))
             ).all()
         return tuple(

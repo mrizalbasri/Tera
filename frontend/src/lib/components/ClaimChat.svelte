@@ -60,7 +60,7 @@
 	let draft = $state('');
 	let fileInput: HTMLInputElement | undefined;
 	let nextId = 2;
-	let messagesEl: HTMLDivElement | undefined;
+	let messagesEl = $state<HTMLDivElement>();
 
 	// FR-01: file terpilih dipertahankan selama permintaan berjalan
 	let selectedFile = $state<File | null>(null);
@@ -75,6 +75,7 @@
 		code: string;
 		message: string;
 	} | null>(null);
+	const hasConversation = $derived(messages.length > 1 || selectedFile !== null || isProcessing || awaitingClarification !== null);
 	let submittingAnswer = $state(false);
 	let composerError = $state<string | null>(null);
 
@@ -612,182 +613,169 @@
 	<Toast />
 
 	<header class="chat-header">
-		<div class="header-left">
-			<div class="agent-avatar" aria-hidden="true">
-				<img src="/logo.webp" width="28" height="28" alt="" />
-			</div>
-			<div>
-				<h1>Tera AI Agent</h1>
-				<span class="status-online" role="status">
-					{isProcessing ? 'Sedang memproses nota' : awaitingClarification ? 'Menunggu jawaban klarifikasi' : 'Kirim nota untuk mulai pemeriksaan'}
-				</span>
-			</div>
+		<div>
+			<h1>Ajukan klaim</h1>
+			<p>Kirim nota pengeluaranmu. Tera membantu memeriksa detailnya.</p>
 		</div>
+		{#if hasConversation}<span class="task-status" role="status">{isProcessing ? 'Memeriksa nota…' : awaitingClarification ? 'Perlu klarifikasi' : selectedFile ? 'Nota siap dikirim' : 'Hasil pemeriksaan'}</span>{/if}
 	</header>
 
-	<div class="tip-banner">
-		<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-		<span>Upload foto nota BBM, makan, tol, parkir, atau hotel (JPG/PNG/PDF, maks 10 MB).</span>
-	</div>
+	<input bind:this={fileInput} type="file" accept="image/jpeg,image/png,application/pdf" onchange={onFileChange} hidden id="file-upload" />
 
-	{#if submitPhase === 'idle' && !selectedFile && !awaitingClarification}
-		<div
-			class="dropzone-box"
-			class:dragging={isDragging}
-			ondragover={onDragOver}
-			ondragleave={onDragLeave}
-			ondrop={onDrop}
-			onclick={openFilePicker}
-			role="button"
-			tabindex="0"
-			onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') openFilePicker(); }}
-			aria-label="Tarik dan lepas nota ke sini atau klik untuk memilih file"
+	{#if !hasConversation}
+		<div class="intake-start">
+			<button
+				type="button"
+				class="dropzone-box"
+				class:dragging={isDragging}
+				ondragover={onDragOver}
+				ondragleave={onDragLeave}
+				ondrop={onDrop}
+				onclick={openFilePicker}
+				aria-label="Tarik dan lepas nota ke sini atau klik untuk memilih file"
+			>
+				<span class="dropzone-icon" aria-hidden="true">
+					<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+						<polyline points="17 8 12 3 7 8"/>
+						<line x1="12" y1="3" x2="12" y2="15"/>
+					</svg>
+				</span>
+				<span class="dropzone-text">
+					<strong>Pilih nota pengeluaran</strong>
+					<span>Tarik file ke sini atau klik untuk memilih</span>
+					<span>Mendukung foto JPG, PNG, atau dokumen PDF (maks. 10 MB)</span>
+				</span>
+			</button>
+			<p class="intake-note">Setelah diunggah, kamu bisa meninjau hasil dan melengkapi data yang belum terbaca.</p>
+			<details class="sample-actions" role="region" aria-label="Nota sampel demo">
+				<summary>Coba dengan nota contoh</summary>
+				<div class="sample-chips">
+					<button type="button" class="sample-btn" onclick={() => loadSampleReceipt('/samples/nota-bbm.png', 'nota-bbm.png')}>
+						SPBU Shell (Rp 350rb)
+					</button>
+					<button type="button" class="sample-btn" onclick={() => loadSampleReceipt('/samples/nota-makan.png', 'nota-makan.png')}>
+						Resto Padang (Rp 185rb)
+					</button>
+					<button type="button" class="sample-btn" onclick={() => loadSampleReceipt('/samples/nota-hotel.png', 'nota-hotel.png')}>
+						Hotel Santika (Rp 650rb)
+					</button>
+				</div>
+			</details>
+		</div>
+	{/if}
+
+	{#if hasConversation}
+		<div class="messages" aria-live="polite" bind:this={messagesEl}>
+			{#each messages as message (message.id)}
+				<div class="msg-row {message.from}">
+					{#if message.from === 'agent'}
+						<div class="avatar agent-mini" aria-hidden="true">AI</div>
+					{/if}
+
+					{#if message.typing}
+						<div class="bubble agent typing-bubble">
+							<span class="dot-1"></span>
+							<span class="dot-2"></span>
+							<span class="dot-3"></span>
+						</div>
+					{:else if message.steps}
+						<div class="bubble agent steps-host">
+							<AgentSteps steps={message.steps} title={message.stepsTitle ?? 'Memproses nota...'} />
+							{#if message.claimRef}<span class="claim-id">{message.claimRef}</span>{/if}
+							{#if message.decision}
+								<DecisionBanner decision={message.decision} />
+							{:else if message.decisionPending}
+								<DecisionBanner decision={null} waitingNote="Keputusan resmi akan muncul setelah agent selesai menilai. Status saat ini ditampilkan di halaman detail." />
+							{/if}
+							{#if message.timestamp}<span class="bubble-time">{message.timestamp}</span>{/if}
+						</div>
+					{:else}
+						<div class="bubble {message.from} {message.isError ? 'error-bubble' : ''}">
+							{#if message.file}
+								<FileAttachment
+									fileName={message.file.name}
+									sizeBytes={message.file.size}
+									removable={message.removable ?? false}
+									onremove={() => removeSelectedFile(message.id)}
+								/>
+							{:else}
+								<p>{message.text}</p>
+							{/if}
+							{#if message.actions?.length}
+								<div class="message-actions">
+									{#each message.actions as action (action.label)}
+										{#if action.kind === 'detail' && action.href}
+											<a class="action-btn primary" href={action.href}>{action.label}</a>
+										{:else}
+											<button type="button" class="action-btn {action.kind === 'retry-process' ? '' : 'primary'}" onclick={() => handleAction(message, action)} disabled={isProcessing}>
+												{action.label}
+											</button>
+										{/if}
+									{/each}
+								</div>
+							{/if}
+							{#if message.claimStatus}
+								<div class="status-line">
+									<StatusBadge status={message.claimStatus} size="sm" />
+								</div>
+							{/if}
+							{#if message.timestamp}
+								<span class="bubble-time">{message.timestamp}</span>
+							{/if}
+						</div>
+					{/if}
+
+					{#if message.from === 'user'}
+						<div class="avatar user-mini" aria-hidden="true">K</div>
+					{/if}
+				</div>
+			{/each}
+		</div>
+
+		{#if composerError}
+			<p id="composer-error" class="composer-error" role="alert">{composerError}</p>
+		{/if}
+
+		<form
+			class="composer"
+			onsubmit={(event) => {
+				event.preventDefault();
+				sendText();
+			}}
 		>
-			<div class="dropzone-icon" aria-hidden="true">
-				<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<button type="button" class="upload-btn" onclick={openFilePicker} id="btn-upload-nota" title="Upload nota" disabled={isProcessing} aria-label={selectedFile ? `Ganti nota terpilih: ${selectedFile.name}` : 'Upload nota'}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
 					<polyline points="17 8 12 3 7 8"/>
 					<line x1="12" y1="3" x2="12" y2="15"/>
 				</svg>
-			</div>
-			<div class="dropzone-text">
-				<strong>Tarik & lepas nota ke sini, atau klik untuk memilih file</strong>
-				<span>Mendukung foto JPG, PNG, atau dokumen PDF (maks. 10 MB)</span>
-			</div>
-		</div>
-		<div class="sample-actions" role="region" aria-label="Nota sampel demo">
-			<span class="sample-title">Atau gunakan nota sampel demo:</span>
-			<div class="sample-chips">
-				<button type="button" class="sample-btn" onclick={() => loadSampleReceipt('/samples/nota-bbm.png', 'nota-bbm.png')}>
-					⛽ SPBU Shell (Rp 350rb)
-				</button>
-				<button type="button" class="sample-btn" onclick={() => loadSampleReceipt('/samples/nota-makan.png', 'nota-makan.png')}>
-					🍽️ Resto Padang (Rp 185rb)
-				</button>
-				<button type="button" class="sample-btn" onclick={() => loadSampleReceipt('/samples/nota-hotel.png', 'nota-hotel.png')}>
-					🏨 Hotel Santika (Rp 650rb)
-				</button>
-			</div>
-		</div>
+				<span>{selectedFile ? 'Ganti Nota' : 'Upload Nota'}</span>
+			</button>
+			<input
+				class="text-input"
+				type="text"
+				placeholder={submittingAnswer
+					? 'Mengirim jawaban...'
+					: awaitingClarification
+						? 'Tulis jawaban klarifikasi...'
+						: selectedFile ? 'Nota siap dikirim' : 'Pilih nota melalui tombol upload'}
+				bind:value={draft}
+				id="chat-text-input"
+				aria-label="Pesan"
+				aria-invalid={composerError ? 'true' : undefined}
+				aria-describedby={composerError ? 'composer-error' : undefined}
+				disabled={submittingAnswer}
+			/>
+			<button type="submit" class="send-btn" id="btn-kirim-pesan" aria-label={selectedFile ? 'Kirim nota' : awaitingClarification ? 'Kirim jawaban klarifikasi' : 'Kirim pesan'} disabled={submittingAnswer || isProcessing}>
+				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<line x1="22" y1="2" x2="11" y2="13"/>
+					<polygon points="22 2 15 22 11 13 2 9 22 2"/>
+				</svg>
+				<span>Kirim</span>
+			</button>
+		</form>
 	{/if}
-
-	<div class="messages" aria-live="polite" bind:this={messagesEl}>
-		{#each messages as message (message.id)}
-			<div class="msg-row {message.from}">
-				{#if message.from === 'agent'}
-					<div class="avatar agent-mini" aria-hidden="true">AI</div>
-				{/if}
-
-				{#if message.typing}
-					<div class="bubble agent typing-bubble">
-						<span class="dot-1"></span>
-						<span class="dot-2"></span>
-						<span class="dot-3"></span>
-					</div>
-				{:else if message.steps}
-					<div class="bubble agent steps-host">
-						<AgentSteps steps={message.steps} title={message.stepsTitle ?? 'Memproses nota...'} />
-						{#if message.claimRef}<span class="claim-id">{message.claimRef}</span>{/if}
-						{#if message.decision}
-							<DecisionBanner decision={message.decision} />
-						{:else if message.decisionPending}
-							<DecisionBanner decision={null} waitingNote="Keputusan resmi akan muncul setelah agent selesai menilai. Status saat ini ditampilkan di halaman detail." />
-						{/if}
-						{#if message.timestamp}<span class="bubble-time">{message.timestamp}</span>{/if}
-					</div>
-				{:else}
-					<div class="bubble {message.from} {message.isError ? 'error-bubble' : ''}">
-						{#if message.file}
-							<FileAttachment
-								fileName={message.file.name}
-								sizeBytes={message.file.size}
-								removable={message.removable ?? false}
-								onremove={() => removeSelectedFile(message.id)}
-							/>
-						{:else}
-							<p>{message.text}</p>
-						{/if}
-						{#if message.actions?.length}
-							<div class="message-actions">
-								{#each message.actions as action (action.label)}
-									{#if action.kind === 'detail' && action.href}
-										<a class="action-btn primary" href={action.href}>{action.label}</a>
-									{:else}
-										<button type="button" class="action-btn {action.kind === 'retry-process' ? '' : 'primary'}" onclick={() => handleAction(message, action)} disabled={isProcessing}>
-											{action.label}
-										</button>
-									{/if}
-								{/each}
-							</div>
-						{/if}
-						{#if message.claimStatus}
-							<div class="status-line">
-								<StatusBadge status={message.claimStatus} size="sm" />
-							</div>
-						{/if}
-						{#if message.timestamp}
-							<span class="bubble-time">{message.timestamp}</span>
-						{/if}
-					</div>
-				{/if}
-
-				{#if message.from === 'user'}
-					<div class="avatar user-mini" aria-hidden="true">S</div>
-				{/if}
-			</div>
-		{/each}
-	</div>
-
-	{#if composerError}
-		<p id="composer-error" class="composer-error" role="alert">{composerError}</p>
-	{/if}
-
-	<form
-		class="composer"
-		onsubmit={(event) => {
-			event.preventDefault();
-			sendText();
-		}}
-	>
-		<input
-			bind:this={fileInput}
-			type="file"
-			accept="image/jpeg,image/png,application/pdf"
-			onchange={onFileChange}
-			hidden
-			id="file-upload"
-		/>
-		<button type="button" class="upload-btn" onclick={openFilePicker} id="btn-upload-nota" title="Upload nota" disabled={isProcessing} aria-label={selectedFile ? `Ganti nota terpilih: ${selectedFile.name}` : 'Upload nota'}>
-			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-				<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-				<polyline points="17 8 12 3 7 8"/>
-				<line x1="12" y1="3" x2="12" y2="15"/>
-			</svg>
-			<span>{selectedFile ? 'Ganti Nota' : 'Upload Nota'}</span>
-		</button>
-		<input
-			class="text-input"
-			type="text"
-			placeholder={submittingAnswer
-				? 'Mengirim jawaban...'
-				: awaitingClarification
-					? 'Tulis jawaban klarifikasi...'
-					: selectedFile ? 'Nota siap dikirim' : 'Pilih nota melalui tombol upload'}
-			bind:value={draft}
-			id="chat-text-input"
-			aria-label="Pesan"
-			aria-invalid={composerError ? 'true' : undefined}
-			aria-describedby={composerError ? 'composer-error' : undefined}
-			disabled={submittingAnswer}
-		/>
-		<button type="submit" class="send-btn" id="btn-kirim-pesan" aria-label={selectedFile ? 'Kirim nota' : awaitingClarification ? 'Kirim jawaban klarifikasi' : 'Kirim pesan'} disabled={submittingAnswer || isProcessing}>
-			<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-				<line x1="22" y1="2" x2="11" y2="13"/>
-				<polygon points="22 2 15 22 11 13 2 9 22 2"/>
-			</svg>
-			<span>Kirim</span>
-		</button>
-	</form>
 </section>
 
 <style>
@@ -796,73 +784,18 @@
 		flex-direction: column;
 		flex: 1;
 		min-height: 0;
-		max-width: 800px;
+		width: 100%;
+		max-width: 880px;
+		margin-inline: auto;
 	}
 
-	/* Header */
-	.chat-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem 1.25rem;
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		margin-bottom: 0.75rem;
-		box-shadow: none;
-	}
-
-	.header-left {
-		display: flex;
-		align-items: center;
-		gap: 0.85rem;
-	}
-
-	.agent-avatar {
-		width: 44px;
-		height: 44px;
-		background: var(--color-light);
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: white;
-		box-shadow: none;
-		flex-shrink: 0;
-	}
-
-	.chat-header h1 {
-		font-size: 1rem;
-		font-weight: 700;
-		margin: 0 0 0.1rem;
-		color: var(--color-text);
-	}
-
-	.status-online {
-		display: flex;
-		align-items: center;
-		gap: 0.35rem;
-		font-size: 0.75rem;
-		color: var(--color-text-muted);
-		font-weight: 500;
-	}
-
-	/* Tip */
-	.tip-banner {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		padding: 0.6rem 1rem;
-		background: var(--color-light);
-		border: 1px solid rgba(26, 107, 92, 0.12);
-		border-radius: var(--radius-sm);
-		font-size: 0.77rem;
-		color: var(--color-primary);
-		margin-bottom: 0.75rem;
-		font-weight: 500;
-	}
-
-	.tip-banner svg { flex-shrink: 0; }
+	.chat-header { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; flex-shrink: 0; }
+	.chat-header h1 { margin: 0 0 8px; }
+	.chat-header p { margin: 0; color: var(--color-text-muted); }
+	.task-status { font-size: var(--text-xs); padding: 8px 12px; border-radius: var(--radius-sm); background: var(--color-light); color: var(--color-primary-dark); }
+	.intake-start { flex: 1; min-height: 0; overflow-y: auto; padding: clamp(16px, 5vh, 48px) 4px 24px; }
+	.intake-note { max-width: 420px; margin: 16px auto 24px; text-align: center; font-size: var(--text-xs); color: var(--color-text-muted); }
+	.sample-actions summary { cursor: pointer; min-height: 44px; padding: 12px; color: var(--color-text-muted); font-size: var(--text-xs); }
 
 	/* Dropzone Box */
 	.dropzone-box {
@@ -870,10 +803,14 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 1.5rem 1.25rem;
+		width: 100%;
+		min-height: 240px;
+		padding: 2rem 1.25rem;
+		white-space: normal;
+		font-weight: 400;
 		margin-bottom: 0.75rem;
 		background: var(--color-surface);
-		border: 2px dashed var(--color-border);
+		border: 1.5px dashed var(--color-border);
 		border-radius: var(--radius-md);
 		cursor: pointer;
 		text-align: center;
@@ -881,7 +818,7 @@
 		transition: border-color var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out);
 	}
 
-	.dropzone-box:hover, .dropzone-box.dragging {
+	.dropzone-box:hover, .dropzone-box:focus-visible, .dropzone-box.dragging {
 		border-color: var(--color-primary);
 		background: var(--color-soft);
 	}
@@ -903,7 +840,7 @@
 	}
 
 	.dropzone-text strong {
-		font-size: var(--text-sm);
+		font-size: 18px;
 		color: var(--color-ink);
 	}
 
@@ -913,19 +850,11 @@
 	}
 
 	.sample-actions {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.5rem;
+		text-align: center;
 		margin-top: 0.5rem;
 		width: 100%;
 		padding-top: 0.75rem;
 		border-top: 1px solid var(--color-border);
-	}
-
-	.sample-title {
-		font-size: var(--text-xs);
-		color: var(--color-text-muted);
 	}
 
 	.sample-chips {
@@ -937,7 +866,7 @@
 
 	.sample-btn {
 		font-size: var(--text-xs);
-		min-height: 32px;
+		min-height: 44px;
 		padding: 0.35rem 0.75rem;
 		background: var(--color-surface);
 		color: var(--color-primary-dark);
@@ -999,17 +928,19 @@
 	}
 
 	.agent-mini {
-		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+		background: var(--color-primary);
 		color: white;
 	}
 
 	.user-mini {
-		background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+		background: var(--color-primary-dark);
 		color: white;
 	}
 
 	.bubble {
-		max-width: 72%;
+		max-width: min(85%, 620px);
+		min-width: 0;
+		overflow-wrap: anywhere;
 		padding: 0.75rem 1rem;
 		border-radius: var(--radius-md);
 		line-height: 1.55;
@@ -1023,14 +954,14 @@
 		border: 1px solid var(--color-border);
 		color: var(--color-text);
 		border-bottom-left-radius: 4px;
-		box-shadow: 0 2px 10px rgba(26, 107, 92, 0.07);
+		box-shadow: none;
 	}
 
 	.bubble.user {
-		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+		background: var(--color-primary);
 		color: white;
 		border-bottom-right-radius: 4px;
-		box-shadow: 0 2px 12px rgba(26, 107, 92, 0.25);
+		box-shadow: none;
 	}
 
 	.bubble.error-bubble {
@@ -1083,7 +1014,7 @@
 	}
 
 	.action-btn.primary {
-		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-light) 100%);
+		background: var(--color-primary);
 		border-color: transparent;
 		color: white;
 		box-shadow: 0 2px 8px rgba(26, 107, 92, 0.25);

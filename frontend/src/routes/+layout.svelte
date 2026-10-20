@@ -21,7 +21,7 @@
 	}
 	const isLanding = $derived(['/', '/login', '/sso-callback'].includes(page.url.pathname));
 	const menu = $derived([
-		{ href: '/pengajuan', label: 'Ajukan klaim' },
+		{ href: '/pengajuan', label: 'Pengajuan baru' },
 		{ href: '/riwayat', label: 'Riwayat' },
 		...(data.admin ? [
 			{ href: '/reviews', label: 'Review' },
@@ -44,13 +44,24 @@
 		</div>
 		<nav id="workspace-nav" class:open={menuOpen} aria-label="Menu utama">
 			{#each menu as item}
-				<a href={item.href} onclick={() => (menuOpen = false)} aria-current={page.url.pathname.startsWith(item.href) ? 'page' : undefined} class:active={page.url.pathname.startsWith(item.href)}>{item.label}</a>
+				<a href={item.href} data-sveltekit-reload={item.href === '/pengajuan'} onclick={() => (menuOpen = false)} aria-current={page.url.pathname.startsWith(item.href) ? 'page' : undefined} class:active={page.url.pathname.startsWith(item.href)}>
+					<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+						{#if item.href === '/pengajuan'}<path d="M12 5v14M5 12h14" />
+						{:else if item.href === '/riwayat'}<rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 8h6M9 12h6M9 16h4" />
+						{:else if item.href === '/reviews'}<path d="m8 12 3 3 5-6" /><rect x="3" y="3" width="18" height="18" rx="3" />
+						{:else}<path d="M5 20V10M12 20V4M19 20v-7" />{/if}
+					</svg>
+					{item.label}
+				</a>
 			{/each}
 		</nav>
-		<div class="workspace-return"><a href="/">Tentang Tera</a><span>Pengeluaran kerja, lebih tertata.</span></div>
+		<div class="workspace-return">
+			{#if data.demoMode}<span class="workspace-mode">Mode demo</span>{:else if data.user}<AdminAccount />{:else}<a href="/login">Masuk ke akun</a>{/if}
+			<a href="/">Tentang Tera <span aria-hidden="true">↗</span></a>
+		</div>
 	</aside>
 	<main id="main-content" class="content" tabindex="-1">
-				<div class="topbar"><span>Ruang kerja <span aria-hidden="true">/</span> <strong>{currentPage}</strong></span>{#if data.demoMode}<span>Mode demo · tanpa login</span>{:else if data.user}<AdminAccount />{:else}<a href="/login">Masuk</a>{/if}</div>
+		<div class="topbar"><span>Tera <span aria-hidden="true">/</span> <strong>{currentPage}</strong></span><div class="workspace-mobile-account">{#if data.demoMode}Mode demo{:else if data.user}<AdminAccount />{:else}<a href="/login">Masuk</a>{/if}</div></div>
 		{@render children()}
 	</main>
 </div>

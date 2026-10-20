@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import Toast from '$lib/components/Toast.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import AgentSteps from '$lib/components/AgentSteps.svelte';
@@ -49,14 +48,9 @@
 		isError?: boolean;
 	};
 
-	let messages = $state<Message[]>([
-		{
-			id: 1,
-			from: 'agent',
-			text: 'Kirim foto atau PDF nota untuk mulai mengajukan klaim. Jika ada data yang belum terbaca, Tera akan meminta klarifikasi.',
-			timestamp: formatClock()
-		}
-	]);
+	let { demoMode = false }: { demoMode?: boolean } = $props();
+	let messages = $state<Message[]>([]);
+	let loadingSample = $state(false);
 	let draft = $state('');
 	let fileInput: HTMLInputElement | undefined;
 	let nextId = 2;
@@ -75,7 +69,8 @@
 		code: string;
 		message: string;
 	} | null>(null);
-	const hasConversation = $derived(messages.length > 1 || selectedFile !== null || isProcessing || awaitingClarification !== null);
+	const hasConversation = $derived(messages.length > 0 || selectedFile !== null || isProcessing || awaitingClarification !== null);
+	const activeClaim = $derived([...messages].reverse().find((message) => message.claimId));
 	let submittingAnswer = $state(false);
 	let composerError = $state<string | null>(null);
 
@@ -104,8 +99,13 @@
 	let isDragging = $state(false);
 
 	function handleFileSelection(file: File) {
+		if (isProcessing || submittingAnswer) return;
 		if (!(ALLOWED_RECEIPT_TYPES as readonly string[]).includes(file.type)) {
 			showToast('Format file tidak didukung! Harap upload JPG, PNG, atau PDF.');
+			return;
+		}
+		if (file.size === 0) {
+			showToast('File kosong. Pilih nota yang berisi foto atau dokumen.');
 			return;
 		}
 		if (file.size > MAX_RECEIPT_SIZE_BYTES) {
@@ -158,16 +158,18 @@
 	}
 
 	async function loadSampleReceipt(path: string, filename: string) {
-		if (submitPhase !== 'idle') return;
+		if (submitPhase !== 'idle' || loadingSample) return;
+		loadingSample = true;
 		try {
 			const res = await fetch(path);
+			if (!res.ok) throw new Error('Sample unavailable');
 			const blob = await res.blob();
 			const file = new File([blob], filename, { type: blob.type || 'image/png' });
 			handleFileSelection(file);
-			showToast(`Nota sampel "${filename}" berhasil dipilih. Tekan tombol Kirim untuk mulai.`);
+				showToast(`Nota sampel "${filename}" dipilih. Tekan Periksa nota untuk mulai.`);
 		} catch {
 			showToast('Gagal memuat nota sampel.');
-		}
+		} finally { loadingSample = false; }
 	}
 
 	function removeSelectedFile(messageId: number) {
@@ -183,7 +185,7 @@
 	}
 
 	function openFilePicker() {
-		if (isProcessing) return;
+		if (isProcessing || submittingAnswer) return;
 		fileInput?.click();
 	}
 
@@ -248,8 +250,7 @@
 						{ label: 'Pemeriksaan tersedia di detail klaim', status: 'skipped' }
 					]
 				});
-				submitPhase = 'idle';
-				setTimeout(() => goto(`/claims/${claimId}`), 700);
+				await runProcessing(stepsId, claimId);
 			} catch (error) {
 				submitPhase = 'idle';
 				const message = error instanceof Error ? error.message : 'Gagal mengunggah nota pengganti.';
@@ -270,7 +271,7 @@
 								claimId,
 								timestamp: formatClock()
 							});
-							setTimeout(() => goto(`/claims/${claimId}`), 700);
+							await runProcessing(stepsId, claimId);
 							return;
 						}
 					} catch {
@@ -341,15 +342,7 @@
 			pendingFileMessageId = null;
 		}
 
-		submitPhase = 'idle';
-		messages.push({
-			id: nextId++,
-			from: 'agent',
-			text: `📩 Klaim ${shortClaimRef(claimId)} berhasil diajukan. Buka detail klaim untuk memulai pemeriksaan.`,
-			claimId,
-			timestamp: formatClock()
-		});
-		setTimeout(() => goto(`/claims/${claimId}`), 700);
+		await runProcessing(stepsId, claimId);
 	}
 
 	/** FR-09: hubungkan permintaan klarifikasi dengan id klarifikasi terbuka. */
@@ -374,6 +367,7 @@
 	}
 
 	async function runProcessing(stepsId: number, claimId: string, resume = false) {
+		submitPhase = 'processing';
 		updateMessage(stepsId, {
 			steps: [
 				{ label: 'Mengunggah nota ke server', status: 'done' },
@@ -389,6 +383,7 @@
 			retryableClaimId = claimId;
 			const message = error instanceof Error ? error.message : 'Terjadi kesalahan tak terduga.';
 			updateMessage(stepsId, {
+				stepsTitle: 'Pembacaan belum selesai',
 				steps: [
 					{ label: 'Mengunggah nota ke server', status: 'done' },
 					{ label: 'Membaca nota (OCR)', detail: message, status: 'failed' },
@@ -398,7 +393,8 @@
 			messages.push({
 				id: nextId++,
 				from: 'agent',
-				text: `❌ ${message}`,
+				text: `Pembacaan belum selesai. ${message}`,
+				claimId,
 				isError: true,
 				actions: [{ label: 'Coba proses lagi', kind: 'retry-process' }],
 				timestamp: formatClock()
@@ -412,9 +408,7 @@
 		const clarification = result.clarification;
 
 		const ocrDetail = extraction
-			? `Vendor: ${String(extraction.vendor.value)} · Tanggal: ${formatDate(
-					String(extraction.receipt_date.value)
-				)} · Total: ${formatCurrency(extraction.total.value as number | string, extraction.currency.value as string)} (keyakinan ${formatConfidence(
+			? `Vendor: ${String(extraction.vendor.value ?? 'Belum terbaca')} · Tanggal: ${extraction.receipt_date.value ? formatDate(String(extraction.receipt_date.value)) : 'Belum terbaca'} · Total: ${formatCurrency(extraction.total.value as number | string, extraction.currency.value as string)} (keyakinan ${formatConfidence(
 					extraction.total.confidence
 				)})${attemptCount > 1 ? ` · Percobaan ke-${attemptCount}` : ''}`
 			: 'Hasil pembacaan tidak tersedia.';
@@ -423,6 +417,7 @@
 			// FR-03: permintaan retake dari backend dijelaskan apa perbaikannya
 			const clarificationInfo = describeReasonCode(clarification.code);
 			updateMessage(stepsId, {
+				stepsTitle: 'Perlu informasi tambahan',
 				steps: [
 					{ label: 'Mengunggah nota ke server', status: 'done' },
 					{ label: 'Membaca nota (OCR)', detail: ocrDetail, status: 'warn' },
@@ -454,6 +449,7 @@
 		const status = result.claim.status;
 		const decision = result.decision;
 		updateMessage(stepsId, {
+			stepsTitle: 'Pemeriksaan selesai',
 			claimStatus: status,
 			steps: [
 				{ label: 'Mengunggah nota ke server', status: 'done' },
@@ -621,9 +617,12 @@
 	</header>
 
 	<input bind:this={fileInput} type="file" accept="image/jpeg,image/png,application/pdf" onchange={onFileChange} hidden id="file-upload" />
+	<div class="intake-layout">
+	<div class="intake-main" class:has-conversation={hasConversation}>
 
 	{#if !hasConversation}
 		<div class="intake-start">
+			<div class="intake-panel-heading"><h2>Upload nota</h2><span>Satu nota per pengajuan</span></div>
 			<button
 				type="button"
 				class="dropzone-box"
@@ -648,20 +647,20 @@
 				</span>
 			</button>
 			<p class="intake-note">Setelah diunggah, kamu bisa meninjau hasil dan melengkapi data yang belum terbaca.</p>
-			<details class="sample-actions" role="region" aria-label="Nota sampel demo">
+			{#if demoMode}<details class="sample-actions" role="region" aria-label="Nota sampel demo" open>
 				<summary>Coba dengan nota contoh</summary>
 				<div class="sample-chips">
-					<button type="button" class="sample-btn" onclick={() => loadSampleReceipt('/samples/nota-bbm.png', 'nota-bbm.png')}>
+					<button type="button" class="sample-btn" disabled={loadingSample} onclick={() => loadSampleReceipt('/samples/nota-bbm.png', 'nota-bbm.png')}>
 						SPBU Shell (Rp 350rb)
 					</button>
-					<button type="button" class="sample-btn" onclick={() => loadSampleReceipt('/samples/nota-makan.png', 'nota-makan.png')}>
+					<button type="button" class="sample-btn" disabled={loadingSample} onclick={() => loadSampleReceipt('/samples/nota-makan.png', 'nota-makan.png')}>
 						Resto Padang (Rp 185rb)
 					</button>
-					<button type="button" class="sample-btn" onclick={() => loadSampleReceipt('/samples/nota-hotel.png', 'nota-hotel.png')}>
+					<button type="button" class="sample-btn" disabled={loadingSample} onclick={() => loadSampleReceipt('/samples/nota-hotel.png', 'nota-hotel.png')}>
 						Hotel Santika (Rp 650rb)
 					</button>
 				</div>
-			</details>
+			</details>{/if}
 		</div>
 	{/if}
 
@@ -696,12 +695,13 @@
 								<FileAttachment
 									fileName={message.file.name}
 									sizeBytes={message.file.size}
-									removable={message.removable ?? false}
+									removable={(message.removable ?? false) && !isProcessing && !submittingAnswer}
 									onremove={() => removeSelectedFile(message.id)}
 								/>
 							{:else}
 								<p>{message.text}</p>
 							{/if}
+							{#if message.decision}<DecisionBanner decision={message.decision} />{/if}
 							{#if message.actions?.length}
 								<div class="message-actions">
 									{#each message.actions as action (action.label)}
@@ -737,22 +737,22 @@
 			<p id="composer-error" class="composer-error" role="alert">{composerError}</p>
 		{/if}
 
-		<form
+		{#if selectedFile || awaitingClarification}<form
 			class="composer"
 			onsubmit={(event) => {
 				event.preventDefault();
 				sendText();
 			}}
 		>
-			<button type="button" class="upload-btn" onclick={openFilePicker} id="btn-upload-nota" title="Upload nota" disabled={isProcessing} aria-label={selectedFile ? `Ganti nota terpilih: ${selectedFile.name}` : 'Upload nota'}>
+			{#if selectedFile}<button type="button" class="upload-btn" onclick={openFilePicker} id="btn-upload-nota" title="Ganti nota" disabled={isProcessing || submittingAnswer} aria-label={`Ganti nota terpilih: ${selectedFile.name}`}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
 					<polyline points="17 8 12 3 7 8"/>
 					<line x1="12" y1="3" x2="12" y2="15"/>
 				</svg>
 				<span>{selectedFile ? 'Ganti Nota' : 'Upload Nota'}</span>
-			</button>
-			<input
+			</button>{/if}
+			{#if awaitingClarification && !selectedFile}<input
 				class="text-input"
 				type="text"
 				placeholder={submittingAnswer
@@ -765,17 +765,26 @@
 				aria-label="Pesan"
 				aria-invalid={composerError ? 'true' : undefined}
 				aria-describedby={composerError ? 'composer-error' : undefined}
-				disabled={submittingAnswer}
+				disabled={submittingAnswer || isProcessing}
 			/>
-			<button type="submit" class="send-btn" id="btn-kirim-pesan" aria-label={selectedFile ? 'Kirim nota' : awaitingClarification ? 'Kirim jawaban klarifikasi' : 'Kirim pesan'} disabled={submittingAnswer || isProcessing}>
+			{:else}<p class="selection-summary">{selectedFile?.name}<span>Siap diperiksa oleh Tera</span></p>{/if}
+			<button type="submit" class="send-btn" id="btn-kirim-pesan" aria-label={selectedFile ? 'Periksa nota' : 'Kirim jawaban klarifikasi'} disabled={submittingAnswer || isProcessing}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<line x1="22" y1="2" x2="11" y2="13"/>
 					<polygon points="22 2 15 22 11 13 2 9 22 2"/>
 				</svg>
-				<span>Kirim</span>
+				<span>{selectedFile ? 'Periksa nota' : 'Kirim jawaban'}</span>
 			</button>
-		</form>
+		</form>{:else if !isProcessing}<div class="next-upload"><button type="button" class="secondary" onclick={openFilePicker}>Upload nota lain</button><a href="/dashboard">Kembali ke dashboard</a></div>{/if}
 	{/if}
+	</div>
+	<aside class="intake-guide" aria-label="Panduan pengajuan">
+		{#if activeClaim}<section class="claim-context"><span class="guide-label">Pengajuan aktif</span><h2>{shortClaimRef(activeClaim.claimId ?? '')}</h2><p>{isProcessing ? 'Tera sedang membaca dan memeriksa nota.' : awaitingClarification ? 'Lengkapi informasi agar pemeriksaan bisa dilanjutkan.' : 'Lihat bukti dan perkembangan pengajuan.'}</p><a href={`/riwayat/${activeClaim.claimId}`}>Buka detail klaim</a></section>{/if}
+		<section class="guide-section"><h2>Siapkan nota yang jelas</h2><ul><li>Nama tempat atau penyedia jasa</li><li>Tanggal transaksi</li><li>Total pembayaran</li></ul><p>BBM, makan, tol, parkir, atau hotel. Gunakan nota asli pengeluaran kerja.</p></section>
+		<section class="guide-section workflow-guide"><h2>Setelah nota dikirim</h2><ol><li><strong>Nota dibaca</strong><span>Detail transaksi diambil dari bukti.</span></li><li><strong>Klaim diperiksa</strong><span>Kebijakan dan indikasi duplikat dicocokkan.</span></li><li><strong>Hasil ditampilkan</strong><span>Ikuti status atau lengkapi klarifikasi.</span></li></ol></section>
+		{#if demoMode}<p class="demo-note">Mode demo · data sementara, menggunakan provider mock.</p>{/if}
+	</aside>
+	</div>
 </section>
 
 <style>
@@ -785,7 +794,7 @@
 		flex: 1;
 		min-height: 0;
 		width: 100%;
-		max-width: 880px;
+		max-width: 1440px;
 		margin-inline: auto;
 	}
 
@@ -793,7 +802,7 @@
 	.chat-header h1 { margin: 0 0 8px; }
 	.chat-header p { margin: 0; color: var(--color-text-muted); }
 	.task-status { font-size: var(--text-xs); padding: 8px 12px; border-radius: var(--radius-sm); background: var(--color-light); color: var(--color-primary-dark); }
-	.intake-start { flex: 1; min-height: 0; overflow-y: auto; padding: clamp(16px, 5vh, 48px) 4px 24px; }
+	.intake-start { flex: 1; min-height: 0; padding: 0; }
 	.intake-note { max-width: 420px; margin: 16px auto 24px; text-align: center; font-size: var(--text-xs); color: var(--color-text-muted); }
 	.sample-actions summary { cursor: pointer; min-height: 44px; padding: 12px; color: var(--color-text-muted); font-size: var(--text-xs); }
 
@@ -1137,7 +1146,7 @@
 	.send-btn:active { transform: translateY(0); }
 
 	@media (max-width: 680px) {
-		.upload-btn span, .send-btn span { display: none; }
+		.upload-btn span { display: none; }
 		.upload-btn, .send-btn { padding: 0.65rem 0.85rem; min-width: 44px; flex-shrink: 0; }
 	}
 
@@ -1167,4 +1176,47 @@
 		0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
 		30% { transform: translateY(-6px); opacity: 1; }
 	}
+
+	/* The main panel holds one claim; the narrower rail explains its next step. */
+	.intake-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--space-6); align-items: start; }
+	.intake-main { display: flex; flex-direction: column; min-width: 0; min-height: 520px; padding: var(--space-6); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+	.intake-main.has-conversation { min-height: 0; }
+	.intake-panel-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-6); }
+	.intake-panel-heading h2 { margin: 0; font-size: var(--text-md); }
+	.intake-panel-heading > span { color: var(--color-text-muted); font-size: var(--text-xs); }
+	.intake-guide { display: grid; gap: var(--space-6); min-width: 0; }
+	.guide-section { padding: var(--space-5); border-bottom: 1px solid var(--color-border); }
+	.guide-section h2, .claim-context h2 { font-size: var(--text-md); margin: 0 0 var(--space-4); }
+	.guide-section ul { padding-left: var(--space-5); margin: 0; display: grid; gap: var(--space-3); color: var(--color-ink); font-size: var(--text-xs); }
+	.guide-section p, .claim-context p, .demo-note { color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.8; }
+	.guide-section p { margin: var(--space-5) 0 0; }
+	.workflow-guide ol { list-style: decimal; padding-left: var(--space-5); margin: 0; display: grid; gap: var(--space-5); }
+	.workflow-guide li { padding-left: var(--space-2); color: var(--color-primary); font-size: var(--text-xs); }
+	.workflow-guide strong, .workflow-guide span { display: block; }
+	.workflow-guide strong { color: var(--color-ink); font-weight: 600; }
+	.workflow-guide span { color: var(--color-text-muted); line-height: 1.8; margin-top: var(--space-1); }
+	.claim-context { background: var(--color-light); border-radius: var(--radius-md); padding: var(--space-5); }
+	.guide-label { display: block; font-size: var(--text-xs); color: var(--color-primary-dark); margin-bottom: var(--space-3); }
+	.claim-context a { min-height: 44px; display: inline-flex; align-items: center; font-size: var(--text-xs); font-weight: 600; }
+	.demo-note { margin: 0 var(--space-5); }
+	.dropzone-box { min-height: 248px; border-color: var(--color-border-strong); padding: var(--space-8) var(--space-5); }
+	.sample-actions { text-align: left; }
+	.sample-actions summary { padding-inline: 0; }
+	.sample-chips { justify-content: flex-start; }
+	.sample-btn { border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); }
+	.messages { flex: 1; max-height: max(240px, calc(100dvh - 360px)); padding: var(--space-1); gap: var(--space-4); }
+	.bubble { max-width: calc(100% - 36px); }
+	.bubble.error-bubble { color: var(--color-danger); background: var(--color-danger-soft); border-color: var(--color-danger); }
+	.action-btn { min-height: 44px; padding: var(--space-2) var(--space-3); background: var(--color-surface); }
+	.action-btn.primary { box-shadow: none; }
+	.composer { align-items: center; flex-wrap: wrap; padding-top: var(--space-4); margin-top: var(--space-4); }
+	.selection-summary { flex: 1; min-width: 0; overflow-wrap: anywhere; margin: 0; font-size: var(--text-xs); }
+	.selection-summary span { display: block; color: var(--color-text-muted); }
+	.text-input { width: auto; min-width: 120px; }
+	.text-input:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+	.next-upload { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); border-top: 1px solid var(--color-border); padding-top: var(--space-4); margin-top: var(--space-5); }
+	.next-upload a { display: inline-flex; align-items: center; min-height: 44px; font-size: var(--text-xs); }
+	@media (max-width: 1100px) { .intake-layout { grid-template-columns: minmax(0, 1fr) 248px; gap: var(--space-4); } }
+	@media (max-width: 900px) { .intake-layout { grid-template-columns: minmax(0, 1fr); } .intake-guide { grid-template-columns: repeat(2, minmax(0, 1fr)); } .demo-note { grid-column: 1 / -1; } }
+	@media (max-width: 680px) { .intake-main { padding: var(--space-4); min-height: 0; } .intake-guide { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); } .selection-summary { flex-basis: 100%; order: -1; } .send-btn { margin-left: auto; } .messages { max-height: 55dvh; } .dropzone-text strong { font-size: var(--text-md); } }
 </style>

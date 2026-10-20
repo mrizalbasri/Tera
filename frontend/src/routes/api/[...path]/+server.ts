@@ -26,6 +26,10 @@ const proxy: RequestHandler = async ({ request, params, url, fetch }) => {
 			'Cache-Control': 'no-store'
 		});
 		for (const cookie of upstream.headers.getSetCookie()) responseHeaders.append('Set-Cookie', cookie);
+		for (const name of ['content-disposition', 'x-content-type-options']) {
+			const value = upstream.headers.get(name);
+			if (value) responseHeaders.set(name, value);
+		}
 		return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
 	} catch {
 		return Response.json({ code: 'upstream_unavailable' }, { status: 503 });

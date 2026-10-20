@@ -14,6 +14,7 @@
 	let review = $state<ReviewQueueItem | null>(null);
 	let loading = $state(true);
 	let error = $state('');
+	let decisionError = $state('');
 	let action = $state<'approve' | 'reject' | null>(null);
 	let reason = $state('');
 	let submitting = $state(false);
@@ -23,11 +24,11 @@
 		if (!claimId) return;
 		loading = true;
 		error = '';
+		decisionError = '';
 		try {
 			const [claimResponse, reviewResponse] = await Promise.all([getClaim(claimId), listReviews()]);
 			detail = claimResponse;
 			review = reviewResponse.items.find((item) => item.claim.id === claimId) ?? null;
-			if (!review) error = 'Klaim ini tidak berada dalam antrean review.';
 		} catch (cause) {
 			error = cause instanceof ApiError ? cause.message : 'Detail review tidak dapat dimuat.';
 		} finally {
@@ -40,7 +41,7 @@
 	async function submitDecision() {
 		if (!review || !action || !reason.trim() || submitting) return;
 		submitting = true;
-		error = '';
+		decisionError = '';
 		try {
 			const saved = await decideReview({
 				claimId: review.claim.id,
@@ -59,9 +60,9 @@
 			reason = '';
 		} catch (cause) {
 			if (cause instanceof ApiError && cause.status === 409) {
-				error = 'Keputusan sudah pernah disimpan sebelumnya (konflik 409). Muat ulang untuk melihat keputusan terbaru.';
+				decisionError = 'Status klaim sudah berubah. Muat ulang untuk melihat keputusan terbaru.';
 			} else {
-				error = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
+				decisionError = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
 			}
 		} finally {
 			submitting = false;
@@ -76,8 +77,8 @@
 	{#if loading}
 		<p role="status">Memuat detail review...</p>
 	{:else if error}
-		<div class="state error" role="alert">{error}</div>
-	{:else if detail && review}
+		<div class="state error" role="alert"><p>{error}</p><button type="button" onclick={load}>Muat ulang</button></div>
+	{:else if detail}
 		<header>
 			<div>
 				<p class="eyebrow">REVIEWER DETAIL</p>
@@ -91,7 +92,7 @@
 			<div class="panel">
 				<h2>Ringkasan klaim</h2>
 				<div class="row"><span>Nominal</span><strong>{formatCurrency(detail.claim.declared_amount, detail.claim.currency)}</strong></div>
-				<div class="row"><span>Review</span><strong>{review.review.status}</strong></div>
+				<div class="row"><span>Review</span><strong>{review?.review.status ?? (detail.claim.status === 'escalated' ? 'Tidak tersedia di antrean' : 'Tidak ada review terbuka')}</strong></div>
 				<div class="row"><span>Signal</span><strong>{detail.signals.length}</strong></div>
 				{#if detail.decisions.at(-1)}
 					<DecisionBanner decision={detail.decisions.at(-1)} />
@@ -112,7 +113,8 @@
 			</div>
 		</section>
 
-		{#if review.review.status === 'open'}
+		{#if decisionError}<div class="state error" role="alert"><p>{decisionError}</p><button type="button" class="secondary" onclick={load} disabled={submitting}>Muat ulang status</button></div>{/if}
+		{#if review?.review.status === 'open'}
 			<section class="panel decision-panel">
 				<h2>Keputusan reviewer</h2>
 				{#if !action}

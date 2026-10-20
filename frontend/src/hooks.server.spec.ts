@@ -6,7 +6,7 @@ vi.mock('$lib/server/admin', () => ({
 	adminCookie: '__session',
 	backendUrl: () => 'http://backend.test',
 	isAdminPath: (path: string) => /^\/(reviews?|reports)(\/|$)/.test(path),
-	isEmployeePath: (path: string) => /^\/(pengajuan|riwayat|claims)(\/|$)/.test(path)
+	isEmployeePath: (path: string) => /^\/(dashboard|pengajuan|riwayat|claims)(\/|$)/.test(path)
 }));
 
 const resolve = vi.fn(async () => new Response('workspace'));
@@ -22,7 +22,7 @@ function request(path: string, session: object | null, status = 200) {
 }
 
 describe('workspace access', () => {
-	it.each(['/pengajuan', '/riwayat', '/claims/example', '/reviews', '/reports'])('redirects anonymous visitors at %s', async (path) => {
+	it.each(['/dashboard', '/pengajuan', '/riwayat', '/claims/example', '/reviews', '/reports'])('redirects anonymous visitors at %s', async (path) => {
 		await expect(handle({ event: request(path, null), resolve })).rejects.toMatchObject({ status: 303, location: '/login' });
 		expect(resolve).not.toHaveBeenCalled();
 	});

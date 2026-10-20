@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
+	import { modalFocus } from '$lib/actions/modalFocus';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
 	import { getClaim, getClaimTimeline, listClaims, listClarifications } from '$lib/api/claims';
@@ -144,6 +145,7 @@
 					<h3>Bukti Nota</h3>
 					{#if receipt}
 						<div class="receipt-toolbar">
+							{#if receipt.media_type.startsWith('image/')}
 							<button type="button" class="btn-tool" onclick={rotateReceipt} title="Putar 90°" aria-label="Putar gambar nota 90 derajat">
 								<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 									<path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
@@ -156,6 +158,7 @@
 								</svg>
 								<span>Perbesar</span>
 							</button>
+							{/if}
 							<a href="/api/claims/{claim.id}/receipts/{receipt.id}/content" target="_blank" rel="noopener noreferrer" class="btn-tool" title="Buka berkas di tab baru">
 								<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 									<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
@@ -475,10 +478,11 @@
 		</div>
 	{/if}
 
-	{#if isReceiptZoomed && receipt}
+	{#if isReceiptZoomed && receipt?.media_type.startsWith('image/')}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<div
 			class="lightbox-overlay"
+			use:modalFocus={{ onclose: () => (isReceiptZoomed = false) }}
 			onclick={() => (isReceiptZoomed = false)}
 			onkeydown={(e) => { if (e.key === 'Escape') isReceiptZoomed = false; }}
 			role="dialog"

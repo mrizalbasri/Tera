@@ -21,6 +21,7 @@
 	}
 	const isLanding = $derived(['/', '/login', '/sso-callback'].includes(page.url.pathname));
 	const menu = $derived([
+		{ href: '/dashboard', label: 'Dashboard' },
 		{ href: '/pengajuan', label: 'Pengajuan baru' },
 		{ href: '/riwayat', label: 'Riwayat' },
 		...(data.admin ? [
@@ -46,7 +47,8 @@
 			{#each menu as item}
 				<a href={item.href} data-sveltekit-reload={item.href === '/pengajuan'} onclick={() => (menuOpen = false)} aria-current={page.url.pathname.startsWith(item.href) ? 'page' : undefined} class:active={page.url.pathname.startsWith(item.href)}>
 					<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-						{#if item.href === '/pengajuan'}<path d="M12 5v14M5 12h14" />
+							{#if item.href === '/dashboard'}<rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+							{:else if item.href === '/pengajuan'}<path d="M12 5v14M5 12h14" />
 						{:else if item.href === '/riwayat'}<rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 8h6M9 12h6M9 16h4" />
 						{:else if item.href === '/reviews'}<path d="m8 12 3 3 5-6" /><rect x="3" y="3" width="18" height="18" rx="3" />
 						{:else}<path d="M5 20V10M12 20V4M19 20v-7" />{/if}

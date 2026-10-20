@@ -1,5 +1,6 @@
 from uuid import UUID
 from datetime import date
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile
 from pydantic import BaseModel, Field
@@ -210,12 +211,19 @@ def get_receipt_content(
     content = storage.get(receipt.storage_reference)
     if content is None:
         raise NotFoundError("Receipt content", str(receipt_id))
+    encoded_filename = quote(receipt.original_filename, safe="")
+    disposition = (
+        f'inline; filename="{receipt.original_filename}"'
+        if encoded_filename == receipt.original_filename
+        else f"inline; filename=\"receipt\"; filename*=UTF-8''{encoded_filename}"
+    )
     return Response(
         content=content,
         media_type=receipt.media_type,
         headers={
-            "Content-Disposition": f'inline; filename="{receipt.original_filename}"',
-            "Cache-Control": "private, max-age=3600",
+            "Content-Disposition": disposition,
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
         },
     )
 

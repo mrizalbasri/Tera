@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from fastapi.testclient import TestClient
 from io import BytesIO
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from app.api.deps import _memory_repositories
 from app.domain.enums import ClaimStatus
@@ -153,7 +153,9 @@ def test_clearer_receipt_starts_a_new_run_and_preserves_original_evidence() -> N
     assert repeated["decision"]["id"] == result.json()["decision"]["id"]
 
 
-def test_replacement_preserves_other_receipts_in_a_multi_receipt_claim() -> None:
+def test_replacement_preserves_other_receipts_in_a_multi_receipt_claim(monkeypatch) -> None:
+    identifiers = iter([UUID(int=1000), UUID(int=2), UUID(int=1), UUID(int=3)])
+    monkeypatch.setattr("app.services.intake.uuid4", lambda: next(identifiers))
     response = client.post("/claims", data={"employee_id": "multi-retake", "declared_amount": "60000"}, files=[
         ("files", ("first.pdf", b"%PDF-1.7\nCATEGORY:MEALS first\n%%EOF", "application/pdf")),
         ("files", ("blurred.pdf", b"%PDF-1.7\nLOW_CONFIDENCE CATEGORY:MEALS second\n%%EOF", "application/pdf")),
@@ -166,6 +168,7 @@ def test_replacement_preserves_other_receipts_in_a_multi_receipt_claim() -> None
         "file": ("clear-second.pdf", b"%PDF-1.7\nCATEGORY:MEALS clear second\n%%EOF", "application/pdf")
     })
     assert replacement.status_code == 201
+    assert replacement.json()["receipt"]["replaces_receipt_id"] == created["receipts"][-1]["id"]
     result = client.post(f"/claims/{claim_id}/process")
     assert result.status_code == 200, result.text
     assert result.json()["claim"]["status"] == "approved"

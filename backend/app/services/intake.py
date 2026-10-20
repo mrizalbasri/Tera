@@ -242,7 +242,7 @@ class IntakeService:
         previous_receipts = list(self._receipts.list_for_claim(claim_id))
         superseded_ids = {item.replaces_receipt_id for item in previous_receipts}
         active = [item for item in previous_receipts if item.id not in superseded_ids]
-        replaced = max(active, key=lambda item: (item.created_at, str(item.id)), default=None)
+        replaced = active[-1] if active else None
         claim = claim.model_copy(update={
             "status": ClaimStatus.PROCESSING, "updated_at": now,
             "current_decision_id": None, "receipt_revision": claim.receipt_revision + 1,

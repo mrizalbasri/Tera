@@ -303,6 +303,7 @@
 			pendingSubmissionKey = idempotencyKey;
 			const response = await createClaim({ file, idempotencyKey });
 			claimId = response.claim.id;
+			messages = messages.map((message) => ({ ...message, actions: message.actions?.filter((action) => action.kind !== 'retry-upload') }));
 			pendingSubmissionKey = null;
 			submissionKeyManager.clear();
 			const quality = response.receipts[0]?.quality_score;
@@ -403,6 +404,9 @@
 			return;
 		}
 
+		messages = messages.map((message) => message.claimId === claimId
+			? { ...message, actions: message.actions?.filter((action) => action.kind === 'detail') }
+			: message);
 		const extraction = result.extractions.at(-1);
 		const attemptCount = result.attempts.length;
 		const clarification = result.clarification;

@@ -94,12 +94,13 @@
 				<div class="row"><span>Nominal</span><strong>{formatCurrency(detail.claim.declared_amount, detail.claim.currency)}</strong></div>
 				<div class="row"><span>Review</span><strong>{review?.review.status ?? (detail.claim.status === 'escalated' ? 'Tidak tersedia di antrean' : 'Tidak ada review terbuka')}</strong></div>
 				<div class="row"><span>Signal</span><strong>{detail.signals.length}</strong></div>
+				<a class="button secondary" href={`/riwayat/${encodeURIComponent(detail.claim.id)}`}>Lihat nota dan hasil pembacaan</a>
 				{#if detail.decisions.at(-1)}
 					<DecisionBanner decision={detail.decisions.at(-1)} />
 				{/if}
 			</div>
 			<div class="panel">
-				<h2>Bukti backend</h2>
+				<h2>Bukti dan temuan</h2>
 				{#if detail.signals.length === 0}
 					<p class="muted">Tidak ada signal tambahan.</p>
 				{:else}
@@ -156,7 +157,7 @@
 	.actions { display: flex; gap: .75rem; flex-wrap: wrap; }
 	.confirm-box { margin-top: 0.5rem; }
 	textarea { display: block; width: 100%; min-height: 90px; margin: 0.75rem 0; padding: .75rem; font-family: inherit; }
-	button { padding: .6rem 1rem; cursor: pointer; border-radius: var(--radius-sm, 6px); font-size: var(--text-sm, 0.875rem); }
+	button { min-height: 44px; padding: var(--space-3) var(--space-4); cursor: pointer; border-radius: var(--radius-sm); font-size: var(--text-sm); }
 	.approve { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; font-weight: 600; }
 	.reject { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; font-weight: 600; }
 	.secondary { background: var(--color-surface, #f8fafc); color: var(--color-text-muted, #64748b); border: 1px solid var(--color-border, #e2e8f0); }

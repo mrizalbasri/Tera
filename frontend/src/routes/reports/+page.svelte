@@ -253,13 +253,13 @@
 					<div><dt>Diproses otomatis</dt><dd>{summary.automated_claims}</dd></div>
 					<div><dt>Melalui review manual</dt><dd>{summary.manual_claims}</dd></div>
 					<div><dt>Temuan duplikat</dt><dd>{summary.duplicate_count}</dd></div>
-					<div><dt>Temuan anomali</dt><dd>{summary.anomaly_count}</dd></div>
+					<div><dt>Pemeriksaan anomali</dt><dd>{summary.anomaly_count}</dd></div>
 					<div><dt>Rata-rata durasi proses</dt><dd>{summary.average_duration_ms != null ? `${Math.round(summary.average_duration_ms / 1000)} detik` : 'Belum tersedia'}</dd></div>
 					<div><dt>Waktu dihemat (estimasi)</dt><dd>{summary.estimated_time_saved_minutes} menit</dd></div>
 				</dl>
 			</section>
 			<p class="report-note">
-				Temuan duplikat dan anomali dapat muncul pada klaim yang sama. Estimasi waktu dihemat dihitung berdasarkan rata-rata review manual ~5 menit per nota. Unduh CSV untuk melihat rincian pengajuan.
+				Pemeriksaan anomali mencakup hasil tanpa indikasi risiko. Temuan duplikat dan pemeriksaan anomali dapat muncul pada klaim yang sama. Estimasi waktu dihemat menggunakan asumsi review manual 5 menit per nota. Unduh CSV untuk melihat rincian pengajuan.
 			</p>
 		{/if}
 	{/if}

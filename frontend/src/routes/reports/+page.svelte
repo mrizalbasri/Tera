@@ -239,7 +239,7 @@
 						<dd>{summary.duplicate_count}</dd>
 					</div>
 					<div>
-						<dt>Temuan anomali</dt>
+						<dt>Pemeriksaan anomali</dt>
 						<dd>{summary.anomaly_count}</dd>
 					</div>
 					<div>
@@ -258,7 +258,7 @@
 			</section>
 
 			<p class="report-note">
-				Temuan duplikat dan anomali dapat muncul pada klaim yang sama. Estimasi waktu dihemat dihitung berdasarkan rata-rata review manual ~5 menit per nota. Unduh CSV untuk melihat rincian pengajuan.
+				Pemeriksaan anomali mencakup hasil tanpa indikasi risiko. Temuan duplikat dan pemeriksaan anomali dapat muncul pada klaim yang sama. Estimasi waktu dihemat menggunakan asumsi review manual 5 menit per nota. Unduh CSV untuk melihat rincian pengajuan.
 			</p>
 		{/if}
 	{/if}

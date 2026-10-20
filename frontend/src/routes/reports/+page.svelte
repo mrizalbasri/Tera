@@ -300,11 +300,11 @@
 		background: var(--color-bg, #ffffff);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-sm);
-		padding: 0.45rem 0.65rem;
+		min-height: 44px;
+		padding: var(--space-3);
 		font-size: var(--text-sm);
 		font-family: inherit;
 		color: var(--color-text);
-		outline: none;
 		transition: border-color 0.15s ease;
 	}
 	.filter-field input:focus {
@@ -319,14 +319,14 @@
 		align-items: center;
 	}
 	.btn-apply {
-		min-height: 36px;
-		padding: 0 1rem;
+		min-height: 44px;
+		padding: 0 var(--space-4);
 		font-size: var(--text-sm);
 		font-weight: 600;
 	}
 	.btn-reset {
-		min-height: 36px;
-		padding: 0 0.85rem;
+		min-height: 44px;
+		padding: 0 var(--space-4);
 		font-size: var(--text-sm);
 		color: var(--color-text-muted);
 		background: none;

@@ -14,6 +14,7 @@
 	let review = $state<ReviewQueueItem | null>(null);
 	let loading = $state(true);
 	let error = $state('');
+	let decisionError = $state('');
 	let action = $state<'approve' | 'reject' | null>(null);
 	let reason = $state('');
 	let submitting = $state(false);
@@ -23,11 +24,11 @@
 		if (!claimId) return;
 		loading = true;
 		error = '';
+		decisionError = '';
 		try {
 			const [claimResponse, reviewResponse] = await Promise.all([getClaim(claimId), listReviews()]);
 			detail = claimResponse;
 			review = reviewResponse.items.find((item) => item.claim.id === claimId) ?? null;
-			if (!review) error = 'Klaim ini tidak berada dalam antrean review.';
 		} catch (cause) {
 			error = cause instanceof ApiError ? cause.message : 'Detail review tidak dapat dimuat.';
 		} finally {
@@ -40,22 +41,23 @@
 	async function submitDecision() {
 		if (!review || !action || !reason.trim() || submitting) return;
 		submitting = true;
-		error = '';
+		decisionError = '';
 		try {
-			await decideReview({
+			const saved = await decideReview({
 				claimId: review.claim.id,
 				action,
 				reason: reason.trim(),
 				reviewerReference: CURRENT_REVIEWER_ID
 			});
+			review = { ...review, claim: saved.claim, review: saved.review, decision: saved.decision };
+			if (detail) detail = { ...detail, claim: saved.claim, decisions: [...detail.decisions.filter((item) => item.id !== saved.decision.id), saved.decision] };
 			action = null;
 			reason = '';
-			await load();
 		} catch (cause) {
 			if (cause instanceof ApiError && cause.status === 409) {
-				error = 'Keputusan sudah pernah disimpan sebelumnya (konflik 409). Muat ulang untuk melihat keputusan terbaru.';
+				decisionError = 'Status klaim sudah berubah. Muat ulang untuk melihat keputusan terbaru.';
 			} else {
-				error = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
+				decisionError = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
 			}
 		} finally {
 			submitting = false;
@@ -70,8 +72,8 @@
 	{#if loading}
 		<p role="status">Memuat detail review...</p>
 	{:else if error}
-		<div class="state error" role="alert">{error}</div>
-	{:else if detail && review}
+		<div class="state error" role="alert"><p>{error}</p><button type="button" onclick={load}>Muat ulang</button></div>
+	{:else if detail}
 		<header>
 			<div>
 				<p class="eyebrow">REVIEWER DETAIL</p>
@@ -85,7 +87,7 @@
 			<div class="panel">
 				<h2>Ringkasan klaim</h2>
 				<div class="row"><span>Nominal</span><strong>{formatCurrency(detail.claim.declared_amount, detail.claim.currency)}</strong></div>
-				<div class="row"><span>Review</span><strong>{review.review.status}</strong></div>
+				<div class="row"><span>Review</span><strong>{review?.review.status ?? 'Tidak ada review terbuka'}</strong></div>
 				<div class="row"><span>Signal</span><strong>{detail.signals.length}</strong></div>
 				{#if detail.decisions.at(-1)}
 					<DecisionBanner decision={detail.decisions.at(-1)} />
@@ -106,7 +108,8 @@
 			</div>
 		</section>
 
-		{#if review.review.status === 'open'}
+		{#if decisionError}<div class="state error" role="alert"><p>{decisionError}</p><button type="button" class="secondary" onclick={load} disabled={submitting}>Muat ulang status</button></div>{/if}
+		{#if review?.review.status === 'open'}
 			<section class="panel decision-panel">
 				<h2>Keputusan reviewer</h2>
 				{#if !action}
@@ -117,7 +120,7 @@
 				{:else}
 					<div class="confirm-box">
 						<p>Konfirmasi: <strong>{action === 'approve' ? 'Setujui klaim' : 'Tolak klaim'}</strong></p>
-						<textarea bind:value={reason} placeholder="Alasan keputusan wajib diisi berdasarkan bukti klaim..."></textarea>
+						<textarea bind:value={reason} aria-label="Alasan keputusan" required disabled={submitting} placeholder="Alasan keputusan wajib diisi berdasarkan bukti klaim..."></textarea>
 						<div class="actions">
 							<button type="button" class={action === 'approve' ? 'approve' : 'reject'} onclick={submitDecision} disabled={submitting || !reason.trim()}>
 								{submitting ? 'Menyimpan...' : `Ya, simpan ${action === 'approve' ? 'persetujuan' : 'penolakan'}`}
@@ -148,7 +151,7 @@
 	.actions { display: flex; gap: .75rem; flex-wrap: wrap; }
 	.confirm-box { margin-top: 0.5rem; }
 	textarea { display: block; width: 100%; min-height: 90px; margin: 0.75rem 0; padding: .75rem; font-family: inherit; }
-	button { padding: .6rem 1rem; cursor: pointer; border-radius: var(--radius-sm, 6px); font-size: var(--text-sm, 0.875rem); }
+	button { min-height: 44px; padding: var(--space-3) var(--space-4); cursor: pointer; border-radius: var(--radius-sm); font-size: var(--text-sm); }
 	.approve { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; font-weight: 600; }
 	.reject { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; font-weight: 600; }
 	.secondary { background: var(--color-surface, #f8fafc); color: var(--color-text-muted, #64748b); border: 1px solid var(--color-border, #e2e8f0); }

@@ -118,14 +118,15 @@
 	.section-top > a { font-size: var(--text-xs); display: inline-flex; align-items: center; min-height: 44px; white-space: nowrap; }
 	.search-input {
 		font-size: var(--text-xs);
-		padding: 0.4rem 0.65rem;
+		min-height: 44px;
+		padding: var(--space-3);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-sm);
 		background: var(--color-bg, #ffffff);
 		color: var(--color-text);
 		min-width: 220px;
 	}
-	.search-input:focus { border-color: var(--color-primary, #0f766e); outline: none; }
+	.search-input:focus { border-color: var(--color-primary); }
 	.search-empty { padding: var(--space-6); color: var(--color-text-muted); font-size: var(--text-sm); text-align: center; }
 	.review-link { font-weight: 600; color: #0f766e; }
 	.dashboard-empty { padding: var(--space-20) var(--space-6); text-align: center; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); }

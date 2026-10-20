@@ -205,6 +205,10 @@ def test_admitted_placeholder_date_is_not_treated_as_observed():
     ("Vendor missing. Receipt date readable", "vendor"),
     ("receipt_date_unreadable", "receipt_date"),
     ("Unreadable vendor; receipt date readable", "vendor"),
+    ("Vendor clear and unreadable date", "receipt_date"),
+    ("Date clear and unreadable vendor", "vendor"),
+    ("Vendor clear and blurred receipt date", "receipt_date"),
+    ("Date clear & missing vendor", "vendor"),
 ])
 def test_uncertainty_warning_only_invalidates_the_affected_field(warning, missing):
     output = _valid_output().model_dump()

@@ -125,11 +125,17 @@ def _uncertain_fields(warnings: list[str]) -> set[str]:
     for warning in warnings:
         for clause in re.split(r"[,;.!?\n]|\b(?:but|while)\b", warning.replace("_", " ").lower()):
             mentions = list(re.finditer(coordinated_fields, clause))
+            boundaries = [0]
+            for previous, current in zip(mentions, mentions[1:]):
+                gap = clause[previous.end():current.start()]
+                connectors = list(re.finditer(r"\band\b|&", gap))
+                # In "vendor clear and unreadable date", the adjective after
+                # the conjunction belongs to the following field.
+                prefix = connectors[-1].end() if connectors else len(gap)
+                boundaries.append(previous.end() + prefix if re.search(uncertain, gap[prefix:]) else current.start())
+            boundaries.append(len(clause))
             for index, mention in enumerate(mentions):
-                end = mentions[index + 1].start() if index + 1 < len(mentions) else len(clause)
-                # Scope each predicate to its field; a leading adjective belongs
-                # to the first field (e.g. "unreadable vendor").
-                start = 0 if index == 0 else mention.start()
+                start, end = boundaries[index:index + 2]
                 if re.search(uncertain, clause[start:end]):
                     for name in re.findall(field, mention.group()):
                         fields.add("vendor" if name == "vendor" else "receipt_date")

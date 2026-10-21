@@ -47,7 +47,9 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
 
       - name: Run test suite
         run: python -m pytest -q --cov=app --cov-branch --cov-report=term-missing --cov-report=xml:coverage.xml

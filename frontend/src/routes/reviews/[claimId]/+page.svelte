@@ -4,7 +4,7 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
 	import { getClaim } from '$lib/api/claims';
-	import { listReviews, decideReview, CURRENT_REVIEWER_ID } from '$lib/api/reviews';
+	import { listReviews, decideReview } from '$lib/api/reviews';
 	import { ApiError } from '$lib/api/client';
 	import { formatCurrency } from '$lib/formatters/currency';
 	import { formatDateTime } from '$lib/formatters/date';
@@ -14,6 +14,7 @@
 	let review = $state<ReviewQueueItem | null>(null);
 	let loading = $state(true);
 	let error = $state('');
+	let decisionError = $state('');
 	let action = $state<'approve' | 'reject' | null>(null);
 	let reason = $state('');
 	let submitting = $state(false);
@@ -23,11 +24,11 @@
 		if (!claimId) return;
 		loading = true;
 		error = '';
+		decisionError = '';
 		try {
 			const [claimResponse, reviewResponse] = await Promise.all([getClaim(claimId), listReviews()]);
 			detail = claimResponse;
 			review = reviewResponse.items.find((item) => item.claim.id === claimId) ?? null;
-			if (!review) error = 'Klaim ini tidak berada dalam antrean review.';
 		} catch (cause) {
 			error = cause instanceof ApiError ? cause.message : 'Detail review tidak dapat dimuat.';
 		} finally {
@@ -40,18 +41,29 @@
 	async function submitDecision() {
 		if (!review || !action || !reason.trim() || submitting) return;
 		submitting = true;
+		decisionError = '';
 		try {
-			await decideReview({
+			const saved = await decideReview({
 				claimId: review.claim.id,
 				action,
-				reason: reason.trim(),
-				reviewerReference: CURRENT_REVIEWER_ID
+				reason: reason.trim()
 			});
+			review = { ...review, claim: saved.claim, review: saved.review, decision: saved.decision };
+			if (detail) {
+				detail = {
+					...detail,
+					claim: saved.claim,
+					decisions: [...detail.decisions.filter((item) => item.id !== saved.decision.id), saved.decision]
+				};
+			}
 			action = null;
 			reason = '';
-			await load();
 		} catch (cause) {
-			error = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
+			if (cause instanceof ApiError && cause.status === 409) {
+				decisionError = 'Status klaim sudah berubah. Muat ulang untuk melihat keputusan terbaru.';
+			} else {
+				decisionError = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
+			}
 		} finally {
 			submitting = false;
 		}
@@ -65,8 +77,8 @@
 	{#if loading}
 		<p role="status">Memuat detail review...</p>
 	{:else if error}
-		<div class="state error" role="alert">{error}</div>
-	{:else if detail && review}
+		<div class="state error" role="alert"><p>{error}</p><button type="button" onclick={load}>Muat ulang</button></div>
+	{:else if detail}
 		<header>
 			<div>
 				<p class="eyebrow">REVIEWER DETAIL</p>
@@ -80,14 +92,15 @@
 			<div class="panel">
 				<h2>Ringkasan klaim</h2>
 				<div class="row"><span>Nominal</span><strong>{formatCurrency(detail.claim.declared_amount, detail.claim.currency)}</strong></div>
-				<div class="row"><span>Review</span><strong>{review.review.status}</strong></div>
+				<div class="row"><span>Review</span><strong>{review?.review.status ?? (detail.claim.status === 'escalated' ? 'Tidak tersedia di antrean' : 'Tidak ada review terbuka')}</strong></div>
 				<div class="row"><span>Signal</span><strong>{detail.signals.length}</strong></div>
+				<a class="button secondary" href={`/riwayat/${encodeURIComponent(detail.claim.id)}`}>Lihat nota dan hasil pembacaan</a>
 				{#if detail.decisions.at(-1)}
 					<DecisionBanner decision={detail.decisions.at(-1)} />
 				{/if}
 			</div>
 			<div class="panel">
-				<h2>Bukti backend</h2>
+				<h2>Bukti dan temuan</h2>
 				{#if detail.signals.length === 0}
 					<p class="muted">Tidak ada signal tambahan.</p>
 				{:else}
@@ -101,18 +114,28 @@
 			</div>
 		</section>
 
-		{#if review.review.status === 'open'}
+		{#if decisionError}<div class="state error" role="alert"><p>{decisionError}</p><button type="button" class="secondary" onclick={load} disabled={submitting}>Muat ulang status</button></div>{/if}
+		{#if review?.review.status === 'open'}
 			<section class="panel decision-panel">
 				<h2>Keputusan reviewer</h2>
-				<div class="actions">
-					<button type="button" class="approve" onclick={() => (action = 'approve')}>Setujui</button>
-					<button type="button" class="reject" onclick={() => (action = 'reject')}>Tolak</button>
-				</div>
-				{#if action}
-					<textarea bind:value={reason} placeholder="Alasan keputusan wajib diisi"></textarea>
-					<button type="button" onclick={submitDecision} disabled={submitting || !reason.trim()}>
-						{submitting ? 'Menyimpan...' : `Konfirmasi ${action === 'approve' ? 'persetujuan' : 'penolakan'}`}
-					</button>
+				{#if !action}
+					<div class="actions">
+						<button type="button" class="approve" onclick={() => (action = 'approve')}>Setujui klaim</button>
+						<button type="button" class="reject" onclick={() => (action = 'reject')}>Tolak klaim</button>
+					</div>
+				{:else}
+					<div class="confirm-box">
+						<p>Konfirmasi: <strong>{action === 'approve' ? 'Setujui klaim' : 'Tolak klaim'}</strong></p>
+						<textarea bind:value={reason} aria-label="Alasan keputusan" required disabled={submitting} placeholder="Alasan keputusan wajib diisi berdasarkan bukti klaim..."></textarea>
+						<div class="actions">
+							<button type="button" class={action === 'approve' ? 'approve' : 'reject'} onclick={submitDecision} disabled={submitting || !reason.trim()}>
+								{submitting ? 'Menyimpan...' : `Ya, simpan ${action === 'approve' ? 'persetujuan' : 'penolakan'}`}
+							</button>
+							<button type="button" class="secondary" onclick={() => { action = null; reason = ''; }} disabled={submitting}>
+								Batal
+							</button>
+						</div>
+					</div>
 				{/if}
 			</section>
 		{/if}
@@ -131,9 +154,12 @@
 	.row { display: flex; justify-content: space-between; padding: .55rem 0; border-bottom: 1px solid var(--color-border); }
 	.evidence { display: grid; gap: .25rem; padding: .75rem 0; border-bottom: 1px solid var(--color-border); }
 	.evidence span { color: var(--color-text-muted); font-size: .9rem; }
-	.actions { display: flex; gap: .75rem; }
-	textarea { display: block; width: 100%; min-height: 90px; margin: 1rem 0; padding: .75rem; }
-	button { padding: .6rem 1rem; cursor: pointer; }
-	.approve { color: #166534; } .reject { color: #991b1b; }
+	.actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+	.confirm-box { margin-top: 0.5rem; }
+	textarea { display: block; width: 100%; min-height: 90px; margin: 0.75rem 0; padding: .75rem; font-family: inherit; }
+	button { min-height: 44px; padding: var(--space-3) var(--space-4); cursor: pointer; border-radius: var(--radius-sm); font-size: var(--text-sm); }
+	.approve { background: #ecfdf5; color: #166534; border: 1px solid #bbf7d0; font-weight: 600; }
+	.reject { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; font-weight: 600; }
+	.secondary { background: var(--color-surface, #f8fafc); color: var(--color-text-muted, #64748b); border: 1px solid var(--color-border, #e2e8f0); }
 	.error { color: #991b1b; }
 </style>

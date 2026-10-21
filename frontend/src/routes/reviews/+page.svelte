@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Toast from '$lib/components/Toast.svelte';
 	import { modalFocus } from '$lib/actions/modalFocus';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
-	import { listReviews, decideReview, CURRENT_REVIEWER_ID } from '$lib/api/reviews';
+	import { listReviews, decideReview } from '$lib/api/reviews';
 	import { ApiError } from '$lib/api/client';
 	import { showToast } from '$lib/stores/toast.svelte';
 	import { shortClaimRef } from '$lib/formatters/claim';
@@ -17,7 +18,6 @@
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let searchQuery = $state('');
-	let statusFilter = $state<'all' | 'open' | 'decided'>('all');
 	let riskFilter = $state<'all' | 'high' | 'normal'>('all');
 	let ageFilter = $state<'all' | 'old'>('all');
 
@@ -32,7 +32,8 @@
 	let activeSignals = $state<ReviewQueueItem | null>(null);
 
 	let pendingCount = $derived(queue.filter((item) => item.review.status === 'open').length);
-	let decidedCount = $derived(queue.length - pendingCount);
+	let highRiskCount = $derived(queue.filter((item) => item.signals.some((signal) => signal.severity === 'blocking' || signal.severity === 'warning')).length);
+	let olderCount = $derived(queue.filter((item) => Date.now() - new Date(item.claim.submitted_at).getTime() >= 3 * 86_400_000).length);
 	let filteredQueue = $derived(
 		queue.filter((item) => {
 			const q = searchQuery.trim().toLowerCase();
@@ -40,12 +41,11 @@
 				shortClaimRef(item.claim.id).toLowerCase().includes(q) ||
 				item.claim.employee_id.toLowerCase().includes(q)
 			);
-			const matchesStatus = statusFilter === 'all' || item.review.status === statusFilter;
 			const hasHighRisk = item.signals.some((signal) => signal.severity === 'blocking' || signal.severity === 'warning');
 			const matchesRisk = riskFilter === 'all' || (riskFilter === 'high' ? hasHighRisk : !hasHighRisk);
 			const ageDays = Math.floor((Date.now() - new Date(item.claim.submitted_at).getTime()) / 86_400_000);
 			const matchesAge = ageFilter === 'all' || ageDays >= 3;
-			return matchesSearch && matchesStatus && matchesRisk && matchesAge;
+			return matchesSearch && matchesRisk && matchesAge;
 		})
 	);
 
@@ -95,7 +95,7 @@
 			showToast(
 				`Klaim ${shortClaimRef(response.claim.id)} ${
 					decisionAction === 'approve' ? 'disetujui' : 'ditolak'
-				}. Tercatat atas nama ${response.review.reviewer_reference ?? CURRENT_REVIEWER_ID}.`,
+				}. Tercatat atas nama ${response.review.reviewer_reference ?? page.data.admin?.username}.`,
 				'success'
 			);
 			decisionTarget = null;
@@ -166,14 +166,14 @@
 			<span class="stat-hint">{loading ? 'Memuat antrean...' : loadError ? 'Data belum tersedia' : pendingCount > 0 ? 'Menunggu keputusan reviewer' : 'Tidak ada klaim menunggu review'}</span>
 		</div>
 		<div class="stat-card">
-			<span class="stat-label">Selesai Ditinjau</span>
-			<span class="stat-value">{loading || loadError ? '...' : decidedCount}</span>
-			<span class="stat-hint">Keputusan terekam sebagai jejak audit</span>
+			<span class="stat-label">Risiko tinggi</span>
+			<span class="stat-value">{loading || loadError ? '...' : highRiskCount}</span>
+			<span class="stat-hint">Memiliki temuan peringatan atau pemblokiran</span>
 		</div>
 		<div class="stat-card">
-			<span class="stat-label">Total Antrean Eskalasi</span>
-			<span class="stat-value">{loading || loadError ? '...' : queue.length}</span>
-			<span class="stat-hint">Diteruskan Tera untuk diperiksa</span>
+			<span class="stat-label">Menunggu ≥ 3 hari</span>
+			<span class="stat-value">{loading || loadError ? '...' : olderCount}</span>
+			<span class="stat-hint">Klaim terbuka yang perlu segera ditinjau</span>
 		</div>
 	</section>
 
@@ -182,11 +182,6 @@
 		<div class="search-box">
 			<input type="text" aria-label="Cari klaim" placeholder="Cari ID klaim atau karyawan..." bind:value={searchQuery} />
 		</div>
-		<select aria-label="Filter status review" bind:value={statusFilter}>
-			<option value="all">Semua status</option>
-			<option value="open">Menunggu review</option>
-			<option value="decided">Selesai</option>
-		</select>
 		<select aria-label="Filter risiko" bind:value={riskFilter}>
 			<option value="all">Semua risiko</option>
 			<option value="high">Risiko tinggi</option>
@@ -194,7 +189,7 @@
 		</select>
 		<select aria-label="Filter usia klaim" bind:value={ageFilter}>
 			<option value="all">Semua usia</option>
-			<option value="old">Lebih dari 3 hari</option>
+			<option value="old">Minimal 3 hari</option>
 		</select>
 	</div>
 
@@ -280,7 +275,7 @@
 					<span class="eyebrow">Audit Trail & Bukti Signal</span>
 					<h3>Klaim {shortClaimRef(activeSignals.claim.id)} · {activeSignals.claim.employee_id}</h3>
 				</div>
-				<button class="btn-close" onclick={() => (activeSignals = null)}>✕</button>
+				<button class="btn-close" aria-label="Tutup bukti pemeriksaan" onclick={() => (activeSignals = null)}>✕</button>
 			</div>
 
 			<div class="modal-body">
@@ -374,16 +369,18 @@
 					<span class="eyebrow">Konfirmasi Keputusan</span>
 					<h3>{decisionAction === 'approve' ? '✓ Setujui' : '✕ Tolak'} klaim {shortClaimRef(decisionTarget.claim.id)}</h3>
 				</div>
-				<button class="btn-close" onclick={closeDecisionModal}>✕</button>
+				<button class="btn-close" aria-label="Tutup konfirmasi keputusan" onclick={closeDecisionModal}>✕</button>
 			</div>
 			<div class="decision-modal-body">
 				<p class="ai-reason">
 					Keputusan ini akan dicatat sebagai keputusan resmi atas nama
-					<strong>{CURRENT_REVIEWER_ID}</strong> dan tidak dapat diubah dari UI.
+					<strong>{page.data.admin?.username}</strong> dan tidak dapat diubah dari UI.
 				</p>
 				<label class="reason-label" for="decision-reason">Alasan keputusan (wajib)</label>
 				<textarea
 					id="decision-reason"
+					required
+					aria-required="true"
 					bind:value={decisionReason}
 					rows="3"
 					placeholder={decisionAction === 'approve' ? 'Contoh: Nota dan konteks klarifikasi sudah meyakinkan.' : 'Contoh: Tidak sesuai kebijakan perusahaan.'}
@@ -399,7 +396,7 @@
 						class="{decisionAction === 'approve' ? 'btn-approve' : 'btn-reject'} full"
 						type="button"
 						onclick={submitDecision}
-						disabled={submittingDecision}
+						disabled={submittingDecision || !decisionReason.trim()}
 					>
 						{submittingDecision ? 'Mengirim...' : decisionAction === 'approve' ? '✓ Konfirmasi Persetujuan' : '✕ Konfirmasi Penolakan'}
 					</button>

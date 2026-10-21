@@ -130,7 +130,7 @@ export interface Decision {
 export interface Review {
 	id: string;
 	claim_id: string;
-	status: 'open' | 'decided';
+	status: 'open' | 'decided' | 'cancelled';
 	reviewer_reference: string | null;
 	action: string | null;
 	reason: string | null;
@@ -253,6 +253,7 @@ export interface ReviewQueueItem {
 export interface ReviewQueueResponse {
 	items: ReviewQueueItem[];
 	total: number;
+	snapshot?: string;
 }
 
 export interface ReviewDecisionResponse {

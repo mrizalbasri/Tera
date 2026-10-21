@@ -39,6 +39,19 @@ input::file-selector-button { border: 0; border-radius: var(--radius-sm); backgr
 .app-shell nav a[href="/pengajuan"] { background: var(--color-primary); color: var(--color-inverse); margin-bottom: var(--space-3); }
 .app-shell nav a[href="/pengajuan"]:hover { background: var(--color-primary-dark); }
 .workspace-mobile-account { display: none; }
+.workspace-identity { padding: 0 var(--space-3) var(--space-6); }
+.workspace-identity > span { display: block; font-size: 10px; font-weight: 700; color: var(--color-primary-dark); }
+.workspace-identity strong { display: block; margin-top: var(--space-2); font-size: var(--text-sm); }
+.workspace-identity p { margin: var(--space-2) 0 0; color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.7; }
+.workspace-switch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4) var(--space-5); margin: 0 0 var(--space-8); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.workspace-switch strong, .workspace-switch span { display: block; font-size: var(--text-xs); }
+.workspace-switch span { margin-top: var(--space-1); color: var(--color-text-muted); max-width: 520px; }
+.workspace-options { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.workspace-options a { display: inline-flex; min-height: 44px; align-items: center; padding: var(--space-2) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: var(--text-xs); text-decoration: none; }
+.workspace-options a[aria-current] { background: var(--color-primary); color: var(--color-inverse); border-color: var(--color-primary); }
+.review-context { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3) var(--space-5); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-6); background: var(--color-light); border-left: 3px solid var(--color-primary); border-radius: var(--radius-sm); font-size: var(--text-xs); }
+.review-context span { flex: 1 1 320px; line-height: 1.8; }
+.review-context a { display: inline-flex; align-items: center; min-height: 44px; }
 .workspace-mode { color: var(--color-text-muted); font-size: var(--text-xs); }
 .workspace-return .admin-account { justify-content: flex-start; }
 .app-shell nav a:hover:not(.active):not([href="/pengajuan"]) { background: var(--color-soft); }
@@ -129,6 +142,10 @@ input::file-selector-button { border: 0; border-radius: var(--radius-sm); backgr
 .skip-link:focus { top: var(--space-3); left: var(--space-3); z-index: 50; }
 @media (max-width: 960px) { .app-shell .sidebar { width: 188px; padding-inline: var(--space-4); } }
 @media (max-width: 768px) {
+	.workspace-identity { padding: var(--space-3) 0 0; }
+	.workspace-identity > span { font-size: 10px; }
+	.workspace-identity strong, .workspace-identity p { display: none; }
+	.workspace-switch { margin-bottom: var(--space-6); padding: var(--space-4); }
 	.app-shell { flex-direction: column; }
 	.app-shell .sidebar { position: static; width: 100%; height: auto; padding: var(--space-4) var(--space-5); border-right: 0; border-bottom: 1px solid var(--color-border); }
 	.app-shell .brand { margin: 0; }

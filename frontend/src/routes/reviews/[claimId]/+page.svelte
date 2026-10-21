@@ -18,6 +18,8 @@
 	let action = $state<'approve' | 'reject' | null>(null);
 	let reason = $state('');
 	let submitting = $state(false);
+	const receipt = $derived(detail?.receipts.at(-1));
+	const extraction = $derived(detail?.extractions.findLast((item) => item.receipt_id === receipt?.id));
 
 	async function load() {
 		const claimId = page.params.claimId;
@@ -88,13 +90,27 @@
 			<StatusBadge status={detail.claim.status} size="sm" />
 		</header>
 
-		<section class="grid">
+			<section class="evidence-workbench" aria-label="Nota dan hasil pembacaan">
+				<div class="panel receipt-preview"><h2>Nota yang diperiksa</h2>
+					{#if receipt}
+						{#if receipt.media_type.startsWith('image/')}<img src={`/api/claims/${detail.claim.id}/receipts/${receipt.id}/content`} alt={`Nota ${receipt.original_filename}`} />
+						{:else if receipt.media_type === 'application/pdf'}<iframe src={`/api/claims/${detail.claim.id}/receipts/${receipt.id}/content`} title="Pratinjau nota PDF"></iframe>{/if}
+						<a href={`/api/claims/${detail.claim.id}/receipts/${receipt.id}/content`} target="_blank" rel="noopener noreferrer">Buka berkas asli</a>
+					{:else}<p class="muted">Bukti nota belum tersedia.</p>{/if}
+				</div>
+				<div class="panel extraction-summary"><h2>Hasil pembacaan Tera</h2><p class="muted">Cocokkan informasi berikut dengan bukti nota sebelum mencatat keputusan.</p>
+					<dl><div><dt>Vendor</dt><dd>{extraction?.vendor.value == null ? 'Belum terbaca' : String(extraction.vendor.value)}</dd></div><div><dt>Tanggal nota</dt><dd>{extraction?.receipt_date.value == null ? 'Belum terbaca' : String(extraction.receipt_date.value)}</dd></div><div><dt>Total nota</dt><dd>{extraction?.total.value == null ? 'Belum terbaca' : formatCurrency(Number(extraction.total.value), detail.claim.currency)}</dd></div><div><dt>Kategori</dt><dd>{extraction?.category.value == null ? 'Belum terbaca' : String(extraction.category.value)}</dd></div></dl>
+					{#if review?.decision}<div class="escalation-reason"><strong>Alasan diteruskan ke reviewer</strong><p>{review.decision.explanation}</p></div>{/if}
+					<p class="muted">Disetujui berarti keputusan klaim, belum konfirmasi pembayaran.</p>
+				</div>
+			</section>
+			<section class="grid">
 			<div class="panel">
 				<h2>Ringkasan klaim</h2>
 				<div class="row"><span>Nominal</span><strong>{formatCurrency(detail.claim.declared_amount, detail.claim.currency)}</strong></div>
 				<div class="row"><span>Review</span><strong>{review?.review.status ?? (detail.claim.status === 'escalated' ? 'Tidak tersedia di antrean' : 'Tidak ada review terbuka')}</strong></div>
 				<div class="row"><span>Signal</span><strong>{detail.signals.length}</strong></div>
-				<a class="button secondary" href={`/riwayat/${encodeURIComponent(detail.claim.id)}`}>Lihat nota dan hasil pembacaan</a>
+					<a class="button secondary" href={`/admin/claims/${encodeURIComponent(detail.claim.id)}`}>Lihat nota dan hasil pembacaan</a>
 				{#if detail.decisions.at(-1)}
 					<DecisionBanner decision={detail.decisions.at(-1)} />
 				{/if}
@@ -143,6 +159,16 @@
 </main>
 
 <style>
+	.evidence-workbench { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-5); }
+	.receipt-preview img, .receipt-preview iframe { display: block; width: 100%; height: 360px; object-fit: contain; border: 1px solid var(--color-border); background: var(--color-soft); border-radius: var(--radius-sm); }
+	.receipt-preview a { display: inline-flex; min-height: 44px; align-items: center; margin-top: var(--space-3); }
+	.extraction-summary dl { margin: var(--space-5) 0; }
+	.extraction-summary dl > div { display: flex; justify-content: space-between; gap: var(--space-4); border-bottom: 1px solid var(--color-border); padding: var(--space-3) 0; }
+	.extraction-summary dt { color: var(--color-text-muted); }
+	.extraction-summary dd { margin: 0; font-weight: 600; text-align: right; overflow-wrap: anywhere; min-width: 0; }
+	.escalation-reason { padding: var(--space-4); background: var(--color-light); border-radius: var(--radius-sm); }
+	.escalation-reason p { margin-bottom: 0; }
+	@media (max-width: 900px) { .evidence-workbench { grid-template-columns: minmax(0, 1fr); } }
 	.review-detail { max-width: 980px; margin: 0 auto; padding: 2rem 1rem; }
 	.back-link, .muted { color: var(--color-text-muted); }
 	header { display: flex; justify-content: space-between; align-items: start; gap: 1rem; margin: 2rem 0; }

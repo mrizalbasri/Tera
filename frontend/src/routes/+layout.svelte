@@ -20,16 +20,17 @@
 		}
 	}
 	const isLanding = $derived(['/', '/login', '/sso-callback'].includes(page.url.pathname));
-	const menu = $derived([
-		{ href: '/dashboard', label: 'Dashboard' },
+	const menu = $derived(data.financeWorkspace ? [
+		{ href: '/reviews', label: 'Antrean review' },
+		{ href: '/dashboard', label: 'Ringkasan' },
+		{ href: '/admin/claims', label: 'Semua klaim' },
+		{ href: '/reports', label: 'Laporan' }
+	] : [
 		{ href: '/pengajuan', label: 'Pengajuan baru' },
-		{ href: '/riwayat', label: 'Riwayat' },
-		...(data.admin ? [
-			{ href: '/reviews', label: 'Review' },
-			{ href: '/reports', label: 'Laporan' }
-		] : data.user ? [] : [{ href: '/login', label: 'Masuk' }])
+		{ href: '/riwayat', label: 'Klaim saya' },
+		...(!data.user ? [{ href: '/login', label: 'Masuk' }] : [])
 	]);
-	const currentPage = $derived(menu.find((item) => page.url.pathname.startsWith(item.href))?.label ?? 'Detail klaim');
+	const currentPage = $derived(menu.find((item) => page.url.pathname.startsWith(item.href))?.label ?? (page.url.pathname === '/dashboard' ? 'Ringkasan klaim saya' : 'Detail klaim'));
 </script>
 <svelte:window onkeydown={closeMenu} />
 <svelte:head><link rel="icon" type="image/webp" href="/logo.webp" /><meta name="theme-color" content="#0f766e" /></svelte:head>
@@ -43,7 +44,8 @@
 			<a href="/" class="brand" aria-label="Tera, beranda"><img src="/logo.webp" alt="" width="36" height="36" /><strong>Tera</strong></a>
 			<button bind:this={menuButton} type="button" class="mobile-menu secondary" aria-expanded={menuOpen} aria-controls="workspace-nav" onclick={() => (menuOpen = !menuOpen)}>{menuOpen ? 'Tutup menu' : 'Menu'}</button>
 		</div>
-		<nav id="workspace-nav" class:open={menuOpen} aria-label="Menu utama">
+			<div class="workspace-identity"><span>{data.financeWorkspace ? 'ADMIN · FINANCE / REVIEWER' : 'KARYAWAN'}</span><strong>{data.financeWorkspace ? 'Meja pemeriksaan' : 'Ruang pengajuan'}</strong><p>{data.financeWorkspace ? 'Tangani pengecualian. Telusuri setiap keputusan.' : 'Kirim nota. Pantau hasil. Lengkapi jika diminta.'}</p></div>
+			<nav id="workspace-nav" class:open={menuOpen} aria-label="Menu utama">
 			{#each menu as item}
 				<a href={item.href} data-sveltekit-reload={item.href === '/pengajuan'} onclick={() => (menuOpen = false)} aria-current={page.url.pathname.startsWith(item.href) ? 'page' : undefined} class:active={page.url.pathname.startsWith(item.href)}>
 					<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -63,7 +65,8 @@
 		</div>
 	</aside>
 	<main id="main-content" class="content" tabindex="-1">
-		<div class="topbar"><span>Tera <span aria-hidden="true">/</span> <strong>{currentPage}</strong></span><div class="workspace-mobile-account">{#if data.demoMode}Mode demo{:else if data.user}<AdminAccount />{:else}<a href="/login">Masuk</a>{/if}</div></div>
+			<div class="topbar"><span>{data.financeWorkspace ? 'Panel admin' : 'Ruang karyawan'} <span aria-hidden="true">/</span> <strong>{currentPage}</strong></span><div class="workspace-mobile-account">{#if data.demoMode}Mode demo{:else if data.user}<AdminAccount />{:else}<a href="/login">Masuk</a>{/if}</div></div>
+			{#if data.admin}<div class="workspace-switch"><div><strong>{data.demoMode ? 'Coba dua ruang kerja' : 'Ruang kerja aktif'}</strong><span>{data.demoMode ? 'Karyawan mengajukan nota. Admin/finance menangani kasus yang perlu review. Data demo bersifat sementara.' : 'Akun ini memiliki akses finance dan dapat membuka ruang pengajuan pribadi.'}</span></div><div class="workspace-options" aria-label="Pilih ruang kerja"><a href="/pengajuan" aria-current={!data.financeWorkspace ? 'true' : undefined}>{data.demoMode ? 'Demo Karyawan' : 'Karyawan'}</a><a href="/reviews" aria-current={data.financeWorkspace ? 'true' : undefined}>{data.demoMode ? 'Demo Admin' : 'Admin / Finance'}</a></div></div>{/if}
 		{@render children()}
 	</main>
 </div>

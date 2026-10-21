@@ -19,7 +19,7 @@
 	const ordered = $derived([...claims].sort((a, b) => b.submitted_at.localeCompare(a.submitted_at)));
 	const approved = $derived(claims.filter((claim) => claim.status === 'approved').length);
 	const processing = $derived(claims.filter((claim) => ['received', 'processing', 'escalated'].includes(claim.status)).length);
-	const needsAction = $derived(ordered.filter((claim) => claim.status === 'needs_clarification' || (data.admin && claim.status === 'escalated')));
+	const needsAction = $derived(ordered.filter((claim) => data.admin ? claim.status === 'escalated' : claim.status === 'needs_clarification'));
 	const matches = $derived(ordered.filter((claim) => `${claim.id} ${shortClaimRef(claim.id)} ${claim.employee_id} ${claim.status} ${labels[claim.status]} ${claim.declared_amount ?? ''}`.toLowerCase().includes(search.trim().toLowerCase())));
 	const recent = $derived(matches.slice(0, 8));
 	const reviewCount = $derived(claims.filter((claim) => claim.status === 'escalated').length);
@@ -27,6 +27,7 @@
 
 	function destination(claim: Claim) {
 		if (data.admin && claim.status === 'escalated') return `/reviews/${encodeURIComponent(claim.id)}`;
+		if (data.admin) return `/admin/claims/${encodeURIComponent(claim.id)}`;
 		if (claim.status === 'needs_clarification') return `/claims/${encodeURIComponent(claim.id)}/clarification`;
 		return `/riwayat/${encodeURIComponent(claim.id)}`;
 	}
@@ -46,8 +47,8 @@
 <svelte:head><title>Dashboard · Tera</title></svelte:head>
 <section class="dashboard-page">
 	<header class="page-header">
-		<div><p class="workspace-caption">Ruang kerja {data.admin ? 'tim keuangan' : 'karyawan'}</p><h1>Dashboard</h1><p class="lead">Pantau klaim, lalu lanjutkan yang perlu perhatian.</p></div>
-		<a href="/pengajuan" class="button"><span aria-hidden="true">＋</span> Ajukan klaim</a>
+		<div><p class="workspace-caption">Ruang kerja {data.admin ? 'tim keuangan' : 'karyawan'}</p><h1>{data.admin ? 'Ringkasan operasional' : 'Ringkasan klaim saya'}</h1><p class="lead">{data.admin ? 'Pantau hasil pemeriksaan Tera dan pekerjaan yang membutuhkan reviewer.' : 'Pantau klaim, lalu lanjutkan yang perlu perhatian.'}</p></div>
+		<a href={data.admin ? '/reviews' : '/pengajuan'} class="button">{data.admin ? 'Buka antrean review' : 'Ajukan klaim'}</a>
 	</header>
 	{#if loading}
 		<div class="state-panel" role="status">Memuat ringkasan pengajuan…</div>
@@ -62,7 +63,7 @@
 		</dl>
 		<div class="dashboard-grid">
 			<section class="recent-claims surface" aria-labelledby="recent-title">
-				<div class="panel-heading"><div><h2 id="recent-title">Pengajuan terbaru</h2><p>{claims.length ? 'Status terbaru dari pengajuan yang tercatat.' : 'Mulai dari nota pengeluaran pertamamu.'}</p></div><a href="/riwayat">Semua klaim</a></div>
+				<div class="panel-heading"><div><h2 id="recent-title">Pengajuan terbaru</h2><p>{claims.length ? 'Status terbaru dari pengajuan yang tercatat.' : 'Pengajuan akan muncul setelah karyawan mengirim nota.'}</p></div><a href={data.admin ? '/admin/claims' : '/riwayat'}>Lihat semua</a></div>
 				{#if claims.length}
 					<label class="search-label" for="claim-search">Cari klaim</label>
 					<input id="claim-search" class="claim-search" type="search" bind:value={search} placeholder="Referensi, karyawan, nominal, atau status" />
@@ -75,25 +76,25 @@
 									<td><strong>{shortClaimRef(claim.id)}</strong><small>{formatDate(claim.submitted_at)}{#if data.admin} · {claim.employee_id}{/if}</small></td>
 									<td class="amount">{formatCurrency(claim.declared_amount, claim.currency)}</td>
 									<td><StatusBadge status={claim.status} size="sm" /></td>
-									<td><a class="detail-link" href={destination(claim)}>{claim.status === 'escalated' && data.admin ? 'Tinjau' : claim.status === 'needs_clarification' ? 'Lengkapi' : 'Detail'}<span class="sr-only"> klaim {shortClaimRef(claim.id)}</span></a></td>
+									<td><a class="detail-link" href={destination(claim)}>{claim.status === 'escalated' && data.admin ? 'Tinjau' : claim.status === 'needs_clarification' && !data.admin ? 'Lengkapi' : 'Detail'}<span class="sr-only"> klaim {shortClaimRef(claim.id)}</span></a></td>
 								</tr>{/each}</tbody>
 							</table>
 						</div>
 						<p class="table-note">Menampilkan {recent.length} dari {matches.length} klaim{search.trim() ? ' yang cocok' : ''}.</p>
 					{:else}<div class="empty-panel"><h3>Klaim tidak ditemukan</h3><p>Coba referensi atau status lain.</p><button type="button" class="secondary" onclick={() => (search = '')}>Hapus pencarian</button></div>{/if}
 				{:else}
-					<div class="empty-panel"><img src="/logo.webp" width="48" height="48" alt="" /><h3>Belum ada klaim</h3><p>Unggah nota untuk memulai. Hasil pemeriksaan dan status pengajuan akan muncul di sini.</p><a href="/pengajuan" class="button">Upload nota pertama</a></div>
+					<div class="empty-panel"><img src="/logo.webp" width="48" height="48" alt="" /><h3>Belum ada klaim</h3><p>{data.admin ? 'Pengajuan karyawan dan hasil pemeriksaan akan tercatat di sini.' : 'Unggah nota untuk memulai. Hasil pemeriksaan dan status pengajuan akan muncul di sini.'}</p><a href={data.admin ? '/reviews' : '/pengajuan'} class="button">{data.admin ? 'Lihat antrean review' : 'Upload nota pertama'}</a></div>
 				{/if}
 			</section>
 			<aside class="dashboard-aside">
 				<section class="surface follow-ups" aria-labelledby="attention-title"><div class="panel-heading"><h2 id="attention-title">Tindak lanjut</h2><span class="count">{needsAction.length}</span></div>
 					{#if needsAction.length}
-						<p class="aside-note">{clarificationCount} perlu klarifikasi{data.admin ? ` · ${reviewCount} menunggu review` : ''}.</p>
+						<p class="aside-note">{data.admin ? `${reviewCount} menunggu keputusan reviewer. ${clarificationCount} menunggu jawaban karyawan.` : `${clarificationCount} perlu jawabanmu.`}</p>
 						<ul>{#each needsAction.slice(0, 4) as claim (claim.id)}<li><a href={destination(claim)}><div><strong>{shortClaimRef(claim.id)}</strong><span>{claim.status === 'escalated' ? 'Tinjau bukti dan keputusan' : 'Lengkapi informasi nota'}</span></div><span aria-hidden="true">→</span></a></li>{/each}</ul>
 						{#if needsAction.length > 4}<a class="all-attention" href={data.admin ? '/reviews' : '/riwayat'}>Lihat daftar klaim</a>{/if}
 					{:else}<p class="no-follow-up"><span aria-hidden="true">✓</span> Semua tindak lanjut beres.</p><p class="aside-note">Klaim yang membutuhkan jawaban atau keputusan akan tampil di sini.</p>{/if}
 				</section>
-				<section class="receipt-guide"><span class="guide-label">Dari nota ke keputusan</span><h2>Bukti jelas,<br />pengajuan lebih mudah.</h2><p>Pastikan nama tempat, tanggal, dan total terlihat. Tera akan meminta informasi tambahan bila diperlukan.</p><a href="/pengajuan">Siapkan pengajuan <span aria-hidden="true">→</span></a></section>
+				<section class="receipt-guide"><span class="guide-label">{data.admin ? 'Pemeriksaan dengan bukti' : 'Dari nota ke keputusan'}</span><h2>{data.admin ? 'Fokus pada pengecualian.' : 'Bukti jelas, pengajuan lebih mudah.'}</h2><p>{data.admin ? 'Tera memeriksa klaim sesuai aturan. Reviewer menangani kasus yang dieskalasi. Disetujui berarti keputusan klaim, belum konfirmasi pembayaran.' : 'Pastikan nama tempat, tanggal, dan total terlihat. Tera akan meminta informasi tambahan bila diperlukan.'}</p><a href={data.admin ? '/reports' : '/pengajuan'}>{data.admin ? 'Lihat laporan pemeriksaan' : 'Siapkan pengajuan'} <span aria-hidden="true">→</span></a></section>
 				{#if data.demoMode}<p class="demo-note">Mode demo memakai data sementara. Klaim hilang saat backend dimulai ulang.</p>{/if}
 			</aside>
 		</div>

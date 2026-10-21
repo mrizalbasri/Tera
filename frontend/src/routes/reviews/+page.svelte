@@ -33,7 +33,7 @@
 
 	let pendingCount = $derived(queue.filter((item) => item.review.status === 'open').length);
 	let highRiskCount = $derived(queue.filter((item) => item.signals.some((signal) => signal.severity === 'blocking' || signal.severity === 'warning')).length);
-	let olderCount = $derived(queue.filter((item) => Date.now() - new Date(item.claim.submitted_at).getTime() >= 3 * 86_400_000).length);
+	let olderCount = $derived(queue.filter((item) => Date.now() - new Date(item.review.created_at).getTime() >= 3 * 86_400_000).length);
 	let filteredQueue = $derived(
 		queue.filter((item) => {
 			const q = searchQuery.trim().toLowerCase();
@@ -43,7 +43,7 @@
 			);
 			const hasHighRisk = item.signals.some((signal) => signal.severity === 'blocking' || signal.severity === 'warning');
 			const matchesRisk = riskFilter === 'all' || (riskFilter === 'high' ? hasHighRisk : !hasHighRisk);
-			const ageDays = Math.floor((Date.now() - new Date(item.claim.submitted_at).getTime()) / 86_400_000);
+			const ageDays = Math.floor((Date.now() - new Date(item.review.created_at).getTime()) / 86_400_000);
 			const matchesAge = ageFilter === 'all' || ageDays >= 3;
 			return matchesSearch && matchesRisk && matchesAge;
 		})
@@ -54,7 +54,7 @@
 		loadError = null;
 		try {
 			const response = await listReviews();
-			queue = response.items;
+			queue = response.items.filter((item) => item.review.status === 'open').sort((a, b) => a.review.created_at.localeCompare(b.review.created_at));
 		} catch (error) {
 			loadError = error instanceof ApiError ? error.message : 'Terjadi kesalahan tak terduga.';
 		} finally {
@@ -117,8 +117,8 @@
 	}
 
 	async function exportToCSV() {
-		if (loading || queue.length === 0) {
-			showToast('Tidak ada data untuk diekspor.', 'error');
+		if (loading) {
+			showToast('Tunggu sampai antrean selesai dimuat.', 'error');
 			return;
 		}
 		try {
@@ -126,7 +126,7 @@
 			const url = URL.createObjectURL(blob);
 			const link = document.createElement('a');
 			link.href = url;
-			link.download = `antrean-review-${new Date().toISOString().slice(0, 10)}.csv`;
+			link.download = `seluruh-klaim-${new Date().toISOString().slice(0, 10)}.csv`;
 			link.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1000);
 			showToast('Laporan CSV berhasil diunduh.', 'success');
@@ -145,18 +145,18 @@
 <main>
 	<header class="header">
 		<div>
-			<a href="/" class="back-link">← Kembali ke Beranda</a>
-			<h1>Review klaim</h1>
+			<h1>Antrean review</h1>
 			<p class="subtitle">
-				Tinjau nota operasional yang membutuhkan persetujuan manual (nominal di atas limit, skor anomali, atau nota kurang jelas).
+				Tangani kasus yang diteruskan Tera. Klaim yang selesai otomatis tetap tercatat di Semua klaim. Antrean diurutkan dari review terlama.
 			</p>
 		</div>
 		<div class="header-actions">
 			<button class="btn-secondary" onclick={exportToCSV}>
-				Unduh CSV
+				Ekspor seluruh klaim
 			</button>
 		</div>
 	</header>
+	<div class="review-context"><strong>Keputusan berdasarkan bukti</strong><span>Periksa nota, hasil pembacaan, dan alasan eskalasi sebelum memutuskan. Persetujuan klaim belum berarti pembayaran.</span><a href="/admin/claims">Telusuri semua klaim</a></div>
 
 	<!-- Ringkasan Cepat -->
 	<section class="stats-grid">
@@ -419,15 +419,6 @@
 		justify-content: space-between;
 		align-items: flex-start;
 		margin-bottom: 2rem;
-	}
-
-	.back-link {
-		color: #55745a;
-		text-decoration: none;
-		font-weight: 600;
-		font-size: 0.9rem;
-		display: inline-block;
-		margin-bottom: 0.6rem;
 	}
 
 	.eyebrow {

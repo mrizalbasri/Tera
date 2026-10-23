@@ -80,6 +80,12 @@ class ExtractionResult(SchemaBase):
     # True when this result came from the deterministic fallback after a live
     # provider failure; the decision engine must never auto-approve it.
     provider_degraded: bool = False
+    subtotal: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    tax: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    discount: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
+    total_ambiguous: bool = False
+    line_items_derived: bool = False
+    provider_usage: dict[str, object] = Field(default_factory=dict)
     created_at: datetime
 
 
@@ -91,6 +97,7 @@ class ExtractionAttempt(SchemaBase):
     extraction_id: UUID | None = None
     error_code: str | None = None
     message: str | None = None
+    provider_usage: list[dict[str, object]] = Field(default_factory=list)
     created_at: datetime
 
 
@@ -111,6 +118,7 @@ class ProcessingRun(SchemaBase):
     recovery_count: int = Field(default=0, ge=0)
     receipt_revision: int = Field(default=0, ge=0)
     error_code: str | None = Field(default=None, max_length=100)
+    provider_usage: list[dict[str, object]] = Field(default_factory=list)
 
 
 class Decision(SchemaBase):
@@ -263,7 +271,8 @@ class PolicyEvaluation(SchemaBase):
     claim_id: UUID
     processing_run_id: UUID
     policy_id: str = Field(min_length=1, max_length=100)
-    policy_version: int = Field(ge=1)
+    policy_version: int | None = Field(default=None, ge=1)
+    policy_snapshot: dict[str, object] | None = None
     rule_id: str = Field(min_length=1, max_length=100)
     rule_type: str = Field(min_length=1, max_length=100)
     passed: bool

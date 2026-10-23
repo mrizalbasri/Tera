@@ -5,7 +5,7 @@
 | Produk | Tera |
 | One-liner | Tera membantu karyawan dan finance menyelesaikan pemeriksaan reimbursement melalui ekstraksi AI, pemeriksaan terstruktur, klarifikasi, dan review manusia. |
 | Versi / tanggal | 1.0 / 23 Oktober 2026 |
-| Status | Rancangan untuk persetujuan; belum menjadi laporan implementasi |
+| Status | Disetujui pengguna pada 23 Oktober 2026; belum merupakan laporan penyelesaian |
 
 ## 1. Problem Statement
 

@@ -261,6 +261,12 @@ def get_extraction_service(
     policy_evaluator: PolicyEvaluator = Depends(get_policy_evaluator),
     decider: DecisionEngine = Depends(get_decision_engine),
 ) -> ClaimProcessingService:
+    from app.services.policy_versions import PolicyVersionService, VersionedPolicyRetriever
+
+    backend = _backend(settings)
+    policy_retriever = VersionedPolicyRetriever(
+        PolicyVersionService(backend, graph_resources(backend, settings)), policy_retriever,
+    )
     extraction = ExtractionService(
         claims,
         receipts,

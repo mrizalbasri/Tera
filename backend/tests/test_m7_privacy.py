@@ -39,6 +39,7 @@ def test_json_mode_request_includes_output_contract() -> None:
                 "finish_reason": "stop", "message": {
                     "role": "assistant", "content": _valid_output().model_dump_json()
                 }}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 25, "total_tokens": 125},
         })
 
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
@@ -49,6 +50,9 @@ def test_json_mode_request_includes_output_contract() -> None:
         result = extractor.extract(receipt=_receipt(), content=_jpeg_bytes(),
                                    declared_amount=None, attempt=1)
     assert result.total.value == Decimal("60000")
+    assert result.provider_usage["status"] == "measured"
+    assert result.provider_usage["input_tokens"] == 100
+    assert result.provider_usage["output_tokens"] == 25
     assert len(requests) == 1
     payload = requests[0]
     assert payload["response_format"] == {"type": "json_object"}

@@ -322,6 +322,7 @@ class LocalPolicyEvaluator:
             processing_run_id=processing_run_id,
             policy_id=policy.policy_id,
             policy_version=policy.version,
+            policy_snapshot=policy.model_dump(mode="json"),
             rule_id=rule_id,
             rule_type=rule_type,
             passed=passed,

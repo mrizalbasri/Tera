@@ -14,6 +14,14 @@ export interface ReportSummary {
 	anomaly_count: number;
 	average_duration_ms: number | null;
 	estimated_time_saved_minutes: number;
+    active_duration_ms?: number | null;
+    employee_wait_ms?: number | null;
+    reviewer_wait_ms?: number | null;
+    measured_claims?: number;
+    provider_input_tokens?: number | null;
+    provider_output_tokens?: number | null;
+    provider_measured_calls?: number;
+    provider_models?: string[];
 }
 
 export interface ReportFilters {

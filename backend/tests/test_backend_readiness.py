@@ -554,7 +554,7 @@ def test_operations_are_admin_only():
 def test_production_readiness_does_not_create_missing_checkpoint_schema(postgres_database_url):
     from sqlalchemy.engine import make_url
 
-    url = make_url(postgres_database_url).set(password="synthetic-secret").render_as_string(hide_password=False)
+    url = make_url(postgres_database_url).render_as_string(hide_password=False)
     backend = SqlRepositories(url)
     backend.close()
     settings = Settings(_env_file=None, **(PRODUCTION | {"database_url": url}))

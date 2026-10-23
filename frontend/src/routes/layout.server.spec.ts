@@ -5,7 +5,7 @@ const session = { username: 'reviewer', role: 'admin' };
 const layout = load as (input: { locals: { user: object; admin: object | null; demoMode: boolean }; url: URL }) => { financeWorkspace: boolean; admin: object | null };
 
 describe('workspace presentation', () => {
-	it.each(['/reviews', '/reviews/example', '/reports', '/dashboard', '/admin/claims', '/admin/claims/example'])('retains finance context at %s for verified admins', (path) => {
+	it.each(['/reviews', '/reviews/example', '/reports', '/dashboard', '/admin/claims', '/admin/claims/example', '/admin/policies', '/notifikasi'])('retains finance context at %s for verified admins', (path) => {
 		expect(layout({ locals: { user: session, admin: session, demoMode: false }, url: new URL(path, 'http://localhost') }).financeWorkspace).toBe(true);
 	});
 	it.each(['/pengajuan', '/riwayat', '/riwayat/example', '/claims/example/clarification'])('keeps personal work separate at %s', (path) => {

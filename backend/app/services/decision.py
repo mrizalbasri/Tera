@@ -128,6 +128,10 @@ class DecisionEngine:
             escalation_reasons = self._escalation_reasons(
                 total, confidence, anomaly_score
             )
+            if policy_version is None:
+                escalation_reasons.insert(0, "policy_evidence_missing")
+            if any(e.reason_code == "policy_date_gap" for e in evaluations):
+                escalation_reasons.insert(0, "policy_date_gap")
             if any(
                 signal.signal_type == SignalType.PROVIDER_DEGRADED
                 for signal in signals
@@ -180,6 +184,10 @@ class DecisionEngine:
         anomaly_score: Decimal | None,
     ) -> list[str]:
         reasons: list[str] = []
+        if confidence is None:
+            reasons.append("confidence_unavailable")
+        if total > Decimal(str(self._settings.auto_approve_amount_limit)):
+            reasons.append("auto_approve_amount_limit")
         if total > Decimal(str(self._settings.escalation_amount_threshold)):
             reasons.append("escalation_amount_threshold")
         if (

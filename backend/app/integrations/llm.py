@@ -31,7 +31,7 @@ from uuid import uuid4
 import openai
 from langchain_core.exceptions import OutputParserException
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
 
 from app.config import Settings
 from app.domain.enums import ErrorClassification
@@ -115,6 +115,18 @@ class LlmExtractionOutput(BaseModel):
     quantity: Decimal = Field(default=Decimal("1"), gt=0, max_digits=18, decimal_places=6)
     confidence: Decimal = Field(ge=0, le=1)
     warnings: list[str] = Field(default_factory=list)
+    subtotal: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6)
+    tax: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6)
+    discount: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6)
+    total_ambiguous: bool = False
+    _provider_usage: dict = PrivateAttr(default_factory=dict)
+
+    @field_validator("total", "subtotal", "tax", "discount", mode="before")
+    @classmethod
+    def printed_amount(cls, value: object) -> object:
+        from app.services.money import receipt_money
+
+        return receipt_money(value)
 
 
 def _uncertain_fields(warnings: list[str]) -> set[str]:
@@ -240,12 +252,19 @@ class LlmReceiptExtractor:
         last_error: ApplicationError | None = None
         for retry in range(self._settings.llm_max_retries + 1):
             try:
-                raw = self._structured.invoke([message])
+                from app.integrations.usage import UsageCapture
+
+                capture = UsageCapture()
+                structured = self._structured.with_config(callbacks=[capture]) if hasattr(self._structured, "with_config") else self._structured
+                raw = structured.invoke([message])
                 if isinstance(raw, BaseModel):
-                    return LlmExtractionOutput.model_validate(
+                    output = LlmExtractionOutput.model_validate(
                         raw.model_dump(mode="json")
                     )
-                return LlmExtractionOutput.model_validate(raw)
+                else:
+                    output = LlmExtractionOutput.model_validate(raw)
+                output._provider_usage = {**capture.usage, "model": self._settings.llm_model}
+                return output
             except OutputParserException as exc:
                 # LangChain could not parse the model response into the
                 # contract — the provider answered, but unusably. That is a
@@ -362,6 +381,12 @@ class LlmReceiptExtractor:
                     )
                 ],
                 warnings=warnings,
+                subtotal=output.subtotal,
+                tax=output.tax,
+                discount=output.discount,
+                total_ambiguous=output.total_ambiguous,
+                line_items_derived=True,
+                provider_usage=output._provider_usage,
                 provider=(
                     f"{self.provider_name}:{self._settings.llm_model}:attempt-{attempt}"
                 ),

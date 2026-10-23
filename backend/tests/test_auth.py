@@ -40,7 +40,7 @@ def auth_client(monkeypatch):
         yield client, settings, token
 
 
-@pytest.mark.parametrize("path", ["/reviews", "/reports/summary", "/reports/claims.csv", "/auth/session"])
+@pytest.mark.parametrize("path", ["/reviews", "/reports/summary", "/reports/claims.csv", "/auth/session", "/policies", "/notifications"])
 def test_admin_endpoints_require_session(auth_client, path):
     client, _, _ = auth_client
     assert client.get(path).status_code == 401
@@ -64,6 +64,9 @@ def test_signed_in_user_does_not_automatically_become_admin(auth_client):
     assert client.get("/auth/session").json()["role"] == "member"
     assert client.get("/reviews").status_code == 403
     assert client.get("/reports/claims.csv").status_code == 403
+    assert client.get("/policies").status_code == 403
+    assert client.post("/policies/import-baseline").status_code == 403
+    assert client.get("/notifications").status_code == 200
     assert client.post(f"/reviews/{uuid4()}/decision", json={"action": "approve", "reason": "test"}).status_code == 403
 
 

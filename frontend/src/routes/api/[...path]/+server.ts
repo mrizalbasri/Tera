@@ -4,7 +4,7 @@ import type { RequestHandler } from './$types';
 const proxy: RequestHandler = async ({ request, params, url, fetch }) => {
 	const path = params.path ?? '';
 	// Limit forwarding to the existing claim/review/report API, never arbitrary URLs.
-	if (!/^(claims|reviews|reports|health|auth)(\/|$)/.test(path) || path.split('/').some(part => part === '.' || part === '..')) {
+	if (!/^(claims|reviews|reports|health|auth|notifications|policies)(\/|$)/.test(path) || path.split('/').some(part => part === '.' || part === '..')) {
 		return new Response(null, { status: 404 });
 	}
 	const target = new URL(`${path}${url.search}`, `${(env.BACKEND_URL || 'http://127.0.0.1:8000').replace(/\/$/, '')}/`);
@@ -37,3 +37,4 @@ const proxy: RequestHandler = async ({ request, params, url, fetch }) => {
 };
 export const GET = proxy;
 export const POST = proxy;
+export const PUT = proxy;

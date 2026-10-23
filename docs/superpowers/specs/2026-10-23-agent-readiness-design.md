@@ -5,7 +5,7 @@
 | Sistem | Tera |
 | Berdasarkan | [PRD penguatan AI Agent](2026-10-23-agent-readiness-prd.md), PRODUCT.md, permintaan pengguna 23 Oktober 2026 |
 | Versi / tanggal | 1.0 / 23 Oktober 2026 |
-| Status | Rancangan siap ditinjau; implementasi menunggu persetujuan rancangan |
+| Status | Disetujui pengguna pada 23 Oktober 2026; implementasi dan validasi berlangsung |
 
 ## 1. Arsitektur Sistem
 
@@ -75,6 +75,7 @@ LangGraph sendiri bukan bukti penggunaan model. Evaluasi harus membedakan mode m
 
 - Admin membuat draft berisi kategori, sumber teks kebijakan, tanggal berlaku, dan aturan terstruktur yang didukung evaluator. Tidak menerima kode Python, SQL, atau ekspresi executable.
 - Publikasi memvalidasi schema, interval berlaku dan konflik. Versi terbit immutable; koreksi membuat versi baru. Publikasi memakai transaksi dan optimistic concurrency agar dua admin tidak saling menimpa.
+- Versi tanpa tanggal akhir dapat disupersesi oleh versi dengan tanggal mulai yang lebih baru tanpa mengubah record lama. Pemilihan memakai tanggal mulai terbaru, lalu nomor versi tertinggi; import baseline versi 1 tidak mengalahkan versi custom pada tanggal mulai yang sama. Setelah versi bertanggal akhir berakhir, sistem meminta review dan tidak kembali diam-diam ke aturan lama.
 - Evaluasi memilih versi dari tanggal nota yang tervalidasi. Bila tanggal hilang/ambigu, minta informasi; bila tidak ada versi yang berlaku, teruskan ke review tanpa auto-approve. Simpan version ID/hash dan snapshot rule yang digunakan pada setiap evaluasi.
 - Versi pertama mempertahankan perilaku batas per klaim yang sudah ada; aturan agregasi harian/malam tidak ditambahkan secara tersirat.
 - Seed kebijakan lokal sebagai versi awal melalui migrasi/import eksplisit yang mempertahankan isi. Keputusan historis tidak dihitung ulang otomatis.

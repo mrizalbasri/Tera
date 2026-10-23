@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     auto_approve_min_confidence: float = Field(default=0.8, ge=0, le=1)
     escalation_amount_threshold: int = Field(default=500_000, gt=0)
     max_processing_retries: int = Field(default=2, ge=0, le=5)
+    max_clarification_rounds: int = Field(default=3, ge=1, le=10)
     extraction_confidence_threshold: float = Field(default=0.8, gt=0, le=1)
     max_claim_age_days: int = Field(default=14, ge=1)
     anomaly_escalation_threshold: float = Field(default=0.7, gt=0, le=1)

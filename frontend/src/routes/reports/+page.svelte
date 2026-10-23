@@ -17,6 +17,12 @@
 
 	// Request sequence token to prevent out-of-order race conditions
 	let loadSeq = 0;
+	function duration(value: number | null | undefined): string {
+		if (value == null) return 'Belum tersedia';
+		if (value > 0 && value < 100) return '<0,1 detik';
+		if (value < 60000) return `${(value / 1000).toLocaleString('id-ID', { maximumFractionDigits: 1 })} detik`;
+		return `${Math.round(value / 60000).toLocaleString('id-ID')} menit`;
+	}
 
 	const outcomes = $derived(summary ? [
 		{ label: 'Disetujui', value: summary.approved_claims },
@@ -255,11 +261,15 @@
 					<div><dt>Temuan duplikat</dt><dd>{summary.duplicate_count}</dd></div>
 					<div><dt>Pemeriksaan anomali</dt><dd>{summary.anomaly_count}</dd></div>
 					<div><dt>Rata-rata durasi proses</dt><dd>{summary.average_duration_ms != null ? `${Math.round(summary.average_duration_ms / 1000)} detik` : 'Belum tersedia'}</dd></div>
+					<div><dt>Total waktu pemrosesan aktif</dt><dd>{duration(summary.active_duration_ms)}</dd></div>
+					<div><dt>Total menunggu karyawan</dt><dd>{duration(summary.employee_wait_ms)}</dd></div>
+					<div><dt>Total menunggu finance</dt><dd>{duration(summary.reviewer_wait_ms)}</dd></div>
+					<div><dt>Penggunaan model yang terukur</dt><dd>{summary.provider_input_tokens != null ? `${summary.provider_input_tokens.toLocaleString('id-ID')} token masuk / ${(summary.provider_output_tokens ?? 0).toLocaleString('id-ID')} token keluar` : 'Belum tersedia'}</dd></div>
 					<div><dt>Waktu dihemat (estimasi)</dt><dd>{summary.estimated_time_saved_minutes} menit</dd></div>
 				</dl>
 			</section>
 			<p class="report-note">
-				Pemeriksaan anomali mencakup hasil tanpa indikasi risiko. Temuan duplikat dan pemeriksaan anomali dapat muncul pada klaim yang sama. Estimasi waktu dihemat menggunakan asumsi review manual 5 menit per nota. Unduh CSV untuk melihat rincian pengajuan.
+				Pemeriksaan anomali mencakup hasil tanpa indikasi risiko. Temuan duplikat dan pemeriksaan anomali dapat muncul pada klaim yang sama. Waktu aktif dihitung dari run yang selesai dan dipisahkan dari waktu menunggu manusia. Estimasi waktu dihemat menggunakan asumsi review manual 5 menit per klaim otomatis, bukan hasil pengukuran kerja pengguna. Biaya provider belum dihitung tanpa tarif yang ditetapkan. Unduh CSV untuk melihat rincian pengajuan.
 			</p>
 		{/if}
 	{/if}

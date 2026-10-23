@@ -13,6 +13,7 @@ from app.api.auth import router as auth_router
 from app.api.reviews import router as reviews_router
 from app.api.reports import router as reports_router
 from app.api.operations import router as operations_router
+from app.api.workspace import router as workspace_router
 from app.api.body_limit import BodyLimitMiddleware, RequestTooLarge
 from app.config import get_settings
 from app.errors import ApplicationError
@@ -70,6 +71,7 @@ app.include_router(auth_router)
 app.include_router(reviews_router)
 app.include_router(reports_router)
 app.include_router(operations_router)
+app.include_router(workspace_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -97,7 +99,7 @@ async def request_context(request: Request, call_next):
         raise
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
-    if request.url.path.startswith(("/claims", "/reviews", "/reports", "/operations", "/auth")):
+    if request.url.path.startswith(("/claims", "/reviews", "/reports", "/operations", "/auth", "/notifications", "/policies")):
         response.headers["Cache-Control"] = "no-store"
     logger.info(
         "http request method=%s path=%s status=%s request_id=%s duration_ms=%s",

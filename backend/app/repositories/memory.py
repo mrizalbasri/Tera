@@ -394,7 +394,9 @@ class InMemoryRepositories:
 
     def __init__(self) -> None:
         from app.services.rate_limit import MemoryRateLimiter
+        from app.repositories.operational import MemoryOperationalStore
 
+        self.operational = MemoryOperationalStore()
         self.rate_limiter = MemoryRateLimiter()
         self.claims = InMemoryClaimRepository()
         self.receipts = InMemoryReceiptRepository()

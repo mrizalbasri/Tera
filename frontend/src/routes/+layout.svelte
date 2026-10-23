@@ -24,10 +24,13 @@
 		{ href: '/reviews', label: 'Antrean review' },
 		{ href: '/dashboard', label: 'Ringkasan' },
 		{ href: '/admin/claims', label: 'Semua klaim' },
-		{ href: '/reports', label: 'Laporan' }
+		{ href: '/reports', label: 'Laporan' },
+		{ href: '/admin/policies', label: 'Kebijakan' },
+		{ href: '/notifikasi', label: 'Notifikasi' }
 	] : [
 		{ href: '/pengajuan', label: 'Pengajuan baru' },
 		{ href: '/riwayat', label: 'Klaim saya' },
+		{ href: '/notifikasi', label: 'Notifikasi' },
 		...(!data.user ? [{ href: '/login', label: 'Masuk' }] : [])
 	]);
 	const currentPage = $derived(menu.find((item) => page.url.pathname.startsWith(item.href))?.label ?? (page.url.pathname === '/dashboard' ? 'Ringkasan klaim saya' : 'Detail klaim'));
@@ -53,6 +56,8 @@
 							{:else if item.href === '/pengajuan'}<path d="M12 5v14M5 12h14" />
 						{:else if item.href === '/riwayat'}<rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 8h6M9 12h6M9 16h4" />
 						{:else if item.href === '/reviews'}<path d="m8 12 3 3 5-6" /><rect x="3" y="3" width="18" height="18" rx="3" />
+						{:else if item.href === '/notifikasi'}<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+						{:else if item.href === '/admin/policies'}<path d="M5 3h14v18H5zM9 8h6M9 12h6M9 16h4" />
 						{:else}<path d="M5 20V10M12 20V4M19 20v-7" />{/if}
 					</svg>
 					{item.label}

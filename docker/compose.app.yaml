@@ -1,0 +1,37 @@
+name: tera-app
+services:
+  migrate:
+    image: tera-backend:local
+    build:
+      context: ../backend
+    env_file: [./backend.production.env]
+    command: ["python", "-m", "app.migrate"]
+    restart: "no"
+  backend:
+    image: tera-backend:local
+    env_file: [./backend.production.env]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports: ["127.0.0.1:8000:8000"]
+    restart: unless-stopped
+    stop_grace_period: 120s
+    volumes:
+      - local_models:/app/data/local
+  frontend:
+    image: tera-frontend:local
+    build:
+      context: ../frontend
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?Set the public Clerk key for this build}
+    environment:
+      BACKEND_URL: http://backend:8000
+      ORIGIN: ${FRONTEND_ORIGIN:?Set the public HTTPS origin}
+      BODY_SIZE_LIMIT: 26M
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  local_models:

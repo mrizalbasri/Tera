@@ -102,11 +102,11 @@ def test_text_mode_checks_parsed_model_output_as_well_as_dicts():
 
     parsed = LlmExtractionOutput(vendor=None, receipt_date=None, total="16.000",
                                  currency="IDR", category="other", confidence="0.8")
-    assert parsed.total == Decimal("16")
+    assert parsed.total == Decimal("16000")
 
     class WrongParsedTotal:
         def invoke(self, messages):
-            return parsed
+            return parsed.model_copy(update={"total": Decimal("16")})
 
     with pytest.raises(ApplicationError) as error:
         TextInput(WrongParsedTotal(), "TOTAL\n16.000").invoke([])

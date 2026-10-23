@@ -6,10 +6,10 @@ import os
 import shutil
 import subprocess
 import tempfile
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 from psycopg import sql
@@ -21,6 +21,7 @@ from app.config import Settings
 from app.services.intake import IntakeService, ReceiptUpload
 from app.integrations.quality import FileQualityChecker
 from app.services.recovery import build_processing
+from app.services.policy_versions import PolicyDraft, PolicyVersionService
 
 
 def main() -> None:
@@ -66,6 +67,12 @@ def main() -> None:
                                          content=f"%PDF-1.7\n{marker}\n%%EOF".encode())], idempotency_key=None)
                 processing.process_claim(claim.id)
                 claims.append((claim.id, receipts[0].storage_reference))
+            versions = PolicyVersionService(backend, graph_resources(backend, settings))
+            versions.seed_baseline("synthetic-admin")
+            policy_date = date.today() + timedelta(days=1)
+            draft = versions.create(PolicyDraft(category="meals", effective_from=policy_date, source="Synthetic restore policy",
+                rules=[{"rule_id": "restore_limit", "rule_type": "max_amount_per_person", "limit": "30000"}]), "synthetic-admin")
+            versions.publish(UUID(draft["id"]), 1, "synthetic-admin")
             with psycopg.connect(url.set(database=source).render_as_string(hide_password=False), autocommit=True) as connection:
                 connection.execute("CREATE EXTENSION IF NOT EXISTS vector")
                 connection.execute("CREATE SCHEMA rag_restore_probe")
@@ -90,10 +97,14 @@ def main() -> None:
                 assert restored_processing.graph.get_state({"configurable": {"thread_id": str(id)}}).values
             assert len(restored.decisions.list_for_claim(claims[0][0])) == 1
             assert restored.operational.list("notifications", owner="synthetic-restore")
+            restored_versions = PolicyVersionService(restored, graph_resources(restored, restored_settings))
+            assert len(restored_versions.list()) == 6
+            assert restored_versions.effective("meals", policy_date).version == 2
             with psycopg.connect(url.set(database=target).render_as_string(hide_password=False)) as connection:
                 assert connection.execute("SELECT count(*) FROM rag_restore_probe.chunks").fetchone()[0] == 1
             report.update(passed=True, claim_count=len(claims), receipt_content=True, decisions=True,
-                          checkpoints=True, notifications=True, vector_schema_probe=True, replay_without_duplicate_decision=True)
+                          checkpoints=True, notifications=True, policy_versions=True, vector_schema_probe=True,
+                          replay_without_duplicate_decision=True)
         finally:
             close_graph_resources()
             deps.close_sql_repositories()

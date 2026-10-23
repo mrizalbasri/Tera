@@ -425,5 +425,17 @@ adds optional local RAG policy selection. The ML extension adds offline syntheti
 training and optional Isolation Forest scoring. The current working tree also
 includes Clerk access controls, a local demo mode, and reports/CSV;
 see [the access guide](docs/admin-login.md) for their setup and limitations.
-OCR, frontend work and the large-number validation bug tracked in
-[issue #12](https://github.com/mrizalbasri/Tera/issues/12) are outside M7.5.
+The agent-readiness extension adds Indonesian printed-amount parsing,
+independent total checks, bounded clarification, persistent notifications,
+published policy versions and separate active/waiting/token metrics. Policy
+drafts use a typed rule editor, immutable publication and effective dates.
+The offline evaluator runs 18 labelled synthetic scenarios through LangGraph;
+the separate live verifier submits one synthetic receipt without mock fallback.
+
+Node/container packaging, frontend CI and a disposable PostgreSQL dump/restore
+verifier are included. See the [deployment guide](docs/development/agent-deployment.md),
+[test plan](docs/development/agent-readiness-test-plan.md) and
+[recorded validation](docs/development/agent-readiness-validation-2026-10-23.md).
+Public deployment, real-account browser verification and user acceptance sessions
+remain explicit rollout steps; local test results do not establish production
+accuracy, cost savings or completed reimbursement payments.

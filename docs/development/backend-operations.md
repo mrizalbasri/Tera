@@ -24,6 +24,9 @@ V3 memperbaiki kolom `insertion_order` yang belum ada pada database legacy
 yang sudah tercatat v1/v2. PostgreSQL memakai identity untuk mengisi baris lama
 dan menghasilkan urutan untuk insert berikutnya. Definisi migrasi
 dibekukan, bukan mengikuti model terbaru. Migrasi bersifat aditif dan bisa diulang.
+V4 menambahkan `operational_records` untuk inbox notifikasi dan versi kebijakan.
+Import kebijakan awal dilakukan secara eksplisit oleh admin melalui halaman Kebijakan;
+import ulang idempotent dan tidak mengganti versi custom yang sudah berlaku.
 Proses production memeriksa versi tanpa menjalankan DDL. Development/test tetap
 memigrasikan otomatis. Buat migrasi baru untuk perubahan skema berikutnya.
 
@@ -141,6 +144,12 @@ Tidak ada penghapusan otomatis klaim/nota/audit/checkpoint karena masa retensi
 belum ditentukan. `workflow_steps` harus tetap ada selama checkpoint/run masih
 bisa direplay. Menentukan retensi dan penyimpanan backup adalah konfigurasi
 operasional organisasi, bukan default yang menghapus data diam-diam.
+
+Panduan container, verifikasi live sintetis, dump/restore disposable, dan UAT:
+[Pengoperasian paket agent](agent-deployment.md). Worker SQL juga merekonsiliasi
+notifikasi tindakan dan pengingat setelah 24 jam, maksimal satu per penerima,
+per peristiwa klaim, per tanggal UTC. Pembacaan notifikasi tidak memproses ulang
+klaim; klaim yang sedang dikunci dilewati sementara.
 
 ## Pengujian
 

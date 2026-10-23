@@ -650,7 +650,7 @@
 		text-decoration: none;
 		cursor: pointer;
 		transition: background var(--dur-short) var(--ease-out);
-		min-height: 28px;
+		min-height: 44px;
 	}
 
 	.btn-tool:hover {

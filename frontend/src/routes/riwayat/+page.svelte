@@ -442,7 +442,7 @@
 		background: var(--color-surface);
 		color: var(--color-text-muted);
 		cursor: pointer;
-		min-height: 32px;
+		min-height: 44px;
 		transition: all var(--transition);
 	}
 
@@ -470,10 +470,9 @@
 
 	.search-box input {
 		border: none;
-		outline: none;
 		background: transparent;
 		font-size: 0.78rem;
-		min-height: 28px;
+		min-height: 44px;
 		width: 180px;
 	}
 

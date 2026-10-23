@@ -20,6 +20,7 @@
 	let submitting = $state(false);
 	const receipt = $derived(detail?.receipts.at(-1));
 	const extraction = $derived(detail?.extractions.findLast((item) => item.receipt_id === receipt?.id));
+	const escalation = $derived(detail?.decisions.findLast((item) => item.outcome === 'escalated'));
 
 	async function load() {
 		const claimId = page.params.claimId;
@@ -100,7 +101,7 @@
 				</div>
 				<div class="panel extraction-summary"><h2>Hasil pembacaan Tera</h2><p class="muted">Cocokkan informasi berikut dengan bukti nota sebelum mencatat keputusan.</p>
 					<dl><div><dt>Vendor</dt><dd>{extraction?.vendor.value == null ? 'Belum terbaca' : String(extraction.vendor.value)}</dd></div><div><dt>Tanggal nota</dt><dd>{extraction?.receipt_date.value == null ? 'Belum terbaca' : String(extraction.receipt_date.value)}</dd></div><div><dt>Total nota</dt><dd>{extraction?.total.value == null ? 'Belum terbaca' : formatCurrency(Number(extraction.total.value), detail.claim.currency)}</dd></div><div><dt>Kategori</dt><dd>{extraction?.category.value == null ? 'Belum terbaca' : String(extraction.category.value)}</dd></div></dl>
-					{#if review?.decision}<div class="escalation-reason"><strong>Alasan diteruskan ke reviewer</strong><p>{review.decision.explanation}</p></div>{/if}
+					{#if escalation}<div class="escalation-reason"><strong>Alasan diteruskan ke reviewer</strong><p>{escalation.explanation}</p></div>{/if}
 					<p class="muted">Disetujui berarti keputusan klaim, belum konfirmasi pembayaran.</p>
 				</div>
 			</section>
@@ -171,7 +172,9 @@
 	@media (max-width: 900px) { .evidence-workbench { grid-template-columns: minmax(0, 1fr); } }
 	.review-detail { max-width: 980px; margin: 0 auto; padding: 2rem 1rem; }
 	.back-link, .muted { color: var(--color-text-muted); }
-	header { display: flex; justify-content: space-between; align-items: start; gap: 1rem; margin: 2rem 0; }
+	header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: 1rem; margin: 2rem 0; }
+	header > div { flex: 1 1 320px; min-width: 0; }
+	.review-detail .button { max-width: 100%; white-space: normal; }
 	.eyebrow { color: var(--color-text-muted); font-size: .75rem; letter-spacing: .12em; }
 	h1 { margin: .25rem 0; }
 	.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }

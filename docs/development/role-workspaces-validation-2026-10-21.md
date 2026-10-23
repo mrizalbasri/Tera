@@ -1,5 +1,7 @@
 # Role workspace validation, 2026-10-21
 
+Follow-up: [rendered visual and responsive QA, 2026-10-23](role-workspaces-visual-qa-2026-10-23.md), including fixes and 23 fresh screenshots. The limitations below describe the original run; the follow-up records the current results and remaining PDF-viewer limitation.
+
 ## Result
 
 Employee navigation now leads with Pengajuan baru and Klaim saya. Finance navigation leads with Antrean review, Ringkasan, Semua klaim, and Laporan. The header explicitly identifies Panel admin or Ruang karyawan. Authorized admins can move between workspaces; demo labels identify Demo Karyawan and Demo Admin.

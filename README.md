@@ -265,8 +265,9 @@ The workspace and `/dashboard` share the same `/api` transport and contracts in
 `src/lib/types/claim.ts`. Browser requests do not use `PUBLIC_API_BASE_URL`.
 Dashboard claim rows link to the persisted claim detail page; the review queue
 uses that page for evidence inspection, reviewer identity, reason and confirmation.
-The analytics page retains prototype/sample metrics from the dashboard work;
-it is not a verified production reporting or automation-accuracy dashboard.
+The dashboard aggregates persisted claims, and reports read backend data.
+Processing time and token usage are measured when available; estimated time
+savings remain labelled assumptions, not demonstrated business impact.
 
 - `/`: landing page Tera.
 - `/pengajuan`: upload receipts and submit a claim.
@@ -436,6 +437,9 @@ Node/container packaging, frontend CI and a disposable PostgreSQL dump/restore
 verifier are included. See the [deployment guide](docs/development/agent-deployment.md),
 [test plan](docs/development/agent-readiness-test-plan.md) and
 [recorded validation](docs/development/agent-readiness-validation-2026-10-23.md).
+The [24 October follow-up](docs/development/production-follow-through-2026-10-24.md)
+records production configuration and authentication fixes, full regression
+results, and the latest live-provider connection failure.
 Public deployment, real-account browser verification and user acceptance sessions
 remain explicit rollout steps; local test results do not establish production
 accuracy, cost savings or completed reimbursement payments.

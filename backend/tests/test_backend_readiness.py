@@ -289,6 +289,16 @@ PRODUCTION = dict(environment="production", storage_backend="sql",
     {"llm_api_key": ""}, {"provider_fallback": "mock"}, {"clerk_issuer": ""},
     {"clerk_admin_user_ids": ""}, {"frontend_origin": "http://localhost:5173"},
     {"database_url": "postgresql://tera:change_me@localhost/tera"}, {"demo_mode": True},
+    {"database_url": "postgresql://tera:REPLACE_WITH_DATABASE_PASSWORD@localhost/tera"},
+    {"database_url": "postgresql://tera:Change_Me@localhost/tera"},
+    {"llm_api_key": "REPLACE_WITH_PROVIDER_KEY"}, {"llm_api_key": "  YOUR-API-KEY  "},
+    {"llm_model": "REPLACE_WITH_PROVIDER_MODEL"}, {"llm_model": "   "},
+    {"llm_base_url": "https://REPLACE_WITH_PROVIDER_ENDPOINT"},
+    {"llm_base_url": "https://api.example.com/v1"},
+    {"clerk_issuer": "https://REPLACE_WITH_CLERK_ISSUER"},
+    {"frontend_origin": "https://tera.example.com"},
+    {"clerk_admin_user_ids": "REPLACE_WITH_ADMIN_USER_ID"},
+    {"clerk_admin_user_ids": "user_synthetic,admin@example.com"},
 ])
 def test_invalid_production_settings_fail_closed(changes):
     with pytest.raises(ValueError):
@@ -297,6 +307,22 @@ def test_invalid_production_settings_fail_closed(changes):
 
 def test_valid_production_settings():
     assert Settings(_env_file=None, **PRODUCTION).environment == "production"
+
+
+def test_production_allows_multiple_clerk_admin_ids():
+    settings = Settings(_env_file=None, **(PRODUCTION | {"clerk_admin_user_ids": " user_alice, user_bob, "}))
+    assert settings.clerk_admin_user_ids == " user_alice, user_bob, "
+
+
+def test_production_example_is_rejected_without_exposing_credentials():
+    from pathlib import Path
+    from pydantic import ValidationError
+
+    path = Path(__file__).resolve().parents[2] / "docker" / "backend.production.env.example"
+    with pytest.raises(ValidationError) as raised:
+        Settings(_env_file=path)
+    assert "non-placeholder database credentials" in str(raised.value)
+    assert "REPLACE_WITH_DATABASE_PASSWORD" not in str(raised.value)
 
 
 def test_postgres_lock_excludes_other_process_and_releases(postgres_database_url):

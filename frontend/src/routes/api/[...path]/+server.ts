@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 
 const proxy: RequestHandler = async ({ request, params, url, fetch }) => {
 	const path = params.path ?? '';
-	// Limit forwarding to the existing claim/review/report API, never arbitrary URLs.
+	// Forward only application API routes, never arbitrary URLs.
 	if (!/^(claims|reviews|reports|health|auth|notifications|policies)(\/|$)/.test(path) || path.split('/').some(part => part === '.' || part === '..')) {
 		return new Response(null, { status: 404 });
 	}
@@ -26,7 +26,7 @@ const proxy: RequestHandler = async ({ request, params, url, fetch }) => {
 			'Cache-Control': 'no-store'
 		});
 		for (const cookie of upstream.headers.getSetCookie()) responseHeaders.append('Set-Cookie', cookie);
-		for (const name of ['content-disposition', 'x-content-type-options']) {
+		for (const name of ['content-disposition', 'x-content-type-options', 'retry-after', 'x-request-id']) {
 			const value = upstream.headers.get(name);
 			if (value) responseHeaders.set(name, value);
 		}

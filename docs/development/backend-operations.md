@@ -9,6 +9,10 @@ Untuk production, isi `ENVIRONMENT=production`, `STORAGE_BACKEND=sql`, URL
 PostgreSQL dengan kredensial sendiri, `PROVIDER_MODE=live`, API key provider,
 origin frontend HTTPS, issuer Clerk HTTPS, dan ID admin. Mock, memory, SQLite,
 fallback mock, demo, serta kredensial contoh ditolak sebelum aplikasi berjalan.
+Nilai `REPLACE_WITH_*`, `your-*`, model kosong dan domain `example.com/org/net`
+juga ditolak. Setiap ID pada `CLERK_ADMIN_USER_IDS` harus berbentuk `user_...`
+dari Clerk, bukan email atau nama pengguna. Mengisi file contoh tanpa mengganti
+placeholder tidak menghasilkan konfigurasi production yang dapat dijalankan.
 
 Sebelum menjalankan versi baru:
 
@@ -120,9 +124,10 @@ traffic tidak terautentikasi; counter aplikasi berjalan setelah autentikasi.
 Identitas member selalu membatasi hasil ke klaim miliknya.
 
 Klien perlu mengambil halaman berikutnya sampai `offset + items.length >= total`.
-Frontend saat ini kompatibel dengan respons tambahan, tetapi tampilan yang hanya
-mengambil satu halaman akan menampilkan paling banyak 100 hasil. Pagination UI
-merupakan pekerjaan frontend terpisah.
+Klien daftar klaim dan review saat ini mengambil halaman berurutan hingga total
+terpenuhi. Perubahan total, baris duplikat atau halaman kosong sebelum total
+terpenuhi menghasilkan pesan untuk memuat ulang, bukan daftar parsial diam-diam.
+Antrean review juga memeriksa snapshot dari backend.
 
 Laporan membaca klaim serta keputusan/run/sinyal dalam batch 200, bukan query per
 klaim. CSV menghasilkan chunk per batch dan menetralkan awalan formula pada

@@ -27,6 +27,8 @@ describe('Clerk transport', () => {
 		await authFetch('/api/reviews');
 		await authFetch('/api/reports/claims.csv');
 		await authFetch('/api/claims');
+		await authFetch('/api/notifications');
+		await authFetch('/api/policies');
 		expect(sdk.create).not.toHaveBeenCalled();
 		expect(sdk.getToken).not.toHaveBeenCalled();
 		setAuthDemoMode(false);
@@ -46,10 +48,21 @@ describe('Clerk transport', () => {
 		expect(sdk.create).toHaveBeenCalledTimes(1);
 	});
 
+	it.each(['/api/notifications?limit=50', '/api/notifications/id/read', '/api/policies', '/api/policies/id/publish'])('refreshes authentication for workspace request %s', async (path) => {
+		const { authFetch } = await import('./clerk');
+		await authFetch(path);
+		expect(new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).get('authorization')).toBe('Bearer synthetic-session-token');
+		sdk.getToken.mockResolvedValue('renewed-workspace-token');
+		await authFetch(path);
+		expect(new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers).get('authorization')).toBe('Bearer renewed-workspace-token');
+	});
+
 	it('does not initialize Clerk or transmit tokens to public or external paths', async () => {
 		const { authFetch } = await import('./clerk');
 		await authFetch('/api/health');
 		await authFetch('https://external.example/api/reviews');
+		await authFetch('https://external.example/api/policies');
+		await authFetch('/api/policies-public');
 		expect(sdk.create).not.toHaveBeenCalled();
 		expect(fetch).toHaveBeenCalledWith('/api/health', undefined);
 	});

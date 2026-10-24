@@ -51,7 +51,7 @@ async function initialize(): Promise<Clerk> {
 }
 
 export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
-	if (typeof window === 'undefined' || demoMode || !/^\/api\/(claims|reviews|reports|auth)(\/|\?|$)/.test(path)) return fetch(path, init);
+	if (typeof window === 'undefined' || demoMode || !/^\/api\/(claims|reviews|reports|auth|notifications|policies)(\/|\?|$)/.test(path)) return fetch(path, init);
 	const headers = new Headers(init?.headers);
 	const clerk = await getClerk();
 	const token = await clerk.session?.getToken();

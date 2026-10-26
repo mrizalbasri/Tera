@@ -9,6 +9,7 @@ from app.schemas.core import (
     Claim,
     Clarification,
     ConversationEntry,
+    Decision,
     ExtractionAttempt,
     ExtractionResult,
     PolicyEvaluation,

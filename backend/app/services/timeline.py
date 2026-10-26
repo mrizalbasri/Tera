@@ -135,10 +135,6 @@ class TimelineService:
         )
 
         runs = list(self._runs.list_for_claim(claim_id))
-        run_attempts = {
-            attempt.processing_run_id: attempt
-            for attempt in self._attempts.list_for_claim(claim_id)
-        }
         all_attempts = list(self._attempts.list_for_claim(claim_id))
         saved_extractions = list(
             self._extractions.list_for_receipts([receipt.id for receipt in receipts])

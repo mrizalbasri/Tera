@@ -2,7 +2,6 @@ from decimal import Decimal
 from io import BytesIO
 
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
 
 from app.api.deps import get_receipt_extractor
 from app.main import app

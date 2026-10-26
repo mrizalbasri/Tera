@@ -185,11 +185,16 @@ def test_malformed_search_results_cannot_enter_reranker(reranked, change) -> Non
     search = store.search
     def tampered(*args, **kwargs):
         hits = search(*args, **kwargs)
-        if change == "duplicates": hits[1] = hits[0]
-        elif change == "nan": hits[0] = replace(hits[0], distance=float("nan"))
-        elif change == "missing_metadata": hits[0] = replace(hits[0], metadata={})
-        elif change == "wrong_parent": hits[0].metadata["document_id"] = "unknown"
-        else: hits[0].metadata["version"] = 99
+        if change == "duplicates":
+            hits[1] = hits[0]
+        elif change == "nan":
+            hits[0] = replace(hits[0], distance=float("nan"))
+        elif change == "missing_metadata":
+            hits[0] = replace(hits[0], metadata={})
+        elif change == "wrong_parent":
+            hits[0].metadata["document_id"] = "unknown"
+        else:
+            hits[0].metadata["version"] = 99
         return hits
     store.search = tampered
     selection = reranked.retrieve_with_provenance(category="meals", effective_date=date.today())

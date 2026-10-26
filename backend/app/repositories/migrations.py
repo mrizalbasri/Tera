@@ -74,7 +74,7 @@ def _add_order_columns(connection: Connection) -> None:
 
 def upgrade(engine: Engine) -> None:
     # Import registers the SQLite compatibility compiler for the order column.
-    from app.repositories import sql as _sql
+    from app.repositories import sql as _sql  # noqa: F401
 
     metadata = migration_metadata()
 

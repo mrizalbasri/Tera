@@ -6,7 +6,7 @@ from app.main import app
 
 import pytest
 
-from test_auth import USER, auth_client
+from test_auth import USER, auth_client as auth_client
 
 
 @pytest.fixture(params=["memory", "sql"])

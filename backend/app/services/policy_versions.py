@@ -8,7 +8,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from pydantic import Field, model_validator
 
-from app.errors import ApplicationError, ErrorCode, NotFoundError
+from app.errors import ApplicationError, NotFoundError
 from app.schemas.core import Policy, PolicyRule, SchemaBase
 from app.audit.events import record_audit_event
 from app.domain.enums import ActorType

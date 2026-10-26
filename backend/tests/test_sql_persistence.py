@@ -168,7 +168,6 @@ def test_timeline_is_ordered_and_explains_the_outcome() -> None:
     # Raw receipt bytes never leak; content hashes appear as 12-char prefixes only.
     raw = timeline.text
     assert "%PDF" not in raw
-    full_hash = timeline  # placeholder to keep flake-free readability
     hashes = [
         receipt["content_hash"]
         for entry in items

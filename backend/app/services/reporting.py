@@ -4,7 +4,6 @@ import csv
 import io
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
-from datetime import date
 from uuid import UUID
 
 from app.repositories.protocols import ClaimRepository, DecisionRepository, ProcessingRunRepository, SignalRepository

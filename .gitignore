@@ -60,3 +60,7 @@ coverage/
 .zcodeignore
 .hallmark/
 .omo/
+
+# Local agent configuration and caches
+/.codex/
+/.impeccable/

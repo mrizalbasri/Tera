@@ -85,6 +85,7 @@ class ExtractionResult(SchemaBase):
     discount: Decimal | None = Field(default=None, ge=0, allow_inf_nan=False)
     total_ambiguous: bool = False
     line_items_derived: bool = False
+    line_items_complete: bool = True
     provider_usage: dict[str, object] = Field(default_factory=dict)
     created_at: datetime
 

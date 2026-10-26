@@ -71,6 +71,10 @@ class ValidationService:
             )
 
         total = _as_decimal(extraction.total.value)
+        complete_items = bool(extraction.line_items) and extraction.line_items_complete and not extraction.line_items_derived
+        add("line_items_complete", complete_items,
+            "Purchased-item evidence must be complete before automatic approval.",
+            severity=Severity.BLOCKING, reason_code="line_items_incomplete")
         if total is None and extraction.total.value is not None:
             add("total_positive_finite", False, "Total must be a finite positive amount.",
                 severity=Severity.BLOCKING, reason_code="invalid_total")
@@ -91,16 +95,18 @@ class ValidationService:
                 line_sum = sum(
                     (item.total for item in extraction.line_items), Decimal("0")
                 )
-                matches = abs(line_sum - total) <= LINE_ITEM_TOLERANCE
+                item_total = (extraction.subtotal if extraction.subtotal is not None else
+                              total - (extraction.tax or Decimal(0)) + (extraction.discount or Decimal(0)))
+                matches = abs(line_sum - item_total) <= LINE_ITEM_TOLERANCE
                 add(
                     "total_matches_line_items",
                     matches,
-                    f"Total {total} matches the line item sum {line_sum}."
+                    f"Item amount {item_total} matches the line item sum {line_sum}."
                     if matches
-                    else f"Total {total} does not match the line item sum {line_sum}.",
+                    else f"Item amount {item_total} does not match the line item sum {line_sum}.",
                     severity=Severity.BLOCKING,
                     actual=line_sum,
-                    expected=str(total),
+                    expected=str(item_total),
                     reason_code="total_line_item_mismatch",
                 )
 

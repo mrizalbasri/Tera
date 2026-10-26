@@ -103,6 +103,20 @@ _PROVIDER_ERROR_MAP: tuple[
 )
 
 
+class LlmLineItem(BaseModel):
+    description: str = Field(min_length=1, max_length=255, pattern=r"\S")
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    unit_price: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    total: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+
+    @field_validator("unit_price", "total", mode="before")
+    @classmethod
+    def printed_amount(cls, value: object) -> object:
+        from app.services.money import receipt_money
+
+        return receipt_money(value)
+
+
 class LlmExtractionOutput(BaseModel):
     """The structured contract the vision model must return."""
 
@@ -119,6 +133,8 @@ class LlmExtractionOutput(BaseModel):
     tax: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6)
     discount: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6)
     total_ambiguous: bool = False
+    line_items: list[LlmLineItem] = Field(default_factory=list, max_length=100)
+    line_items_complete: bool = Field(default=False, strict=True)
     _provider_usage: dict = PrivateAttr(default_factory=dict)
 
     @field_validator("total", "subtotal", "tax", "discount", mode="before")
@@ -372,7 +388,7 @@ class LlmReceiptExtractor:
                 category=FieldConfidence(
                     value=output.category, confidence=output.confidence
                 ),
-                line_items=[
+                line_items=[ExtractedLineItem(**item.model_dump()) for item in output.line_items] or [
                     ExtractedLineItem(
                         description=vendor or "Receipt summary",
                         quantity=output.quantity,
@@ -385,7 +401,8 @@ class LlmReceiptExtractor:
                 tax=output.tax,
                 discount=output.discount,
                 total_ambiguous=output.total_ambiguous,
-                line_items_derived=True,
+                line_items_derived=not bool(output.line_items),
+                line_items_complete=bool(output.line_items) and output.line_items_complete,
                 provider_usage=output._provider_usage,
                 provider=(
                     f"{self.provider_name}:{self._settings.llm_model}:attempt-{attempt}"

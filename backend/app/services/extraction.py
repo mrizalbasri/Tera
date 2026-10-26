@@ -265,10 +265,9 @@ class ExtractionService:
 
     @staticmethod
     def extracted_total(results: list[ExtractionResult]) -> Decimal:
-        # Preserve the existing multi-receipt decision semantics.
         values = [_as_decimal(r.total.value) for r in results]
-        return max((value for value in values if value is not None and value.is_finite() and value > 0),
-                   default=Decimal("0"))
+        return sum((value for value in values if value is not None and value.is_finite() and value > 0),
+                   start=Decimal("0"))
 
     def active_receipts(self, claim_id: UUID) -> list[Receipt]:
         receipts = list(self._receipts.list_for_claim(claim_id))

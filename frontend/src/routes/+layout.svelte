@@ -5,7 +5,7 @@
 	import { untrack } from 'svelte';
 	import AdminAccount from '$lib/components/AdminAccount.svelte';
 	import Icon, { type IconName } from '$lib/components/Icon.svelte';
-	import { setAuthDemoMode } from '$lib/clerk';
+	import { setAuthDemoMode } from '$lib/auth';
 	import '$lib/styles.css';
 	import '$lib/tokens.css';
 	import '$lib/workspace.css';
@@ -28,11 +28,12 @@
 			menuButton?.focus();
 		}
 	}
-	const isLanding = $derived(['/', '/login', '/register', '/sso-callback'].includes(page.url.pathname));
+	const isLanding = $derived(['/', '/login', '/register'].includes(page.url.pathname));
 	const menu = $derived(data.financeWorkspace ? [
 		{ href: '/dashboard', label: 'Ringkasan' },
 		{ href: '/reviews', label: 'Antrean review' },
 		{ href: '/admin/claims', label: 'Semua klaim' },
+		{ href: '/admin/checkpoints', label: 'Observabilitas Graph' },
 		{ href: '/reports', label: 'Laporan' },
 		{ href: '/admin/policies', label: 'Kebijakan' },
 		{ href: '/notifikasi', label: 'Notifikasi' }
@@ -43,8 +44,8 @@
 		...(!data.user ? [{ href: '/login', label: 'Masuk' }] : [])
 	]);
 	const groups = $derived(data.financeWorkspace ? [
-		{ label: 'Operasional', items: menu.slice(0, 3) },
-		{ label: 'Pengelolaan', items: menu.slice(3) }
+		{ label: 'Operasional', items: menu.slice(0, 4) },
+		{ label: 'Pengelolaan', items: menu.slice(4) }
 	] : [
 		{ label: 'Pengajuan', items: menu.filter(item => ['/pengajuan', '/riwayat'].includes(item.href)) },
 		{ label: 'Akun', items: menu.filter(item => !['/pengajuan', '/riwayat'].includes(item.href)) }
@@ -57,6 +58,7 @@
 	const currentPage = $derived(menu.find((item) => isCurrent(item.href))?.label ?? (page.url.pathname === '/dashboard' ? 'Ringkasan klaim saya' : 'Detail klaim'));
 	const menuIcons: Record<string, IconName> = {
 		'/reviews': 'review', '/dashboard': 'grid', '/admin/claims': 'receipt',
+		'/admin/checkpoints': 'refresh',
 		'/reports': 'chart', '/admin/policies': 'shield', '/notifikasi': 'bell',
 		'/pengajuan': 'plus', '/riwayat': 'receipt', '/login': 'user'
 	};

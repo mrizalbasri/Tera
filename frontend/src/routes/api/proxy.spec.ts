@@ -30,7 +30,7 @@ describe('same-origin API proxy', () => {
 		await expect(result.json()).resolves.toEqual({ code: 'rate_limit_exceeded' });
 	});
 
-	it.each(['notifications/id/read', 'policies/id/publish'])('forwards authenticated writes to %s with their body', async (path) => {
+	it.each(['notifications/id/read', 'policies/id/publish', 'operations/checkpoints/id/resume'])('forwards authenticated writes to %s with their body', async (path) => {
 		const request = new Request(`https://tera.test/api/${path}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json', Authorization: 'Bearer synthetic', Origin: 'https://tera.test' },

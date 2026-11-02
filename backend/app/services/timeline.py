@@ -256,6 +256,11 @@ class TimelineService:
                     detail={
                         "triggered_rules": signal.triggered_rules,
                         "detector_version": signal.detector_version,
+                        "score": str(signal.score) if signal.score is not None else None,
+                        "source": signal.evidence.get("source"),
+                        "reason": signal.evidence.get("reason"),
+                        "feature_version": signal.evidence.get("feature_version"),
+                        "component_scores": signal.evidence.get("component_scores", {}),
                     },
                 )
             for decision in decisions:

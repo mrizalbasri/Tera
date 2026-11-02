@@ -1,16 +1,21 @@
 """FastAPI dependency wiring for the storage backend and services."""
 
 from functools import lru_cache
+from threading import RLock
+from weakref import WeakSet
 
 from fastapi import Depends
 
 from app.config import Settings, get_settings
 from app.integrations.anomaly import RuleBasedAnomalyScorer
+from app.agent.runtime import graph_resources
 from app.integrations.duplicate import AttributeDuplicateDetector
+from app.integrations.llm import LlmReceiptExtractor
+from app.integrations.masking import SensitiveDataMasker
 from app.integrations.mock import MockReceiptExtractor
 from app.integrations.policy_local import LocalPolicyEvaluator, LocalPolicyRetriever
+from app.integrations.rag.retriever import RagPolicyRetriever
 from app.integrations.quality import FileQualityChecker
-from app.integrations.storage import InMemoryFileStorage
 from app.repositories.memory import InMemoryRepositories
 from app.repositories.sql import SqlRepositories
 from app.repositories.protocols import (
@@ -39,7 +44,9 @@ from app.repositories.protocols import (
 from app.services.clarification import ClarificationService
 from app.services.decision import DecisionEngine
 from app.services.extraction import ExtractionService
+from app.services.processing import ClaimProcessingService
 from app.services.intake import IntakeService
+from app.services.uploads import ReceiptUploadService
 from app.services.review import ReviewService
 from app.services.timeline import TimelineService
 from app.services.validation import ValidationService
@@ -50,15 +57,27 @@ def _memory_repositories() -> InMemoryRepositories:
     return InMemoryRepositories()
 
 
+_sql_bundles: WeakSet[SqlRepositories] = WeakSet()
+
+
 @lru_cache
-def _sql_repositories(database_url: str) -> SqlRepositories:
-    return SqlRepositories(database_url)
+def _sql_repositories(database_url: str, initialize_schema: bool = True) -> SqlRepositories:
+    repositories = SqlRepositories(database_url, initialize_schema=initialize_schema)
+    _sql_bundles.add(repositories)
+    return repositories
+
+
+def close_sql_repositories() -> None:
+    for repositories in list(_sql_bundles):
+        repositories.close()
+    _sql_bundles.clear()
+    _sql_repositories.cache_clear()
 
 
 def _backend(settings: Settings):
     """Pick the storage backend bundle from request-scoped settings."""
     if settings.storage_backend == "sql":
-        return _sql_repositories(settings.database_url)
+        return _sql_repositories(settings.database_url, settings.environment != "production")
     return _memory_repositories()
 
 
@@ -122,7 +141,20 @@ def get_quality_checker() -> ReceiptQualityChecker:
     return FileQualityChecker()
 
 
-def get_receipt_extractor() -> ReceiptExtractor:
+def get_sensitive_data_masker() -> SensitiveDataMasker:
+    return SensitiveDataMasker()
+
+
+def get_receipt_extractor(
+    settings: Settings = Depends(get_settings),
+    masker: SensitiveDataMasker = Depends(get_sensitive_data_masker),
+) -> ReceiptExtractor:
+    if settings.provider_mode == "live":
+        if not settings.llm_api_key:
+            raise RuntimeError(
+                "PROVIDER_MODE=live requires LLM_API_KEY in the environment."
+            )
+        return LlmReceiptExtractor(settings, masker)
     return MockReceiptExtractor()
 
 
@@ -132,7 +164,25 @@ def get_validation_service(
     return ValidationService(settings)
 
 
-def get_policy_retriever() -> PolicyRetriever:
+@lru_cache
+def _rag_policy_retriever(
+    database_url: str, index_schema: str, model_cache: str, reranker_cache: str, rerank_mode: str, top_k: int, top_n: int,
+) -> RagPolicyRetriever:
+    return RagPolicyRetriever(database_url, model_cache, index_schema=index_schema, reranker_cache=reranker_cache,
+                              rerank_mode=rerank_mode, top_k=top_k, top_n=top_n)
+
+
+_policy_adapter_lock = RLock()
+
+
+def get_policy_retriever(settings: Settings = Depends(get_settings)) -> PolicyRetriever:
+    if settings.policy_mode == "rag":
+        with _policy_adapter_lock:
+            return _rag_policy_retriever(
+                settings.database_url, settings.policy_index_schema, settings.policy_model_cache,
+                settings.policy_reranker_cache, settings.policy_rerank_mode,
+                settings.policy_top_k, settings.policy_top_n,
+            )
     return LocalPolicyRetriever()
 
 
@@ -148,7 +198,16 @@ def get_duplicate_detector(
     return AttributeDuplicateDetector(history, receipts, extractions)
 
 
-def get_anomaly_scorer() -> AnomalyScorer:
+@lru_cache(maxsize=4)
+def _ml_anomaly_scorer(model_path: str, threshold: float) -> AnomalyScorer:
+    from app.integrations.ml_anomaly.scorer import SklearnAnomalyScorer
+
+    return SklearnAnomalyScorer(model_path, threshold)
+
+
+def get_anomaly_scorer(settings: Settings = Depends(get_settings)) -> AnomalyScorer:
+    if settings.anomaly_mode == "ml":
+        return _ml_anomaly_scorer(settings.anomaly_model_path, settings.anomaly_escalation_threshold)
     return RuleBasedAnomalyScorer()
 
 
@@ -167,7 +226,15 @@ def get_intake_service(
     quality: ReceiptQualityChecker = Depends(get_quality_checker),
     audit: AuditRepository = Depends(get_audit_repository),
 ) -> IntakeService:
-    return IntakeService(claims, receipts, storage, quality, audit, settings)
+    return IntakeService(claims, receipts, storage, quality, audit, settings,
+                         resources=graph_resources(_backend(settings), settings))
+
+
+def get_receipt_upload_service(
+    settings: Settings = Depends(get_settings),
+    intake: IntakeService = Depends(get_intake_service),
+) -> ReceiptUploadService:
+    return ReceiptUploadService(intake, settings)
 
 
 def get_extraction_service(
@@ -193,8 +260,8 @@ def get_extraction_service(
     policy_retriever: PolicyRetriever = Depends(get_policy_retriever),
     policy_evaluator: PolicyEvaluator = Depends(get_policy_evaluator),
     decider: DecisionEngine = Depends(get_decision_engine),
-) -> ExtractionService:
-    return ExtractionService(
+) -> ClaimProcessingService:
+    extraction = ExtractionService(
         claims,
         receipts,
         storage,
@@ -218,6 +285,13 @@ def get_extraction_service(
         decider,
         settings,
     )
+    return ClaimProcessingService(
+        claims, runs, extraction,
+        graph_resources=graph_resources(_backend(settings), settings),
+        max_recovery_attempts=settings.max_recovery_attempts,
+    )
+
+
 def get_conversation_context_repository(settings: Settings = Depends(get_settings)) -> ConversationContextRepository:
     return _backend(settings).context
 
@@ -229,7 +303,7 @@ def get_clarification_service(
         get_conversation_context_repository
     ),
     audit: AuditRepository = Depends(get_audit_repository),
-    extraction_service: ExtractionService = Depends(get_extraction_service),
+    extraction_service: ClaimProcessingService = Depends(get_extraction_service),
 ) -> ClarificationService:
     return ClarificationService(
         claims,
@@ -276,6 +350,7 @@ def get_review_service(
     reviews: ReviewRepository = Depends(get_review_repository),
     signals: SignalRepository = Depends(get_signal_repository),
     audit: AuditRepository = Depends(get_audit_repository),
+    processing: ClaimProcessingService = Depends(get_extraction_service),
 ) -> ReviewService:
-    return ReviewService(claims, decisions, reviews, signals, audit)
+    return ReviewService(claims, decisions, reviews, signals, audit, processing)
 

@@ -1,0 +1,43 @@
+import { apiRequest, BASE_URL } from './client';
+import { authFetch } from '$lib/clerk';
+
+export interface ReportSummary {
+	period_from: string | null;
+	period_to: string | null;
+	total_claims: number;
+	approved_claims: number;
+	rejected_claims: number;
+	pending_claims: number;
+	automated_claims: number;
+	manual_claims: number;
+	duplicate_count: number;
+	anomaly_count: number;
+	average_duration_ms: number | null;
+	estimated_time_saved_minutes: number;
+}
+
+export interface ReportFilters {
+	periodFrom?: string;
+	periodTo?: string;
+	employeeId?: string;
+}
+
+function query(filters: ReportFilters): string {
+	const params = new URLSearchParams();
+	if (filters.periodFrom) params.set('period_from', filters.periodFrom);
+	if (filters.periodTo) params.set('period_to', filters.periodTo);
+	if (filters.employeeId) params.set('employee_id', filters.employeeId);
+	const encoded = params.toString();
+	return encoded ? `?${encoded}` : '';
+}
+
+export function getReportSummary(filters: ReportFilters = {}): Promise<ReportSummary> {
+	return apiRequest<ReportSummary>(`/reports/summary${query(filters)}`);
+}
+
+export async function downloadReport(filters: ReportFilters = {}): Promise<Blob> {
+	const response = await authFetch(`${BASE_URL}/reports/claims.csv${query(filters)}`);
+	if (response.status === 401) window.location.assign('/login');
+	if (!response.ok) throw new Error(`Export gagal (HTTP ${response.status}).`);
+	return response.blob();
+}

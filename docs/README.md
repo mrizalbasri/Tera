@@ -4,11 +4,17 @@ Open this directory as an Obsidian vault.
 
 ## Navigation
 
+- [Panduan tugas frontend Sheren dan Nisa](../frontend/README.md)
+
 - [[BRD_Expense_Reimbursement_Agent|Business requirements]]
 - [[architecture/overview|Architecture overview]]
 - [[architecture/agent-flow|Agent flow]]
+- [[architecture/agent-modules|Agent module boundaries]]
 - [[decisions/0001-monorepo|Monorepo decision]]
 - [[decisions/0002-langchain-langgraph-stack|LLM stack decision (LangChain/LangGraph/RAG/ML)]]
+- [[development/pgvector|Local pgvector installation, seed and verification]]
+- [[development/ml-anomaly|Local ML anomaly training, evaluation and activation]]
+- [[development/backend-operations|Backend migrations, recovery, limits and monitoring]]
 
 ## SDLC Documents
 

@@ -1,7 +1,11 @@
 from uuid import UUID
+from datetime import date
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile
 from pydantic import BaseModel, Field
+
+from app.api.claim_access import ClaimActor, get_claim_actor, require_claim_access
 
 from app.api.deps import (
     get_claim_repository,
@@ -11,25 +15,28 @@ from app.api.deps import (
     get_extraction_attempt_repository,
     get_extraction_repository,
     get_extraction_service,
-    get_intake_service,
+    get_file_storage,
+    get_receipt_upload_service,
     get_policy_evaluation_repository,
     get_receipt_repository,
     get_signal_repository,
     get_timeline_service,
     get_validation_finding_repository,
 )
-from app.config import Settings, get_settings
 from app.errors import NotFoundError
 from app.repositories.protocols import (
     ClaimRepository,
     DecisionRepository,
     ExtractionAttemptRepository,
     ExtractionRepository,
+    FileStorage,
     PolicyEvaluationRepository,
     ReceiptRepository,
     SignalRepository,
     ValidationFindingRepository,
 )
+from app.repositories.query import ClaimFilter
+from app.domain.enums import ClaimStatus
 from app.schemas.core import (
     Claim,
     Clarification,
@@ -45,10 +52,11 @@ from app.schemas.core import (
 from app.schemas.core import TimelineEntry
 from app.services.clarification import ClarificationService
 from app.services.timeline import TimelineService
-from app.services.extraction import ExtractionService
-from app.services.intake import IntakeService, ReceiptUpload, parse_declared_amount
+from app.services.claim_visibility import employee_decision, employee_signal, employee_timeline
+from app.services.processing import ClaimProcessingService
+from app.services.uploads import ReceiptUploadService
 
-router = APIRouter(prefix="/claims", tags=["claims"])
+router = APIRouter(prefix="/claims", tags=["claims"], dependencies=[Depends(get_claim_actor)])
 
 
 class ClaimResponse(BaseModel):
@@ -57,9 +65,16 @@ class ClaimResponse(BaseModel):
     idempotent_replay: bool = False
 
 
+class ReplacementReceiptResponse(BaseModel):
+    claim: Claim
+    receipt: Receipt
+
+
 class ClaimListResponse(BaseModel):
     items: list[Claim]
     total: int
+    limit: int = 100
+    offset: int = 0
 
 
 class ClaimDetailResponse(BaseModel):
@@ -95,49 +110,65 @@ class TimelineResponse(BaseModel):
 
 class AnswerRequest(BaseModel):
     answer: str = Field(min_length=1, max_length=2000)
-    answered_by: str = Field(min_length=1, max_length=100)
+    answered_by: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 @router.post("", response_model=ClaimResponse, status_code=201)
 async def create_claim(
-    employee_id: str = Form(...),
+    employee_id: str | None = Form(None),
     currency: str = Form("IDR"),
     declared_amount: str | None = Form(None),
     files: list[UploadFile] = File(...),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    settings: Settings = Depends(get_settings),
-    service: IntakeService = Depends(get_intake_service),
+    actor: ClaimActor = Depends(get_claim_actor),
+    service: ReceiptUploadService = Depends(get_receipt_upload_service),
 ) -> ClaimResponse:
-    uploads = [
-        ReceiptUpload(
-            filename=upload.filename,
-            media_type=upload.content_type,
-            content=await upload.read(settings.max_receipt_size_bytes + 1),
-        )
-        for upload in files
-    ]
-    claim, receipts, replay = service.create_claim(
-        employee_id=employee_id,
+    claim, receipts, replay = await service.create_claim(
+        employee_id=actor.employee_id(employee_id),
         currency=currency,
-        declared_amount=parse_declared_amount(declared_amount),
-        files=uploads,
-        idempotency_key=idempotency_key,
+        declared_amount=declared_amount,
+        files=files,
+        idempotency_key=actor.idempotency_key(idempotency_key, "create"),
+        hide_duplicate_details=not actor.admin,
     )
     return ClaimResponse(claim=claim, receipts=receipts, idempotent_replay=replay)
+
+
+@router.post(
+    "/{claim_id}/receipts",
+    response_model=ReplacementReceiptResponse,
+    status_code=201,
+    dependencies=[Depends(require_claim_access)],
+)
+async def replace_claim_receipt(
+    claim_id: UUID,
+    file: UploadFile = File(...),
+    service: ReceiptUploadService = Depends(get_receipt_upload_service),
+) -> ReplacementReceiptResponse:
+    claim, receipt = await service.replace_receipt(claim_id=claim_id, file=file)
+    return ReplacementReceiptResponse(claim=claim, receipt=receipt)
 
 
 @router.get("", response_model=ClaimListResponse)
 def list_claims(
     employee_id: str | None = Query(None),
+    status: ClaimStatus | None = Query(None),
+    period_from: date | None = Query(None),
+    period_to: date | None = Query(None),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=10_000_000),
+    actor: ClaimActor = Depends(get_claim_actor),
     claims: ClaimRepository = Depends(get_claim_repository),
 ) -> ClaimListResponse:
-    items = list(claims.list(employee_id=employee_id))
-    return ClaimListResponse(items=items, total=len(items))
+    filters = ClaimFilter(employee_id if actor.admin else actor.user_id, status, period_from, period_to)
+    items = list(claims.page(filters, limit=limit, offset=offset))
+    return ClaimListResponse(items=items, total=claims.count(filters), limit=limit, offset=offset)
 
 
-@router.get("/{claim_id}", response_model=ClaimDetailResponse)
+@router.get("/{claim_id}", response_model=ClaimDetailResponse, dependencies=[Depends(require_claim_access)])
 def get_claim(
     claim_id: UUID,
+    actor: ClaimActor = Depends(get_claim_actor),
     claims: ClaimRepository = Depends(get_claim_repository),
     receipts: ReceiptRepository = Depends(get_receipt_repository),
     extractions: ExtractionRepository = Depends(get_extraction_repository),
@@ -158,18 +189,58 @@ def get_claim(
         attempts=list(attempts.list_for_claim(claim_id)),
         validation_findings=list(findings.list_for_claim(claim_id)),
         policy_evaluations=list(evaluations.list_for_claim(claim_id)),
-        signals=list(signals.list_for_claim(claim_id)),
-        decisions=list(decisions.list_for_claim(claim_id)),
+        signals=[signal if actor.admin else employee_signal(signal) for signal in signals.list_for_claim(claim_id)],
+        decisions=[decision if actor.admin else employee_decision(decision) for decision in decisions.list_for_claim(claim_id)],
     )
 
 
-@router.post("/{claim_id}/process", response_model=ProcessClaimResponse)
+@router.get(
+    "/{claim_id}/receipts/{receipt_id}/content",
+    dependencies=[Depends(require_claim_access)],
+)
+def get_receipt_content(
+    claim_id: UUID,
+    receipt_id: UUID,
+    receipts: ReceiptRepository = Depends(get_receipt_repository),
+    storage: FileStorage = Depends(get_file_storage),
+) -> Response:
+    matching = [r for r in receipts.list_for_claim(claim_id) if r.id == receipt_id]
+    if not matching:
+        raise NotFoundError("Receipt", str(receipt_id))
+    receipt = matching[0]
+    content = storage.get(receipt.storage_reference)
+    if content is None:
+        raise NotFoundError("Receipt content", str(receipt_id))
+    encoded_filename = quote(receipt.original_filename, safe="")
+    disposition = (
+        f'inline; filename="{receipt.original_filename}"'
+        if encoded_filename == receipt.original_filename
+        else f"inline; filename=\"receipt\"; filename*=UTF-8''{encoded_filename}"
+    )
+    return Response(
+        content=content,
+        media_type=receipt.media_type,
+        headers={
+            "Content-Disposition": disposition,
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.post("/{claim_id}/process", response_model=ProcessClaimResponse, dependencies=[Depends(require_claim_access)])
 def process_claim(
     claim_id: UUID,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    service: ExtractionService = Depends(get_extraction_service),
+    resume: bool = Query(False),
+    actor: ClaimActor = Depends(get_claim_actor),
+    service: ClaimProcessingService = Depends(get_extraction_service),
 ) -> ProcessClaimResponse:
-    outcome = service.process_claim(claim_id, idempotency_key=idempotency_key)
+    outcome = service.process_claim(
+        claim_id,
+        resume=resume,
+        idempotency_key=actor.idempotency_key(idempotency_key, f"process:{claim_id}"),
+    )
     return ProcessClaimResponse(
         claim=outcome.claim,
         extractions=outcome.extractions,
@@ -177,20 +248,21 @@ def process_claim(
         clarification=outcome.clarification,
         validation_findings=outcome.validation_findings,
         policy_evaluations=outcome.policy_evaluations,
-        decision=outcome.decision,
+        decision=outcome.decision if actor.admin else employee_decision(outcome.decision),
     )
 
 
-@router.get("/{claim_id}/timeline", response_model=TimelineResponse)
+@router.get("/{claim_id}/timeline", response_model=TimelineResponse, dependencies=[Depends(require_claim_access)])
 def get_claim_timeline(
     claim_id: UUID,
+    actor: ClaimActor = Depends(get_claim_actor),
     service: TimelineService = Depends(get_timeline_service),
 ) -> TimelineResponse:
-    items = service.build(claim_id)
+    items = [entry if actor.admin else employee_timeline(entry) for entry in service.build(claim_id)]
     return TimelineResponse(items=items, total=len(items))
 
 
-@router.get("/{claim_id}/clarifications", response_model=ClarificationListResponse)
+@router.get("/{claim_id}/clarifications", response_model=ClarificationListResponse, dependencies=[Depends(require_claim_access)])
 def list_clarifications(
     claim_id: UUID,
     service: ClarificationService = Depends(get_clarification_service),
@@ -202,18 +274,20 @@ def list_clarifications(
 @router.post(
     "/{claim_id}/clarifications/{clarification_id}/answer",
     response_model=ProcessClaimResponse,
+    dependencies=[Depends(require_claim_access)],
 )
 def answer_clarification(
     claim_id: UUID,
     clarification_id: UUID,
     request: AnswerRequest,
+    actor: ClaimActor = Depends(get_claim_actor),
     service: ClarificationService = Depends(get_clarification_service),
 ) -> ProcessClaimResponse:
     _clarification, outcome, _replayed = service.submit_answer(
         claim_id,
         clarification_id,
         answer=request.answer,
-        answered_by=request.answered_by,
+        answered_by=(request.answered_by or actor.user_id) if actor.demo else actor.user_id,
     )
     return ProcessClaimResponse(
         claim=outcome.claim,
@@ -222,5 +296,5 @@ def answer_clarification(
         clarification=outcome.clarification,
         validation_findings=outcome.validation_findings,
         policy_evaluations=outcome.policy_evaluations,
-        decision=outcome.decision,
+        decision=outcome.decision if actor.admin else employee_decision(outcome.decision),
     )

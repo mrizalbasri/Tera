@@ -12,9 +12,9 @@ flowchart LR
     end
 
     API --> SVC
-    MASK -->|"data termasking"| EXT["LLM / OCR Adapter<br/>LangChain, GLM vision via Z.ai<br/>(PROVIDER_MODE = mock | live)"]
+    MASK -->|"data termasking"| EXT["LLM / OCR Adapter<br/>LangChain, OpenAI-compatible vision<br/>(PROVIDER_MODE = mock | live)"]
 
-    REPO --> DB[("SQL Database<br/>SQLite dev/demo,<br/>PostgreSQL-ready")]
+    REPO --> DB[("SQL Database<br/>PostgreSQL<br/>schema public")]
     REPO --> FS[("File Storage<br/>receipt JPG/PNG/PDF")]
     AUD --> DB
-    LG --> CP[("LangGraph Checkpointer<br/>(SQLite)")]
+    LG --> CP[("LangGraph Checkpointer<br/>(PostgreSQL: langgraph)")]

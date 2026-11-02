@@ -22,8 +22,8 @@ from app.repositories.protocols import (
     ClarificationRepository,
     ConversationContextRepository,
 )
-from app.schemas.core import Clarification, ClarificationRequest, ConversationEntry
-from app.services.extraction import ExtractionService
+from app.schemas.core import Clarification, ConversationEntry, ProcessingOutcome
+from app.services.processing import ClaimProcessingService
 
 
 class ClarificationService:
@@ -33,7 +33,7 @@ class ClarificationService:
         clarifications: ClarificationRepository,
         context: ConversationContextRepository,
         audit: AuditRepository,
-        processing: ExtractionService,
+        processing: ClaimProcessingService,
     ) -> None:
         self._claims = claims
         self._clarifications = clarifications
@@ -48,14 +48,20 @@ class ClarificationService:
             raise NotFoundError("Claim", str(claim_id))
         return list(self._clarifications.list_for_claim(claim_id))
 
-    def submit_answer(
+    def submit_answer(self, claim_id: UUID, clarification_id: UUID, *,
+                      answer: str, answered_by: str) -> tuple[Clarification, ProcessingOutcome, bool]:
+        with self._processing.claim_lock(claim_id):
+            return self._submit_answer(claim_id, clarification_id,
+                                       answer=answer, answered_by=answered_by)
+
+    def _submit_answer(
         self,
         claim_id: UUID,
         clarification_id: UUID,
         *,
         answer: str,
         answered_by: str,
-    ) -> tuple[Clarification, dict, bool]:
+    ) -> tuple[Clarification, ProcessingOutcome, bool]:
         """Store the answer and resume, or replay when already answered.
 
         Returns (clarification, processing outcome, replayed).
@@ -79,7 +85,22 @@ class ClarificationService:
             outcome = self._processing.process_claim(claim_id)
             return clarification, outcome, True
 
+        claim = self._claims.get(claim_id)
+        latest = self._clarifications.latest_for_claim(claim_id)
+        if claim.status not in (ClaimStatus.NEEDS_CLARIFICATION, ClaimStatus.PROCESSING) or latest is None or latest.id != clarification.id:
+            raise ApplicationError(ErrorCode.INVALID_CLAIM, "Claim is not waiting for this clarification.", 409)
+        self._processing.ensure_clarification_waiting(claim_id)
+        with self._processing.resources.transaction():
+            answered = self._record_answer(claim_id, clarification, answer, answered_by)
+            self._processing.queue_clarification(claim_id)
+        outcome = self._processing.resume_clarification(claim_id)
+        return answered, outcome, False
+
+    def _record_answer(self, claim_id: UUID, clarification: Clarification,
+                       answer: str, answered_by: str) -> Clarification:
         clean_answer = answer.strip()
+        if not clean_answer:
+            raise ApplicationError(ErrorCode.INVALID_CLAIM, "Answer must not be blank.", 422)
         now = datetime.now(UTC)
         answered = clarification.model_copy(
             update={
@@ -112,14 +133,15 @@ class ClarificationService:
             event_type="clarification.answered",
             actor_type=ActorType.EMPLOYEE,
             safe_payload={
-                "clarification_id": str(clarification_id),
+                "clarification_id": str(clarification.id),
                 "code": clarification.code,
             },
             processing_run_id=clarification.processing_run_id,
         )
 
         claim = self._claims.get(claim_id)
-        apply_transition(ClaimStatus(claim.status), ClaimStatus.PROCESSING)
+        if claim.status != ClaimStatus.PROCESSING:
+            apply_transition(ClaimStatus(claim.status), ClaimStatus.PROCESSING)
         self._claims.save(
             claim.model_copy(
                 update={
@@ -128,5 +150,4 @@ class ClarificationService:
                 }
             )
         )
-        outcome = self._processing.process_claim(claim_id, resume=True)
-        return answered, outcome, False
+        return answered

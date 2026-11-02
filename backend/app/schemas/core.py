@@ -35,6 +35,7 @@ class Claim(SchemaBase):
     currency: str
     declared_amount: Decimal | None = None
     current_decision_id: UUID | None = None
+    receipt_revision: int = Field(default=0, ge=0)
     created_at: datetime
     updated_at: datetime
 
@@ -48,6 +49,7 @@ class Receipt(SchemaBase):
     content_hash: str = Field(min_length=64, max_length=64)
     quality_score: Decimal | None = Field(default=None, ge=0, le=1)
     quality_findings: list[str] = Field(default_factory=list)
+    replaces_receipt_id: UUID | None = None
     created_at: datetime
 
 
@@ -75,6 +77,9 @@ class ExtractionResult(SchemaBase):
     line_items: list[ExtractedLineItem] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     provider: str = Field(min_length=1, max_length=100)
+    # True when this result came from the deterministic fallback after a live
+    # provider failure; the decision engine must never auto-approve it.
+    provider_degraded: bool = False
     created_at: datetime
 
 
@@ -103,6 +108,8 @@ class ProcessingRun(SchemaBase):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     retry_count: int = Field(default=0, ge=0)
+    recovery_count: int = Field(default=0, ge=0)
+    receipt_revision: int = Field(default=0, ge=0)
     error_code: str | None = Field(default=None, max_length=100)
 
 

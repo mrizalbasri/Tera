@@ -215,3 +215,51 @@ def test_duplicate_takes_precedence_over_policy_violation() -> None:
 
     assert decision.outcome == "rejected"
     assert decision.reason_codes == ["duplicate_receipt"]
+
+
+def _provider_degraded_signal(claim_id) -> "Signal":
+    return Signal(
+        id=uuid4(),
+        claim_id=claim_id,
+        processing_run_id=uuid4(),
+        signal_type=SignalType.PROVIDER_DEGRADED,
+        severity=Severity.WARNING,
+        triggered_rules=["provider_fallback"],
+        evidence={"provider": "llm-fallback-mock:1"},
+        detector_version="provider-fallback-v1",
+        explanation="Live extraction provider failed; fallback result in use.",
+        created_at=datetime.now(UTC),
+    )
+
+
+def test_provider_degraded_result_is_escalated_not_approved() -> None:
+    claim_id = uuid4()
+
+    decision = ENGINE.decide(
+        claim=_claim(),
+        total=Decimal("60000"),
+        confidence=Decimal("0.96"),
+        findings=[],
+        evaluations=[],
+        signals=[_provider_degraded_signal(claim_id)],
+        policy_version=1,
+        processing_run_id=uuid4(),
+    )
+
+    assert decision.outcome == "escalated"
+    assert decision.reason_codes[0] == "provider_fallback_active"
+
+
+def test_same_claim_without_degraded_signal_is_approved() -> None:
+    decision = ENGINE.decide(
+        claim=_claim(),
+        total=Decimal("60000"),
+        confidence=Decimal("0.96"),
+        findings=[],
+        evaluations=[],
+        signals=[],
+        policy_version=1,
+        processing_run_id=uuid4(),
+    )
+
+    assert decision.outcome == "approved"

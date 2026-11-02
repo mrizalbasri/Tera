@@ -4,7 +4,9 @@ The reviewer's confirm/override is recorded as a NEW decision attributed to
 the reviewer — the agent's escalated decision is preserved for audit.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -20,6 +22,7 @@ from app.repositories.protocols import (
     SignalRepository,
 )
 from app.schemas.core import Claim, Decision, Review
+from app.services.processing import ClaimProcessingService
 
 _DECISION_CLAIM_STATUS = {
     DecisionOutcome.APPROVED: ClaimStatus.APPROVED,
@@ -35,38 +38,70 @@ class ReviewService:
         reviews: ReviewRepository,
         signals: SignalRepository,
         audit: AuditRepository,
+        processing: ClaimProcessingService,
     ) -> None:
         self._claims = claims
         self._decisions = decisions
         self._reviews = reviews
         self._signals = signals
         self._audit = audit
+        self._processing = processing
 
-    def list_open(self) -> list[dict]:
+    def count_open(self) -> int:
+        return self._reviews.count_open()
+
+    def list_open(self, *, limit: int = 100, offset: int = 0) -> list[dict]:
+        reviews = self._reviews.page_open(limit=limit, offset=offset)
+        return self._queue_items(reviews)
+
+    def open_queue_page(self, *, limit: int, offset: int, snapshot: str | None = None) -> tuple[list[dict], int, str]:
+        reviews = self._reviews.list_open()
+        version = sha256("".join(str(review.id) for review in reviews).encode()).hexdigest()
+        if snapshot is not None and snapshot != version:
+            raise ApplicationError(ErrorCode.REVIEW_QUEUE_CHANGED,
+                                   "Review queue changed while loading. Reload the queue.", 409)
+        return self._queue_items(reviews[offset:offset + limit]), len(reviews), version
+
+    def _queue_items(self, reviews: Sequence[Review]) -> list[dict]:
         items: list[dict] = []
-        for review in self._reviews.list_open():
-            claim = self._claims.get(review.claim_id)
+        ids = [review.claim_id for review in reviews]
+        claims = {claim.id: claim for claim in self._claims.get_many(ids)}
+        decisions = {}
+        signals = {i: [] for i in ids}
+        for decision in self._decisions.list_for_claims(ids):
+            decisions[decision.claim_id] = decision
+        for signal in self._signals.list_for_claims(ids):
+            signals[signal.claim_id].append(signal)
+        for review in reviews:
+            claim = claims.get(review.claim_id)
             if claim is None:
                 continue
-            decision = self._latest_decision(review.claim_id)
+            decision = decisions.get(review.claim_id)
             items.append(
                 {
                     "review": review,
                     "claim": claim,
                     "decision": decision,
-                    "signals": list(self._signals.list_for_claim(review.claim_id)),
+                    "signals": signals[review.claim_id],
                 }
             )
         return items
 
-    def decide(
-        self,
-        claim_id: UUID,
-        *,
-        action: Literal["approve", "reject"],
-        reason: str,
-        reviewer_reference: str,
-    ) -> tuple[Claim, Decision, Review]:
+    def decide(self, claim_id: UUID, *, action: Literal["approve", "reject"],
+               reason: str, reviewer_reference: str) -> tuple[Claim, Decision, Review]:
+        if not reason.strip() or not reviewer_reference.strip():
+            raise ApplicationError(ErrorCode.INVALID_CLAIM, "Review reason and identity must not be blank.", 422)
+        with self._processing.claim_lock(claim_id):
+            self._processing.recover_claim(claim_id)
+            self._pending_review(claim_id)
+            return self._processing.resume_review(
+                claim_id, lambda run_id: self._apply_decision(
+                    claim_id, action=action, reason=reason,
+                    reviewer_reference=reviewer_reference, processing_run_id=run_id,
+                ),
+            )
+
+    def _pending_review(self, claim_id: UUID) -> tuple[Claim, Review]:
         claim = self._claims.get(claim_id)
         if claim is None:
             raise NotFoundError("Claim", str(claim_id))
@@ -74,8 +109,8 @@ class ReviewService:
         review = next(
             (
                 item
-                for item in self._reviews.list_open()
-                if item.claim_id == claim_id
+                for item in reversed(self._reviews.list_for_claim(claim_id))
+                if item.status == ReviewStatus.OPEN
             ),
             None,
         )
@@ -93,6 +128,13 @@ class ReviewService:
                 409,
             )
 
+        return claim, review
+
+    def _apply_decision(self, claim_id: UUID, *, action: Literal["approve", "reject"],
+                        reason: str, reviewer_reference: str,
+                        processing_run_id: UUID) -> tuple[Claim, Decision, Review]:
+        claim, review = self._pending_review(claim_id)
+        current_status = ClaimStatus(claim.status)
         outcome = (
             DecisionOutcome.APPROVED if action == "approve" else DecisionOutcome.REJECTED
         )
@@ -101,11 +143,7 @@ class ReviewService:
         decision = Decision(
             id=uuid4(),
             claim_id=claim_id,
-            processing_run_id=(
-                latest_decision.processing_run_id
-                if latest_decision is not None
-                else uuid4()
-            ),
+            processing_run_id=processing_run_id,
             outcome=outcome,
             reason_codes=[f"reviewer_{action}"],
             explanation=reason.strip(),

@@ -1,3 +1,4 @@
+import sys
 import logging
 import re
 import time
@@ -49,6 +50,29 @@ async def lifespan(_app: FastAPI):
 
             worker = RecoveryWorker(configured)
             worker.start()
+        elif configured.environment != "production" and "pytest" not in sys.modules:
+            from app.api.deps import _backend
+            from app.schemas.core import Claim
+            from app.domain.enums import ClaimStatus
+            from decimal import Decimal
+            from datetime import datetime, timedelta, UTC
+
+            repo = _backend(configured).claims
+            if not repo.list(employee_id="karyawan@tera.id"):
+                now = datetime.now(UTC)
+                for amount, days_ago in [(Decimal("45000"), 8), (Decimal("55000"), 6), (Decimal("40000"), 4), (Decimal("50000"), 2)]:
+                    sub_time = now - timedelta(days=days_ago)
+                    repo.save(Claim(
+                        id=uuid4(),
+                        employee_id="karyawan@tera.id",
+                        status=ClaimStatus.APPROVED,
+                        submitted_at=sub_time,
+                        currency="IDR",
+                        declared_amount=amount,
+                        receipt_revision=0,
+                        created_at=sub_time,
+                        updated_at=sub_time,
+                    ))
         yield
     finally:
         if worker is not None:

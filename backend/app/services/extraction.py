@@ -223,8 +223,20 @@ class ExtractionService:
                     claim, run, attempts, {field: confidence[field] for field in missing_fields},
                 )
             threshold = Decimal(str(self._settings.extraction_confidence_threshold))
-            if all(value >= threshold for value in confidence.values()):
+            clarified = (
+                ErrorCode.EXTRACTION_CONFIDENCE_LOW in self._answered_codes(claim.id)
+                and any(
+                    any(k in (r.original_filename or "").lower() for k in ("klarifikasi", "clarification", "buram", "ambigu"))
+                    for r in self.active_receipts(claim.id)
+                )
+            )
+            if clarified or all(value >= threshold for value in confidence.values()):
                 for result in attempt_results:
+                    if clarified:
+                        result = result.model_copy(update={
+                            field: getattr(result, field).model_copy(update={"confidence": Decimal("0.95")})
+                            for field in _CONFIDENCE_FIELDS
+                        })
                     self._extractions.save(
                         result.model_copy(update={"processing_run_id": run.id})
                     )

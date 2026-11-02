@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from '$lib/components/Icon.svelte';
 	import { onMount } from 'svelte';
 	import { getNotifications, markNotificationRead, type Notification } from '$lib/api/workspace';
 	import { formatDateTime } from '$lib/formatters/date';
@@ -33,10 +34,10 @@
 
 <svelte:head><title>Notifikasi · Tera</title></svelte:head>
 <section class="inbox" aria-labelledby="inbox-title">
-	<header><div><h1 id="inbox-title">Notifikasi</h1><p>Informasi baru dan klaim yang membutuhkan tindak lanjut.</p></div><button type="button" onclick={load} disabled={busy}>Muat ulang</button></header>
+	<header class="page-header"><div><h1 id="inbox-title">Notifikasi</h1><p>Informasi baru dan klaim yang membutuhkan tindak lanjut.</p></div><button type="button" onclick={load} disabled={busy}><Icon name="refresh" size={18} />Muat ulang</button></header>
 	{#if busy}<p role="status">Memuat notifikasi...</p>
 	{:else if error}<div class="notice" role="alert"><p>{error}</p><button type="button" onclick={load}>Coba lagi</button></div>
-	{:else if items.length === 0}<div class="empty"><h2>Belum ada notifikasi</h2><p>Permintaan informasi, antrean review, dan hasil klaim akan tampil di sini.</p></div>
+	{:else if items.length === 0}<div class="empty"><Icon name="bell" size={32} /><h2>Belum ada notifikasi</h2><p>Permintaan informasi, antrean review, dan hasil klaim akan tampil di sini.</p></div>
 	{:else}
 		{#if actionError}<p class="error" role="alert">{actionError}</p>{/if}
 		<ul>{#each items as item (item.id)}

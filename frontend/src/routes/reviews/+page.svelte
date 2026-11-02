@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import Icon from '$lib/components/Icon.svelte';
 	import { page } from '$app/state';
 	import Toast from '$lib/components/Toast.svelte';
 	import { modalFocus } from '$lib/actions/modalFocus';
@@ -151,7 +152,8 @@
 			</p>
 		</div>
 		<div class="header-actions">
-			<button class="btn-secondary" onclick={exportToCSV}>
+			<button class="btn-secondary" onclick={exportToCSV} disabled={loading}>
+				<Icon name="chart" size={18} />
 				Ekspor seluruh klaim
 			</button>
 		</div>
@@ -161,17 +163,17 @@
 	<!-- Ringkasan Cepat -->
 	<section class="stats-grid">
 		<div class="stat-card urgent">
-			<span class="stat-label">Perlu Review Manual</span>
+			<span class="stat-label"><span class="stat-symbol"><Icon name="review" /></span>Perlu review manual</span>
 			<span class="stat-value">{loading || loadError ? '...' : pendingCount}</span>
 			<span class="stat-hint">{loading ? 'Memuat antrean...' : loadError ? 'Data belum tersedia' : pendingCount > 0 ? 'Menunggu keputusan reviewer' : 'Tidak ada klaim menunggu review'}</span>
 		</div>
 		<div class="stat-card">
-			<span class="stat-label">Risiko tinggi</span>
+			<span class="stat-label"><span class="stat-symbol warning"><Icon name="alert" /></span>Risiko tinggi</span>
 			<span class="stat-value">{loading || loadError ? '...' : highRiskCount}</span>
 			<span class="stat-hint">Memiliki temuan peringatan atau pemblokiran</span>
 		</div>
 		<div class="stat-card">
-			<span class="stat-label">Menunggu ≥ 3 hari</span>
+			<span class="stat-label"><span class="stat-symbol waiting"><Icon name="clock" /></span>Menunggu ≥ 3 hari</span>
 			<span class="stat-value">{loading || loadError ? '...' : olderCount}</span>
 			<span class="stat-hint">Klaim terbuka yang perlu segera ditinjau</span>
 		</div>
@@ -179,7 +181,7 @@
 
 	<!-- Filter & Search Bar -->
 	<div class="toolbar">
-		<div class="search-box">
+		<div class="search-box"><Icon name="search" size={18} />
 			<input type="text" aria-label="Cari klaim" placeholder="Cari ID klaim atau karyawan..." bind:value={searchQuery} />
 		</div>
 		<select aria-label="Filter risiko" bind:value={riskFilter}>
@@ -202,7 +204,7 @@
 
 		{#if loading}
 			<div class="queue-state" role="status">
-				<span class="spin" aria-hidden="true">⟳</span> Memuat antrean review...
+				<span class="spin"><Icon name="refresh" /></span> Memuat antrean review...
 			</div>
 		{:else if loadError}
 			<div class="queue-state error" role="alert">
@@ -211,6 +213,8 @@
 			</div>
 		{:else if filteredQueue.length === 0}
 			<div class="empty-state">
+				<span class="empty-symbol"><Icon name={queue.length === 0 ? 'check' : 'search'} size={28} /></span>
+				<h3>{queue.length === 0 ? 'Antrean sudah beres' : 'Klaim tidak ditemukan'}</h3>
 				<p>{queue.length === 0 ? 'Belum ada klaim yang membutuhkan review. Klaim yang diteruskan Tera akan muncul di sini.' : 'Tidak ada klaim yang cocok. Coba ubah pencarian atau filter.'}</p>
 			</div>
 		{:else}
@@ -238,7 +242,7 @@
 								<span class="badge {item.decision?.outcome === 'rejected' ? 'danger' : 'warning'}">{primaryReason(item)}</span>
 								<p class="ai-reason">{item.decision?.explanation ?? 'Agent meneruskan klaim ini ke reviewer manusia.'}</p>
 								<button class="btn-inspect" onclick={() => (activeSignals = item)}>
-									Lihat bukti pemeriksaan
+									<Icon name="eye" size={18} />Lihat bukti pemeriksaan
 								</button>
 							</td>
 							<td>
@@ -248,11 +252,11 @@
 								</div>
 							</td>
 							<td>
-								<a class="btn-inspect" href={`/reviews/${encodeURIComponent(item.claim.id)}`}>Buka detail reviewer</a>
+								<a class="btn-inspect" href={`/reviews/${encodeURIComponent(item.claim.id)}`}><Icon name="review" size={18} />Buka detail reviewer</a>
 								{#if item.review.status === 'open'}
 									<div class="action-buttons">
-										<button class="btn-approve" onclick={() => openDecisionModal(item, 'approve')}>Setujui</button>
-										<button class="btn-reject" onclick={() => openDecisionModal(item, 'reject')}>Tolak</button>
+										<button class="btn-approve" onclick={() => openDecisionModal(item, 'approve')}><Icon name="check" size={18} />Setujui</button>
+										<button class="btn-reject" onclick={() => openDecisionModal(item, 'reject')}><Icon name="close" size={18} />Tolak</button>
 									</div>
 								{:else}
 									<span class="text-done">Selesai</span>
@@ -275,7 +279,7 @@
 					<span class="eyebrow">Audit Trail & Bukti Signal</span>
 					<h3>Klaim {shortClaimRef(activeSignals.claim.id)} · {activeSignals.claim.employee_id}</h3>
 				</div>
-				<button class="btn-close" aria-label="Tutup bukti pemeriksaan" onclick={() => (activeSignals = null)}>✕</button>
+				<button class="btn-close" aria-label="Tutup bukti pemeriksaan" onclick={() => (activeSignals = null)}><Icon name="close" /></button>
 			</div>
 
 			<div class="modal-body">
@@ -325,7 +329,7 @@
 							{#each activeSignals.signals as signal (signal.id)}
 								<div class="timeline-item">
 									<div class="timeline-badge {signal.severity === 'blocking' ? 'WARN' : 'PASS'}">
-										{signal.signal_type === 'duplicate' ? '⧉' : '⚠'}
+										<Icon name={signal.signal_type === 'duplicate' ? 'receipt' : 'alert'} size={18} />
 									</div>
 									<div class="timeline-content">
 										<strong>{signal.signal_type === 'duplicate' ? 'Duplikat' : 'Anomali'} · {severityLabel(signal.severity)}</strong>
@@ -343,10 +347,10 @@
 					<div class="modal-actions-bar">
 						{#if activeSignals.review.status === 'open'}
 							<button class="btn-approve full" onclick={() => openDecisionModal(activeSignals!, 'approve')}>
-								✓ Setujui Klaim Ini
+								<Icon name="check" size={18} />Setujui klaim ini
 							</button>
 							<button class="btn-reject full" onclick={() => openDecisionModal(activeSignals!, 'reject')}>
-								✕ Tolak Klaim
+								<Icon name="close" size={18} />Tolak klaim
 							</button>
 						{:else}
 							<p class="status-summary">
@@ -367,9 +371,9 @@
 			<div class="modal-header">
 				<div>
 					<span class="eyebrow">Konfirmasi Keputusan</span>
-					<h3>{decisionAction === 'approve' ? '✓ Setujui' : '✕ Tolak'} klaim {shortClaimRef(decisionTarget.claim.id)}</h3>
+					<h3>{decisionAction === 'approve' ? 'Setujui' : 'Tolak'} klaim {shortClaimRef(decisionTarget.claim.id)}</h3>
 				</div>
-				<button class="btn-close" aria-label="Tutup konfirmasi keputusan" onclick={closeDecisionModal}>✕</button>
+				<button class="btn-close" aria-label="Tutup konfirmasi keputusan" onclick={closeDecisionModal}><Icon name="close" /></button>
 			</div>
 			<div class="decision-modal-body">
 				<p class="ai-reason">
@@ -398,7 +402,7 @@
 						onclick={submitDecision}
 						disabled={submittingDecision || !decisionReason.trim()}
 					>
-						{submittingDecision ? 'Mengirim...' : decisionAction === 'approve' ? '✓ Konfirmasi Persetujuan' : '✕ Konfirmasi Penolakan'}
+						{submittingDecision ? 'Mengirim...' : decisionAction === 'approve' ? 'Konfirmasi persetujuan' : 'Konfirmasi penolakan'}
 					</button>
 				</div>
 			</div>
@@ -407,14 +411,30 @@
 {/if}
 
 <style>
+	.stat-label { display: flex; align-items: center; gap: var(--space-3); }
+	.stat-symbol, .empty-symbol { display: inline-flex; align-items: center; justify-content: center; background: var(--color-light); color: var(--color-primary-dark); padding: var(--space-3); border-radius: var(--radius-md); }
+	.stat-symbol.warning { background: var(--color-warning-soft); color: var(--color-warning); }
+	.stat-symbol.waiting { background: var(--color-info-soft); color: var(--color-info); }
+	.empty-symbol { margin-bottom: var(--space-5); }
+	.empty-state h3 { color: var(--color-ink); font-size: var(--text-lg); }
+	.empty-state p { max-width: 440px; margin-inline: auto; }
+	.search-box:focus-within { outline: 3px solid var(--color-focus); outline-offset: 3px; }
+	.search-box input:focus-visible { outline: none; }
+	@media (max-width: 768px) { .stat-label { flex-direction: column; align-items: flex-start; } .header-actions, .header-actions button { width: 100%; } }
+
 	main {
-		max-width: 1140px;
+		max-width: 1440px;
 		margin: 0 auto;
-		padding: 2.5rem 2rem;
+		padding: 0;
 		box-sizing: border-box;
 	}
 
 	.header {
+		padding: clamp(20px, 3vw, 32px);
+		background: var(--color-light);
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-lg);
+		gap: var(--space-5);
 		display: flex;
 		justify-content: space-between;
 		align-items: flex-start;

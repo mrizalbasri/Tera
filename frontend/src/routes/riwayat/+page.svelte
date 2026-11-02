@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from '$lib/components/Icon.svelte';
 	import { onMount } from 'svelte';
 	import Toast from '$lib/components/Toast.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -111,7 +112,7 @@
 
 	{#if loading}
 		<div class="state-panel" role="status">
-			<span class="spin" aria-hidden="true">⟳</span> Memuat riwayat klaim...
+			<span class="spin"><Icon name="refresh" /></span> Memuat riwayat klaim...
 		</div>
 	{:else if loadError}
 		<div class="state-panel error" role="alert">
@@ -130,7 +131,7 @@
 			</div>
 			<h3>Belum ada riwayat klaim</h3>
 			<p>{data.financeWorkspace ? 'Belum ada pengajuan karyawan. Klaim akan tercatat di sini setelah nota dikirim.' : 'Nota pertamamu akan memulai riwayat ini. Kirim foto atau PDF nota untuk mengajukan pengeluaran kerja.'}</p>
-			<a href={data.financeWorkspace ? '/reviews' : '/pengajuan'} class="primary-btn">{data.financeWorkspace ? 'Buka antrean review' : 'Ajukan klaim'}</a>
+			<a href={data.financeWorkspace ? '/reviews' : '/pengajuan'} class="primary-btn"><Icon name={data.financeWorkspace ? 'review' : 'plus'} size={18} />{data.financeWorkspace ? 'Buka antrean review' : 'Ajukan klaim'}</a>
 		</div>
 	{:else}
 		<div class="summary-grid">

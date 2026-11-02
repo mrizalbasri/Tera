@@ -72,9 +72,9 @@
 	}
 
 	.status-badge.success, .status-badge.approved {
-		background: var(--color-light);
-		color: var(--color-primary-dark);
-		border-color: var(--color-border);
+		background: var(--color-success-soft);
+		color: var(--color-success);
+		border-color: var(--color-success-border);
 	}
 
 	.status-badge.danger, .status-badge.rejected {

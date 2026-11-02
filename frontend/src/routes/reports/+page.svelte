@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from '$lib/components/Icon.svelte';
 	import { onMount } from 'svelte';
 	import { downloadReport, getReportSummary, type ReportSummary, type ReportFilters } from '$lib/api/reports';
 
@@ -122,7 +123,7 @@
 			onclick={exportCsv}
 			disabled={busy || !!error || exporting || !!validationError}
 		>
-			{exporting ? 'Mengunduh...' : 'Unduh CSV'}
+			<Icon name="chart" size={18} />{exporting ? 'Mengunduh...' : 'Unduh CSV'}
 		</button>
 	</header>
 
@@ -382,13 +383,13 @@
 	.outcome-col { display: flex; flex-direction: column; gap: var(--space-6); justify-content: center; }
 	.ratio-bar-wrap { display: flex; flex-direction: column; gap: var(--space-2); }
 	.ratio-bar { display: flex; height: 10px; width: 100%; border-radius: var(--radius-pill); overflow: hidden; background: var(--color-border); }
-	.ratio-segment.approved { background: var(--color-primary); }
+	.ratio-segment.approved { background: var(--color-success); }
 	.ratio-segment.pending { background: var(--color-warning); }
 	.ratio-segment.rejected { background: var(--color-danger); }
 	.ratio-legend { display: flex; flex-wrap: wrap; gap: var(--space-4); font-size: var(--text-xs); color: var(--color-text-muted); }
 	.ratio-legend span { display: inline-flex; align-items: center; gap: var(--space-1); }
 	.legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-	.legend-dot.approved { background: var(--color-primary); }
+	.legend-dot.approved { background: var(--color-success); }
 	.legend-dot.pending { background: var(--color-warning); }
 	.legend-dot.rejected { background: var(--color-danger); }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from '$lib/components/Icon.svelte';
 	import { onMount } from 'svelte';
 	import { createPolicy, editPolicy, getPolicyVersions, publishPolicy, importBaselinePolicies, getPolicyAudit, type PolicyVersion, type PolicyRule } from '$lib/api/workspace';
 	import { formatDateTime } from '$lib/formatters/date';
@@ -77,7 +78,7 @@
 
 <svelte:head><title>Kebijakan reimbursement · Tera</title></svelte:head>
 <section class="policies" aria-labelledby="policy-title">
-	<header><h1 id="policy-title">Kebijakan reimbursement</h1><p>Atur pemeriksaan klaim berdasarkan tanggal nota. Keputusan lama tetap menyimpan dasar kebijakannya.</p></header>
+	<header class="page-header"><div><h1 id="policy-title">Kebijakan reimbursement</h1><p>Atur pemeriksaan klaim berdasarkan tanggal nota. Keputusan lama tetap menyimpan dasar kebijakannya.</p></div></header>
 	{#if status}<p class="notice" role="status">{status}</p>{/if}
 	{#if formError}<p class="error notice" role="alert">{formError}</p>{/if}
 	<section class="editor" aria-labelledby="draft-title">

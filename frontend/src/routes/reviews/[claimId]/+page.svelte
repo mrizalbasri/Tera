@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
@@ -18,30 +17,44 @@
 	let action = $state<'approve' | 'reject' | null>(null);
 	let reason = $state('');
 	let submitting = $state(false);
-	const receipt = $derived(detail?.receipts.at(-1));
+	let selectedReceiptId = $state('');
+	let generation = 0;
+	const receipt = $derived(detail?.receipts.find((item) => item.id === selectedReceiptId) ?? detail?.receipts.at(-1));
 	const extraction = $derived(detail?.extractions.findLast((item) => item.receipt_id === receipt?.id));
 
-	async function load() {
-		const claimId = page.params.claimId;
+	async function load(claimId = page.params.claimId) {
 		if (!claimId) return;
+		const request = ++generation;
 		loading = true;
+		detail = null;
+		review = null;
+		action = null;
+		reason = '';
+		submitting = false;
+		selectedReceiptId = '';
 		error = '';
 		decisionError = '';
 		try {
 			const [claimResponse, reviewResponse] = await Promise.all([getClaim(claimId), listReviews()]);
+			if (request !== generation) return;
 			detail = claimResponse;
 			review = reviewResponse.items.find((item) => item.claim.id === claimId) ?? null;
 		} catch (cause) {
-			error = cause instanceof ApiError ? cause.message : 'Detail review tidak dapat dimuat.';
+			if (request === generation) error = cause instanceof ApiError ? cause.message : 'Detail review tidak dapat dimuat.';
 		} finally {
-			loading = false;
+			if (request === generation) loading = false;
 		}
 	}
 
-	onMount(load);
+	$effect(() => {
+		const claimId = page.params.claimId;
+		if (claimId) void load(claimId);
+		return () => { generation++; };
+	});
 
 	async function submitDecision() {
 		if (!review || !action || !reason.trim() || submitting) return;
+		const request = generation;
 		submitting = true;
 		decisionError = '';
 		try {
@@ -50,6 +63,7 @@
 				action,
 				reason: reason.trim()
 			});
+			if (request !== generation) return;
 			review = { ...review, claim: saved.claim, review: saved.review, decision: saved.decision };
 			if (detail) {
 				detail = {
@@ -61,13 +75,14 @@
 			action = null;
 			reason = '';
 		} catch (cause) {
+			if (request !== generation) return;
 			if (cause instanceof ApiError && cause.status === 409) {
 				decisionError = 'Status klaim sudah berubah. Muat ulang untuk melihat keputusan terbaru.';
 			} else {
 				decisionError = cause instanceof ApiError ? cause.message : 'Keputusan tidak dapat disimpan.';
 			}
 		} finally {
-			submitting = false;
+			if (request === generation) submitting = false;
 		}
 	}
 </script>
@@ -79,7 +94,7 @@
 	{#if loading}
 		<p role="status">Memuat detail review...</p>
 	{:else if error}
-		<div class="state error" role="alert"><p>{error}</p><button type="button" onclick={load}>Muat ulang</button></div>
+		<div class="state error" role="alert"><p>{error}</p><button type="button" onclick={() => load()}>Muat ulang</button></div>
 	{:else if detail}
 		<header>
 			<div>
@@ -92,6 +107,12 @@
 
 			<section class="evidence-workbench" aria-label="Nota dan hasil pembacaan">
 				<div class="panel receipt-preview"><h2>Nota yang diperiksa</h2>
+					{#if detail.receipts.length > 1}
+						<label for="review-receipt">Pilih nota yang diperiksa</label>
+						<select id="review-receipt" value={receipt?.id} onchange={(event) => { selectedReceiptId = event.currentTarget.value; }}>
+							{#each detail.receipts as item (item.id)}<option value={item.id}>{item.original_filename}</option>{/each}
+						</select>
+					{/if}
 					{#if receipt}
 						{#if receipt.media_type.startsWith('image/')}<img src={`/api/claims/${detail.claim.id}/receipts/${receipt.id}/content`} alt={`Nota ${receipt.original_filename}`} />
 						{:else if receipt.media_type === 'application/pdf'}<iframe src={`/api/claims/${detail.claim.id}/receipts/${receipt.id}/content`} title="Pratinjau nota PDF"></iframe>{/if}
@@ -130,7 +151,7 @@
 			</div>
 		</section>
 
-		{#if decisionError}<div class="state error" role="alert"><p>{decisionError}</p><button type="button" class="secondary" onclick={load} disabled={submitting}>Muat ulang status</button></div>{/if}
+		{#if decisionError}<div class="state error" role="alert"><p>{decisionError}</p><button type="button" class="secondary" onclick={() => load()} disabled={submitting}>Muat ulang status</button></div>{/if}
 		{#if review?.review.status === 'open'}
 			<section class="panel decision-panel">
 				<h2>Keputusan reviewer</h2>
@@ -142,7 +163,7 @@
 				{:else}
 					<div class="confirm-box">
 						<p>Konfirmasi: <strong>{action === 'approve' ? 'Setujui klaim' : 'Tolak klaim'}</strong></p>
-						<textarea bind:value={reason} aria-label="Alasan keputusan" required disabled={submitting} placeholder="Alasan keputusan wajib diisi berdasarkan bukti klaim..."></textarea>
+						<textarea bind:value={reason} aria-label="Alasan keputusan" required maxlength="2000" disabled={submitting} placeholder="Alasan keputusan wajib diisi berdasarkan bukti klaim..."></textarea>
 						<div class="actions">
 							<button type="button" class={action === 'approve' ? 'approve' : 'reject'} onclick={submitDecision} disabled={submitting || !reason.trim()}>
 								{submitting ? 'Menyimpan...' : `Ya, simpan ${action === 'approve' ? 'persetujuan' : 'penolakan'}`}

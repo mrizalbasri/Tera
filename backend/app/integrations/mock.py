@@ -54,10 +54,20 @@ class MockReceiptExtractor:
                 "Extractor returned malformed output.",
                 502,
             )
-        low_confidence = b"LOW_CONFIDENCE" in content and not (
-            b"RETRY_THEN_SUCCESS" in content and attempt >= 2
+
+        fname = (receipt.original_filename or "").lower()
+        low_confidence = (
+            (
+                b"LOW_CONFIDENCE" in content
+                or "klarifikasi" in fname
+                or "clarification" in fname
+                or "buram" in fname
+                or "ambigu" in fname
+            )
+            and not (b"RETRY_THEN_SUCCESS" in content and attempt >= 2)
         )
         confidence = LOW_CONFIDENCE_SCORE if low_confidence else HIGH_CONFIDENCE_SCORE
+
         category = next(
             (
                 value
@@ -66,24 +76,69 @@ class MockReceiptExtractor:
             ),
             "other",
         )
+        if category == "other":
+            if "fuel" in fname or "bbm" in fname or "spbu" in fname:
+                category = "fuel"
+            elif "meals" in fname or "makan" in fname:
+                category = "meals"
+            elif "hotel" in fname:
+                category = "hotel"
+
         receipt_date = date.today() - timedelta(days=1)
         if b"OLD_DATE" in content:
             receipt_date = date.today() - timedelta(days=20)
         elif b"FUTURE_DATE" in content:
             receipt_date = date.today() + timedelta(days=1)
-        total = declared_amount or Decimal("10000")
+
+        is_spbu = (
+            b"SPBU" in content
+            or "spbu" in fname
+            or ("bbm" in fname and b"generic-store" not in content)
+        )
+
+        is_anomaly = (
+            b"ALCOHOL" in content
+            or "anomali" in fname
+            or "anomaly" in fname
+            or "outlier" in fname
+            or "alkohol" in fname
+            or "alcohol" in fname
+            or "eskalasi" in fname
+        )
+
+        vendor = (
+            "SPBU Pertamina 34.101.01"
+            if is_spbu
+            else "Synthetic Vendor"
+        )
+
+        if is_anomaly:
+            total = declared_amount or Decimal("1250000")
+            if not is_spbu:
+                vendor = "Grand Lounge & VIP Banquet"
+            description = "Synthetic alcohol beer & VIP banquet"
+        elif category == "fuel":
+            total = declared_amount or Decimal("45000")
+            description = "Bensin Pertamax 3.5L"
+        elif category == "meals":
+            total = declared_amount or Decimal("65000")
+            vendor = "Rumah Makan Sederhana"
+            description = "Nasi Padang & Es Teh"
+        elif low_confidence:
+            total = declared_amount or Decimal("55000")
+            vendor = "Warung Makan Berkah"
+            description = "Paket Makan Siang"
+        else:
+            total = declared_amount or Decimal("10000")
+            if b"BUSINESSTRIP" in content:
+                description = "Penginapan perjalanan dinas"
+            else:
+                description = "Synthetic expense"
+
         if b"AMOUNT_MISMATCH" in content:
             total = total + Decimal("50000")
         line_total = total / 2 if b"TOTAL_MISMATCH" in content else total
-        vendor = (
-            "SPBU Pertamina 34.101.01" if b"SPBU" in content else "Synthetic Vendor"
-        )
-        if b"ALCOHOL" in content:
-            description = "Synthetic alcohol beer"
-        elif b"BUSINESSTRIP" in content:
-            description = "Penginapan perjalanan dinas"
-        else:
-            description = "Synthetic expense"
+
         now = datetime.now(UTC)
         return ExtractionResult(
             id=uuid4(),

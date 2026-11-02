@@ -96,6 +96,32 @@
 
 	let isDragging = $state(false);
 
+	async function loadDemoScenario(scenario: 'approved' | 'clarification' | 'escalation') {
+		if (isProcessing || submittingAnswer) return;
+		let sampleUrl = '';
+		let filename = '';
+		if (scenario === 'approved') {
+			sampleUrl = '/samples/nota-bbm.png';
+			filename = 'nota-bbm.png';
+		} else if (scenario === 'clarification') {
+			sampleUrl = '/samples/nota-klarifikasi.png';
+			filename = 'nota-klarifikasi.png';
+		} else {
+			sampleUrl = '/samples/nota-anomali.png';
+			filename = 'nota-anomali.png';
+		}
+
+		try {
+			const res = await fetch(sampleUrl);
+			if (!res.ok) throw new Error('File tidak ditemukan');
+			const blob = await res.blob();
+			const file = new File([blob], filename, { type: 'image/png' });
+			handleFileSelection(file);
+		} catch {
+			showToast('Gagal memuat sampel nota demo.');
+		}
+	}
+
 	function handleFileSelection(file: File) {
 		if (isProcessing || submittingAnswer) return;
 		if (!(ALLOWED_RECEIPT_TYPES as readonly string[]).includes(file.type)) {
@@ -635,6 +661,43 @@
 				</span>
 			</button>
 			<p class="intake-note">Setelah diunggah, kamu bisa meninjau hasil dan melengkapi data yang belum terbaca.</p>
+			<div class="demo-scenarios-panel">
+				<div class="demo-scenarios-header">
+					<span class="demo-tag">PILIHAN SKENARIO DEMO GTNIC</span>
+					<p>Pilih skenario siap uji untuk mendemonstrasikan kecerdasan agen Tera:</p>
+				</div>
+				<div class="scenario-cards-grid">
+					<button
+						type="button"
+						class="scenario-card approved"
+						onclick={() => loadDemoScenario('approved')}
+					>
+						<span class="scenario-badge-pill approved">Skenario 1</span>
+						<strong>Nota BBM (Auto-Approve)</strong>
+						<span class="scenario-desc">SPBU Pertamina · Rp 45.000 · Disetujui otomatis</span>
+					</button>
+
+					<button
+						type="button"
+						class="scenario-card clarify"
+						onclick={() => loadDemoScenario('clarification')}
+					>
+						<span class="scenario-badge-pill clarify">Skenario 2</span>
+						<strong>Nota Buram (Klarifikasi AI)</strong>
+						<span class="scenario-desc">Data ambigu · Agen membuka tanya-jawab</span>
+					</button>
+
+					<button
+						type="button"
+						class="scenario-card escalated"
+						onclick={() => loadDemoScenario('escalation')}
+					>
+						<span class="scenario-badge-pill escalated">Skenario 3</span>
+						<strong>Anomali & Risiko (Reviewer)</strong>
+						<span class="scenario-desc">Nominal outlier Rp 1.250.000 · Skor anomali tinggi</span>
+					</button>
+				</div>
+			</div>
 		</div>
 	{/if}
 
@@ -749,7 +812,22 @@
 				</svg>
 				<span>{selectedFile ? 'Periksa nota' : 'Kirim jawaban'}</span>
 			</button>
-		</form>{:else if !isProcessing}<div class="next-upload"><button type="button" class="secondary" onclick={openFilePicker}>Upload nota lain</button><a href="/dashboard">Kembali ke dashboard</a></div>{/if}
+		</form>{:else if !isProcessing}
+			<div class="next-upload">
+				<div class="next-scenarios">
+					<span class="next-label">Coba skenario demo lain:</span>
+					<div class="next-buttons">
+						<button type="button" class="scenario-mini-btn approved" onclick={() => loadDemoScenario('approved')}>Skenario 1 (Auto-Approve)</button>
+						<button type="button" class="scenario-mini-btn clarify" onclick={() => loadDemoScenario('clarification')}>Skenario 2 (Klarifikasi)</button>
+						<button type="button" class="scenario-mini-btn escalated" onclick={() => loadDemoScenario('escalation')}>Skenario 3 (Eskalasi/Anomali)</button>
+					</div>
+				</div>
+				<div class="next-actions">
+					<button type="button" class="secondary" onclick={openFilePicker}>Upload nota file manual</button>
+					<a href="/dashboard">Kembali ke dashboard</a>
+				</div>
+			</div>
+		{/if}
 	{/if}
 	</div>
 	<aside class="intake-guide" aria-label="Panduan pengajuan">
@@ -1154,4 +1232,115 @@
 	@media (max-width: 1100px) { .intake-layout { grid-template-columns: minmax(0, 1fr) 248px; gap: var(--space-4); } }
 	@media (max-width: 900px) { .intake-layout { grid-template-columns: minmax(0, 1fr); } .intake-guide { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 	@media (max-width: 680px) { .intake-main { padding: var(--space-4); min-height: 0; } .intake-guide { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); } .selection-summary { flex-basis: 100%; order: -1; } .send-btn { margin-left: auto; } .messages { max-height: 55dvh; } .dropzone-text strong { font-size: var(--text-md); } }
+
+	.demo-scenarios-panel {
+		margin-top: var(--space-6);
+		padding: var(--space-5);
+		border-radius: var(--radius-md);
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+	}
+	.demo-scenarios-header {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		margin-bottom: var(--space-4);
+	}
+	.demo-tag {
+		font-size: var(--text-xs);
+		font-weight: 700;
+		color: var(--color-primary);
+		letter-spacing: 0.08em;
+	}
+	.demo-scenarios-header p {
+		font-size: var(--text-sm);
+		color: var(--color-text-muted);
+		margin: 0;
+	}
+	.scenario-cards-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: var(--space-3);
+	}
+	.scenario-card {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: var(--space-1);
+		padding: var(--space-4);
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--color-border);
+		background: var(--color-paper);
+		cursor: pointer;
+		text-align: left;
+		transition: border-color var(--dur-short), transform var(--dur-short), box-shadow var(--dur-short);
+		min-height: 44px;
+	}
+	.scenario-card:hover {
+		border-color: var(--color-primary);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+	}
+	.scenario-badge-pill {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		padding: 2px 8px;
+		border-radius: var(--radius-pill);
+	}
+	.scenario-badge-pill.approved { background: rgba(16, 185, 129, 0.15); color: #047857; }
+	.scenario-badge-pill.clarify { background: rgba(245, 158, 11, 0.15); color: #b45309; }
+	.scenario-badge-pill.escalated { background: rgba(239, 68, 68, 0.15); color: #b91c1c; }
+	.scenario-card strong {
+		font-size: var(--text-sm);
+		color: var(--color-text);
+		margin-top: var(--space-1);
+	}
+	.scenario-desc {
+		font-size: var(--text-xs);
+		color: var(--color-text-muted);
+		line-height: 1.4;
+	}
+	.next-scenarios {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		margin-bottom: var(--space-4);
+		align-items: center;
+	}
+	.next-label {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		color: var(--color-text-muted);
+	}
+	.next-buttons {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		justify-content: center;
+	}
+	.scenario-mini-btn {
+		font-size: var(--text-xs);
+		font-weight: 600;
+		padding: var(--space-2) var(--space-3);
+		border-radius: var(--radius-pill);
+		border: 1px solid var(--color-border);
+		background: var(--color-surface);
+		color: var(--color-text);
+		cursor: pointer;
+		min-height: 36px;
+		transition: background var(--dur-short), border-color var(--dur-short);
+	}
+	.scenario-mini-btn:hover {
+		border-color: var(--color-primary);
+		background: var(--color-soft);
+	}
+	.scenario-mini-btn.approved { border-left: 3px solid #10b981; }
+	.scenario-mini-btn.clarify { border-left: 3px solid #f59e0b; }
+	.scenario-mini-btn.escalated { border-left: 3px solid #ef4444; }
+	.next-actions {
+		display: flex;
+		gap: var(--space-3);
+		align-items: center;
+		justify-content: center;
+	}
 </style>

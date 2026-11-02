@@ -211,7 +211,7 @@ export interface ValidationFinding extends Finding {
 export interface PolicyEvaluation extends Finding {
 	claim_id?: string;
 	policy_id?: string;
-	policy_version?: number;
+	policy_version?: number | null;
 	rule_type?: string;
 	clarifiable?: boolean;
 	actual_value?: unknown;

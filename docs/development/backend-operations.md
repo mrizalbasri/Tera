@@ -9,6 +9,10 @@ Untuk production, isi `ENVIRONMENT=production`, `STORAGE_BACKEND=sql`, URL
 PostgreSQL dengan kredensial sendiri, `PROVIDER_MODE=live`, API key provider,
 origin frontend HTTPS, issuer Clerk HTTPS, dan ID admin. Mock, memory, SQLite,
 fallback mock, demo, serta kredensial contoh ditolak sebelum aplikasi berjalan.
+Nilai `REPLACE_WITH_*`, `your-*`, model kosong dan domain `example.com/org/net`
+juga ditolak. Setiap ID pada `CLERK_ADMIN_USER_IDS` harus berbentuk `user_...`
+dari Clerk, bukan email atau nama pengguna. Mengisi file contoh tanpa mengganti
+placeholder tidak menghasilkan konfigurasi production yang dapat dijalankan.
 
 Sebelum menjalankan versi baru:
 
@@ -24,6 +28,9 @@ V3 memperbaiki kolom `insertion_order` yang belum ada pada database legacy
 yang sudah tercatat v1/v2. PostgreSQL memakai identity untuk mengisi baris lama
 dan menghasilkan urutan untuk insert berikutnya. Definisi migrasi
 dibekukan, bukan mengikuti model terbaru. Migrasi bersifat aditif dan bisa diulang.
+V4 menambahkan `operational_records` untuk inbox notifikasi dan versi kebijakan.
+Import kebijakan awal dilakukan secara eksplisit oleh admin melalui halaman Kebijakan;
+import ulang idempotent dan tidak mengganti versi custom yang sudah berlaku.
 Proses production memeriksa versi tanpa menjalankan DDL. Development/test tetap
 memigrasikan otomatis. Buat migrasi baru untuk perubahan skema berikutnya.
 
@@ -117,9 +124,10 @@ traffic tidak terautentikasi; counter aplikasi berjalan setelah autentikasi.
 Identitas member selalu membatasi hasil ke klaim miliknya.
 
 Klien perlu mengambil halaman berikutnya sampai `offset + items.length >= total`.
-Frontend saat ini kompatibel dengan respons tambahan, tetapi tampilan yang hanya
-mengambil satu halaman akan menampilkan paling banyak 100 hasil. Pagination UI
-merupakan pekerjaan frontend terpisah.
+Klien daftar klaim dan review saat ini mengambil halaman berurutan hingga total
+terpenuhi. Perubahan total, baris duplikat atau halaman kosong sebelum total
+terpenuhi menghasilkan pesan untuk memuat ulang, bukan daftar parsial diam-diam.
+Antrean review juga memeriksa snapshot dari backend.
 
 Laporan membaca klaim serta keputusan/run/sinyal dalam batch 200, bukan query per
 klaim. CSV menghasilkan chunk per batch dan menetralkan awalan formula pada
@@ -141,6 +149,12 @@ Tidak ada penghapusan otomatis klaim/nota/audit/checkpoint karena masa retensi
 belum ditentukan. `workflow_steps` harus tetap ada selama checkpoint/run masih
 bisa direplay. Menentukan retensi dan penyimpanan backup adalah konfigurasi
 operasional organisasi, bukan default yang menghapus data diam-diam.
+
+Panduan container, verifikasi live sintetis, dump/restore disposable, dan UAT:
+[Pengoperasian paket agent](agent-deployment.md). Worker SQL juga merekonsiliasi
+notifikasi tindakan dan pengingat setelah 24 jam, maksimal satu per penerima,
+per peristiwa klaim, per tanggal UTC. Pembacaan notifikasi tidak memproses ulang
+klaim; klaim yang sedang dikunci dilewati sementara.
 
 ## Pengujian
 

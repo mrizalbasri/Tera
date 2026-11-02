@@ -5,7 +5,7 @@ Failures are structured findings, never exceptions, so the decision engine
 """
 
 from datetime import date, UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, DecimalException
 from uuid import UUID
 
 from app.config import Settings
@@ -71,25 +71,59 @@ class ValidationService:
             )
 
         total = _as_decimal(extraction.total.value)
+        complete_items = bool(extraction.line_items) and extraction.line_items_complete and not extraction.line_items_derived
+        add("line_items_complete", complete_items,
+            "Purchased-item evidence must be complete before automatic approval.",
+            severity=Severity.BLOCKING, reason_code="line_items_incomplete")
+        if total is None and extraction.total.value is not None:
+            add("total_positive_finite", False, "Total must be a finite positive amount.",
+                severity=Severity.BLOCKING, reason_code="invalid_total")
         if total is not None:
-            if extraction.line_items:
+            add("total_positive_finite", total.is_finite() and total > 0,
+                "Total must be a finite positive amount.", severity=Severity.BLOCKING,
+                reason_code="invalid_total")
+            add("total_unambiguous", not extraction.total_ambiguous,
+                "Final payable total must be distinguishable from subtotal and other amounts.",
+                severity=Severity.BLOCKING, reason_code="total_ambiguous")
+            if extraction.subtotal is not None and total.is_finite():
+                expected_total = extraction.subtotal + (extraction.tax or Decimal(0)) - (extraction.discount or Decimal(0))
+                add("total_matches_breakdown", abs(total - expected_total) <= LINE_ITEM_TOLERANCE,
+                    "Total must match the independently observed subtotal, tax and discount.",
+                    severity=Severity.BLOCKING, actual=str(total), expected=str(expected_total),
+                    reason_code="total_breakdown_mismatch")
+            if extraction.line_items and not extraction.line_items_derived and total.is_finite():
                 line_sum = sum(
                     (item.total for item in extraction.line_items), Decimal("0")
                 )
-                matches = abs(line_sum - total) <= LINE_ITEM_TOLERANCE
+                item_total = (extraction.subtotal if extraction.subtotal is not None else
+                              total - (extraction.tax or Decimal(0)) + (extraction.discount or Decimal(0)))
+                matches = abs(line_sum - item_total) <= LINE_ITEM_TOLERANCE
                 add(
                     "total_matches_line_items",
                     matches,
-                    f"Total {total} matches the line item sum {line_sum}."
+                    f"Item amount {item_total} matches the line item sum {line_sum}."
                     if matches
-                    else f"Total {total} does not match the line item sum {line_sum}.",
+                    else f"Item amount {item_total} does not match the line item sum {line_sum}.",
                     severity=Severity.BLOCKING,
                     actual=line_sum,
-                    expected=str(total),
+                    expected=str(item_total),
                     reason_code="total_line_item_mismatch",
                 )
 
         receipt_date = extraction.receipt_date.value
+        if isinstance(receipt_date, datetime):
+            receipt_date = receipt_date.date()
+        if isinstance(receipt_date, str):
+            try:
+                receipt_date = date.fromisoformat(receipt_date)
+            except ValueError:
+                add("receipt_date_valid", False, "Receipt date must be a valid ISO date.",
+                    severity=Severity.BLOCKING, reason_code="invalid_receipt_date")
+                receipt_date = None
+        if receipt_date is not None and not isinstance(receipt_date, date):
+            add("receipt_date_valid", False, "Receipt date must be a valid ISO date.",
+                severity=Severity.BLOCKING, reason_code="invalid_receipt_date")
+            receipt_date = None
         if isinstance(receipt_date, date):
             today = datetime.now(UTC).date()
             not_future = receipt_date <= today
@@ -165,4 +199,7 @@ class ValidationService:
 def _as_decimal(value: object) -> Decimal | None:
     if value is None:
         return None
-    return value if isinstance(value, Decimal) else Decimal(str(value))
+    try:
+        return value if isinstance(value, Decimal) else Decimal(str(value))
+    except (DecimalException, ValueError):
+        return None

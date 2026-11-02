@@ -9,7 +9,7 @@ token mapping lives in-process only and never enters audit payloads or logs.
 import hashlib
 import hmac
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # Indonesian and general phone formats: +62..., 08xx, with separators.

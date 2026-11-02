@@ -16,6 +16,7 @@ dist/
 .env
 .env.*
 !.env.example
+docker/backend.production.env
 *.pem
 *.key
 credentials.json
@@ -59,3 +60,7 @@ coverage/
 .zcodeignore
 .hallmark/
 .omo/
+
+# Local agent configuration and caches
+/.codex/
+/.impeccable/

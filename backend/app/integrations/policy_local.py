@@ -10,7 +10,6 @@ from uuid import UUID
 
 from app.domain.enums import Severity
 from app.errors import ApplicationError, ErrorCode
-from app.repositories.protocols import PolicyEvaluator, PolicyRetriever
 from app.schemas.core import (
     Claim,
     ExtractionResult,
@@ -224,7 +223,7 @@ class LocalPolicyEvaluator:
                             None if matched else "business_trip_evidence_required"
                         ),
                         explanation=(
-                            f"Business-trip evidence was found on the receipt."
+                            "Business-trip evidence was found on the receipt."
                             if matched
                             else (
                                 f"No business-trip evidence found; the receipt "
@@ -322,6 +321,7 @@ class LocalPolicyEvaluator:
             processing_run_id=processing_run_id,
             policy_id=policy.policy_id,
             policy_version=policy.version,
+            policy_snapshot=policy.model_dump(mode="json"),
             rule_id=rule_id,
             rule_type=rule_type,
             passed=passed,

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from '$lib/components/Icon.svelte';
 	import { onMount } from 'svelte';
 	import Toast from '$lib/components/Toast.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -12,7 +13,8 @@
 	import type { Claim } from '$lib/types/claim';
 
 	let { data } = $props();
-	const employeeId = $derived(data.demoMode ? CURRENT_EMPLOYEE_ID : data.user?.username);
+	const employeeId = $derived(data.financeWorkspace ? undefined : data.demoMode ? CURRENT_EMPLOYEE_ID : data.user?.username);
+	const historyPath = $derived(data.financeWorkspace ? '/admin/claims' : '/riwayat');
 	let claims = $state<Claim[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
@@ -50,6 +52,7 @@
 		claims.filter((c) => {
 			const q = searchQuery.trim().toLowerCase();
 			const matchesSearch = !q || (
+				(data.financeWorkspace && c.employee_id.toLowerCase().includes(q)) ||
 				shortClaimRef(c.id).toLowerCase().includes(q) ||
 				String(c.declared_amount || '').includes(q)
 			);
@@ -84,7 +87,7 @@
 </script>
 
 <svelte:head>
-	<title>Riwayat | Tera Expense Agent</title>
+	<title>{data.financeWorkspace ? 'Semua klaim' : 'Klaim saya'} · Tera</title>
 	<meta name="description" content="Lihat riwayat pengajuan klaim nota kamu di Tera." />
 </svelte:head>
 
@@ -92,10 +95,10 @@
 	<Toast />
 	<div class="page-header">
 		<div>
-			<h1>Riwayat klaim</h1>
-			<p>Nota yang sudah diajukan, lengkap dengan status dan tindak lanjutnya.</p>
+			<h1>{data.financeWorkspace ? 'Semua klaim' : 'Klaim saya'}</h1>
+			<p>{data.financeWorkspace ? 'Telusuri hasil otomatis dan keputusan reviewer dari seluruh karyawan.' : 'Pantau nota yang kamu ajukan dan lengkapi informasi yang diminta Tera.'}</p>
 		</div>
-		{#if data.admin}<div class="header-actions">
+		{#if data.financeWorkspace}<div class="header-actions">
 			<button class="export-btn" id="btn-export-csv" onclick={exportToCSV}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -109,7 +112,7 @@
 
 	{#if loading}
 		<div class="state-panel" role="status">
-			<span class="spin" aria-hidden="true">⟳</span> Memuat riwayat klaim...
+			<span class="spin"><Icon name="refresh" /></span> Memuat riwayat klaim...
 		</div>
 	{:else if loadError}
 		<div class="state-panel error" role="alert">
@@ -127,8 +130,8 @@
 				</svg>
 			</div>
 			<h3>Belum ada riwayat klaim</h3>
-			<p>Nota pertamamu akan memulai riwayat ini. Kirim foto atau PDF nota untuk mengajukan pengeluaran kerja.</p>
-			<a href="/pengajuan" class="primary-btn">Ajukan klaim</a>
+			<p>{data.financeWorkspace ? 'Belum ada pengajuan karyawan. Klaim akan tercatat di sini setelah nota dikirim.' : 'Nota pertamamu akan memulai riwayat ini. Kirim foto atau PDF nota untuk mengajukan pengeluaran kerja.'}</p>
+			<a href={data.financeWorkspace ? '/reviews' : '/pengajuan'} class="primary-btn"><Icon name={data.financeWorkspace ? 'review' : 'plus'} size={18} />{data.financeWorkspace ? 'Buka antrean review' : 'Ajukan klaim'}</a>
 		</div>
 	{:else}
 		<div class="summary-grid">
@@ -147,7 +150,7 @@
 				</span>
 				<div>
 					<strong>{waiting.length}</strong>
-					<span>Sedang proses / klarifikasi</span>
+					<span>Menunggu tindak lanjut</span>
 				</div>
 			</div>
 			<div class="summary-card">
@@ -172,11 +175,12 @@
 
 		<div class="table-card">
 			<div class="table-toolbar">
-				<div class="filter-tabs" role="tablist" aria-label="Filter status klaim">
+				<div class="filter-tabs" role="group" aria-label="Filter status klaim">
 					<button
 						type="button"
 						class="filter-tab"
 						class:active={statusFilter === 'all'}
+						aria-pressed={statusFilter === 'all'}
 						onclick={() => (statusFilter = 'all')}
 					>
 						Semua ({claims.length})
@@ -185,6 +189,7 @@
 						type="button"
 						class="filter-tab"
 						class:active={statusFilter === 'approved'}
+						aria-pressed={statusFilter === 'approved'}
 						onclick={() => (statusFilter = 'approved')}
 					>
 						Disetujui ({approved.length})
@@ -193,14 +198,16 @@
 						type="button"
 						class="filter-tab"
 						class:active={statusFilter === 'waiting'}
+						aria-pressed={statusFilter === 'waiting'}
 						onclick={() => (statusFilter = 'waiting')}
 					>
-						Sedang Proses ({waiting.length})
+						Menunggu ({waiting.length})
 					</button>
 					<button
 						type="button"
 						class="filter-tab"
 						class:active={statusFilter === 'rejected'}
+						aria-pressed={statusFilter === 'rejected'}
 						onclick={() => (statusFilter = 'rejected')}
 					>
 						Ditolak ({rejected.length})
@@ -212,7 +219,7 @@
 					</svg>
 					<input
 						type="search"
-						placeholder="Cari ID klaim atau nominal..."
+						placeholder={data.financeWorkspace ? 'Cari klaim, karyawan, atau nominal...' : 'Cari ID klaim atau nominal...'}
 						bind:value={searchQuery}
 						aria-label="Cari klaim"
 					/>
@@ -239,11 +246,11 @@
 						{:else}
 							{#each filteredClaims as claim (claim.id)}
 								<tr>
-									<td class="claim-id-cell">{shortClaimRef(claim.id)}</td>
+									<td class="claim-id-cell">{shortClaimRef(claim.id)}{#if data.financeWorkspace}<small class="claim-owner">{claim.employee_id}</small>{/if}</td>
 									<td>{formatDate(claim.submitted_at)}</td>
 									<td>{formatCurrency(claim.declared_amount, claim.currency)}</td>
 									<td><StatusBadge status={claim.status} size="sm" /></td>
-									<td><a href="/riwayat/{claim.id}" class="detail-link">Lihat klaim</a></td>
+									<td><a href="{historyPath}/{claim.id}" class="detail-link">Lihat klaim</a></td>
 								</tr>
 							{/each}
 						{/if}
@@ -255,6 +262,7 @@
 </section>
 
 <style>
+	.claim-owner { display: block; margin-top: var(--space-2); color: var(--color-text-muted); font-weight: 400; overflow-wrap: anywhere; }
 	.riwayat-page {
 		display: flex;
 		flex-direction: column;

@@ -19,6 +19,7 @@
 	import type { Claim, ClaimDetailResponse, Clarification, TimelineEntry } from '$lib/types/claim';
 
 	let id = $derived(page.params.id);
+	const historyPath = $derived(page.data.financeWorkspace ? '/admin/claims' : '/riwayat');
 
 	let detail = $state<ClaimDetailResponse | null>(null);
 	let clarifications = $state<Clarification[]>([]);
@@ -103,12 +104,12 @@
 <section class="detail-page">
 	<div class="page-header">
 		<div class="back-link">
-			<a href="/riwayat">
+			<a href={historyPath}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<line x1="19" y1="12" x2="5" y2="12"/>
 					<polyline points="12 19 5 12 12 5"/>
 				</svg>
-				Kembali ke Riwayat
+				{page.data.financeWorkspace ? 'Kembali ke semua klaim' : 'Kembali ke klaim saya'}
 			</a>
 		</div>
 		<div>
@@ -124,8 +125,8 @@
 		<div class="state-panel" role="status">
 			<span class="notfound-glyph" aria-hidden="true">🔍</span>
 			<h3>Klaim tidak ditemukan</h3>
-			<p>Klaim dengan referensi "{id}" tidak ada atau bukan milikmu. Periksa kembali tautan, atau buka dari halaman riwayat.</p>
-			<a href="/riwayat" class="primary-btn">Lihat Riwayat Klaim</a>
+			<p>Klaim dengan referensi "{id}" tidak ditemukan atau tidak dapat diakses oleh akun ini. Buka kembali dari daftar klaim.</p>
+			<a href={historyPath} class="primary-btn">Kembali ke daftar klaim</a>
 		</div>
 	{:else if loadError}
 		<div class="state-panel error" role="alert">
@@ -446,7 +447,7 @@
 									{:else if item.status === 'open'}
 										<div class="clarification-entry pending-entry">
 											<span class="entry-author">Menunggu jawaban</span>
-											<a href={`/claims/${claim.id}/clarification`}>Jawab klarifikasi</a>
+											{#if !page.data.financeWorkspace}<a href={`/claims/${claim.id}/clarification`}>Jawab klarifikasi</a>{:else}<span>Menunggu jawaban karyawan</span>{/if}
 										</div>
 									{/if}
 								</li>
@@ -464,7 +465,7 @@
 						<ul class="history-list">
 							{#each employeeHistory as item (item.id)}
 								<li class="history-item">
-									<a href={`/riwayat/${item.id}`}>{shortClaimRef(item.id)}</a>
+									<a href={`${historyPath}/${item.id}`}>{shortClaimRef(item.id)}</a>
 									<span>{formatDateTime(item.submitted_at)}</span>
 									<StatusBadge status={item.status} size="sm" />
 								</li>

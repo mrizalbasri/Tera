@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlparse
@@ -6,11 +7,22 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _is_placeholder(value: str) -> bool:
+    normalized = value.strip().casefold()
+    return (
+        not normalized
+        or normalized in {"change_me", "changeme", "your-api-key"}
+        or normalized.startswith(("replace_with", "your-", "your_", "<"))
+    )
+
+
 class Settings(BaseSettings):
     app_name: str = "Expense Agent API"
     environment: Literal["development", "test", "production"] = "development"
     demo_mode: bool = False
     frontend_origin: str = "http://localhost:5173"
+    secret_key: str = "tera-secret-key-change-in-production"
+    admin_users: str = "admin,reviewer,finance,admin@tera.id,reviewer@tera.id,finance@tera.id"
     clerk_issuer: str = ""
     clerk_admin_user_ids: str = ""
     storage_backend: Literal["memory", "sql"] = "memory"
@@ -42,6 +54,7 @@ class Settings(BaseSettings):
     auto_approve_min_confidence: float = Field(default=0.8, ge=0, le=1)
     escalation_amount_threshold: int = Field(default=500_000, gt=0)
     max_processing_retries: int = Field(default=2, ge=0, le=5)
+    max_clarification_rounds: int = Field(default=3, ge=1, le=10)
     extraction_confidence_threshold: float = Field(default=0.8, gt=0, le=1)
     max_claim_age_days: int = Field(default=14, ge=1)
     anomaly_escalation_threshold: float = Field(default=0.7, gt=0, le=1)
@@ -76,18 +89,29 @@ class Settings(BaseSettings):
             if self.storage_backend != "sql" or make_url(self.database_url).get_backend_name() != "postgresql":
                 raise ValueError("production requires PostgreSQL storage")
             url = make_url(self.database_url)
-            if not url.password or url.password in ("change_me", "postgres", "password"):
+            if _is_placeholder(url.password or "") or (url.password or "").strip().casefold() in ("postgres", "password"):
                 raise ValueError("production requires non-placeholder database credentials")
-            if self.provider_mode != "live" or self.llm_api_key.strip() in ("", "your-api-key", "change_me") or self.provider_fallback != "none":
+            if self.provider_mode != "live" or _is_placeholder(self.llm_api_key) or self.provider_fallback != "none":
                 raise ValueError("production requires live provider credentials and no mock fallback")
-            for name in ("frontend_origin", "clerk_issuer", "llm_base_url"):
+            if _is_placeholder(self.llm_model):
+                raise ValueError("production requires a configured provider model")
+            if _is_placeholder(self.secret_key) or self.secret_key.strip().casefold() in ("secret", "password"):
+                raise ValueError("production requires non-placeholder secret_key")
+            for name in ("frontend_origin", "llm_base_url"):
                 value = urlparse(getattr(self, name))
                 if value.scheme != "https" or not value.hostname or value.username or value.password:
                     raise ValueError(f"production requires a valid HTTPS {name}")
-                if name in ("frontend_origin", "clerk_issuer") and (value.path not in ("", "/") or value.query or value.fragment):
+                hostname = value.hostname.casefold()
+                if _is_placeholder(hostname) or any(
+                    hostname == domain or hostname.endswith(f".{domain}")
+                    for domain in ("example.com", "example.org", "example.net")
+                ):
+                    raise ValueError(f"production requires a non-placeholder {name}")
+                if name == "frontend_origin" and (value.path not in ("", "/") or value.query or value.fragment):
                     raise ValueError(f"{name} must be an origin without a path, query, or fragment")
-            if "your-instance" in self.clerk_issuer or not any(value.strip() for value in self.clerk_admin_user_ids.split(",")):
-                raise ValueError("production requires configured Clerk issuer and admin IDs")
+            admin_ids = [value.strip() for value in (self.admin_users + (f",{self.clerk_admin_user_ids}" if self.clerk_admin_user_ids else "")).split(",") if value.strip()]
+            if not admin_ids or any(_is_placeholder(val) for val in admin_ids):
+                raise ValueError("production requires configured admin users")
         return self
 
 

@@ -1,4 +1,4 @@
-import { authFetch } from '$lib/clerk';
+import { authFetch } from '$lib/auth';
 
 // All browser requests use the same-origin SvelteKit proxy. BACKEND_URL is server-only.
 const BASE_URL = '/api';
@@ -24,6 +24,10 @@ export class ApiError extends Error {
 }
 
 const USER_MESSAGES: Record<string, string> = {
+    record_changed: 'Data sudah berubah. Muat ulang sebelum menyimpan kembali.',
+    policy_dates_overlap: 'Tanggal berlaku bertumpang tindih dengan kebijakan terbit. Periksa tanggal versi yang ada.',
+    policy_immutable: 'Versi terbit tidak dapat diedit. Salin sebagai draft baru untuk membuat perubahan.',
+    invalid_policy: 'Aturan atau kategori kebijakan belum valid. Periksa isian draft.',
 	authentication_required: 'Sesi berakhir. Silakan login kembali.',
 	admin_access_required: 'Akun ini belum memiliki akses admin.',
 	auth_unavailable: 'Sesi login belum dapat diperiksa. Coba lagi nanti.',

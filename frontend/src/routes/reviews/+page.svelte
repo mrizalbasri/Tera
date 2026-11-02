@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import Icon from '$lib/components/Icon.svelte';
 	import { page } from '$app/state';
 	import Toast from '$lib/components/Toast.svelte';
 	import { modalFocus } from '$lib/actions/modalFocus';
@@ -12,13 +13,14 @@
 	import { formatCurrency, formatConfidence } from '$lib/formatters/currency';
 	import { describeReasonCodes } from '$lib/formatters/reasonCodes';
 	import { downloadReport } from '$lib/api/reports';
+	import AnomalyBadge from '$lib/components/AnomalyBadge.svelte';
 	import type { ReviewQueueItem, Signal } from '$lib/types/claim';
 
 	let queue = $state<ReviewQueueItem[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let searchQuery = $state('');
-	let riskFilter = $state<'all' | 'high' | 'normal'>('all');
+	let riskFilter = $state<'all' | 'high' | 'normal' | 'anomaly'>('all');
 	let ageFilter = $state<'all' | 'old'>('all');
 
 	// FR-10: keputusan reviewer selalu lewat konfirmasi + alasan eksplisit
@@ -31,9 +33,21 @@
 	// Bukti signal (duplikat/anomali) yang sedang dilihat reviewer
 	let activeSignals = $state<ReviewQueueItem | null>(null);
 
+	function getAnomalySignal(item: ReviewQueueItem): Signal | null {
+		return item.signals.find((s) => s.signal_type === 'anomaly') ?? null;
+	}
+
+	function isHighAnomaly(item: ReviewQueueItem): boolean {
+		const decScore = item.decision?.anomaly_score != null ? Number(item.decision.anomaly_score) : null;
+		const sig = getAnomalySignal(item);
+		const sigScore = sig?.score != null ? Number(sig.score) : null;
+		return (decScore != null && decScore >= 0.7) || (sigScore != null && sigScore >= 0.7) || sig?.severity === 'warning' || sig?.severity === 'blocking';
+	}
+
 	let pendingCount = $derived(queue.filter((item) => item.review.status === 'open').length);
 	let highRiskCount = $derived(queue.filter((item) => item.signals.some((signal) => signal.severity === 'blocking' || signal.severity === 'warning')).length);
-	let olderCount = $derived(queue.filter((item) => Date.now() - new Date(item.claim.submitted_at).getTime() >= 3 * 86_400_000).length);
+	let mlAnomalyCount = $derived(queue.filter(isHighAnomaly).length);
+	let olderCount = $derived(queue.filter((item) => Date.now() - new Date(item.review.created_at).getTime() >= 3 * 86_400_000).length);
 	let filteredQueue = $derived(
 		queue.filter((item) => {
 			const q = searchQuery.trim().toLowerCase();
@@ -42,8 +56,12 @@
 				item.claim.employee_id.toLowerCase().includes(q)
 			);
 			const hasHighRisk = item.signals.some((signal) => signal.severity === 'blocking' || signal.severity === 'warning');
-			const matchesRisk = riskFilter === 'all' || (riskFilter === 'high' ? hasHighRisk : !hasHighRisk);
-			const ageDays = Math.floor((Date.now() - new Date(item.claim.submitted_at).getTime()) / 86_400_000);
+			const matchesRisk = riskFilter === 'all' || (
+				riskFilter === 'high' ? hasHighRisk :
+				riskFilter === 'anomaly' ? isHighAnomaly(item) :
+				!hasHighRisk
+			);
+			const ageDays = Math.floor((Date.now() - new Date(item.review.created_at).getTime()) / 86_400_000);
 			const matchesAge = ageFilter === 'all' || ageDays >= 3;
 			return matchesSearch && matchesRisk && matchesAge;
 		})
@@ -54,7 +72,7 @@
 		loadError = null;
 		try {
 			const response = await listReviews();
-			queue = response.items;
+			queue = response.items.filter((item) => item.review.status === 'open').sort((a, b) => a.review.created_at.localeCompare(b.review.created_at));
 		} catch (error) {
 			loadError = error instanceof ApiError ? error.message : 'Terjadi kesalahan tak terduga.';
 		} finally {
@@ -117,8 +135,8 @@
 	}
 
 	async function exportToCSV() {
-		if (loading || queue.length === 0) {
-			showToast('Tidak ada data untuk diekspor.', 'error');
+		if (loading) {
+			showToast('Tunggu sampai antrean selesai dimuat.', 'error');
 			return;
 		}
 		try {
@@ -126,7 +144,7 @@
 			const url = URL.createObjectURL(blob);
 			const link = document.createElement('a');
 			link.href = url;
-			link.download = `antrean-review-${new Date().toISOString().slice(0, 10)}.csv`;
+			link.download = `seluruh-klaim-${new Date().toISOString().slice(0, 10)}.csv`;
 			link.click();
 			setTimeout(() => URL.revokeObjectURL(url), 1000);
 			showToast('Laporan CSV berhasil diunduh.', 'success');
@@ -145,33 +163,39 @@
 <main>
 	<header class="header">
 		<div>
-			<a href="/" class="back-link">← Kembali ke Beranda</a>
-			<h1>Review klaim</h1>
+			<h1>Antrean review</h1>
 			<p class="subtitle">
-				Tinjau nota operasional yang membutuhkan persetujuan manual (nominal di atas limit, skor anomali, atau nota kurang jelas).
+				Tangani kasus yang diteruskan Tera. Klaim yang selesai otomatis tetap tercatat di Semua klaim. Antrean diurutkan dari review terlama.
 			</p>
 		</div>
 		<div class="header-actions">
-			<button class="btn-secondary" onclick={exportToCSV}>
-				Unduh CSV
+			<button class="btn-secondary" onclick={exportToCSV} disabled={loading}>
+				<Icon name="chart" size={18} />
+				Ekspor seluruh klaim
 			</button>
 		</div>
 	</header>
+	<div class="review-context"><strong>Keputusan berdasarkan bukti</strong><span>Periksa nota, hasil pembacaan, dan alasan eskalasi sebelum memutuskan. Persetujuan klaim belum berarti pembayaran.</span><a href="/admin/claims">Telusuri semua klaim</a></div>
 
 	<!-- Ringkasan Cepat -->
 	<section class="stats-grid">
 		<div class="stat-card urgent">
-			<span class="stat-label">Perlu Review Manual</span>
+			<span class="stat-label"><span class="stat-symbol"><Icon name="review" /></span>Perlu review manual</span>
 			<span class="stat-value">{loading || loadError ? '...' : pendingCount}</span>
 			<span class="stat-hint">{loading ? 'Memuat antrean...' : loadError ? 'Data belum tersedia' : pendingCount > 0 ? 'Menunggu keputusan reviewer' : 'Tidak ada klaim menunggu review'}</span>
 		</div>
 		<div class="stat-card">
-			<span class="stat-label">Risiko tinggi</span>
+			<span class="stat-label"><span class="stat-symbol warning"><Icon name="alert" /></span>Risiko tinggi</span>
 			<span class="stat-value">{loading || loadError ? '...' : highRiskCount}</span>
 			<span class="stat-hint">Memiliki temuan peringatan atau pemblokiran</span>
 		</div>
+		<div class="stat-card" class:urgent={mlAnomalyCount > 0}>
+			<span class="stat-label"><span class="stat-symbol warning"><Icon name="alert" /></span>Anomali ML tinggi</span>
+			<span class="stat-value">{loading || loadError ? '...' : mlAnomalyCount}</span>
+			<span class="stat-hint">{mlAnomalyCount > 0 ? 'Deteksi model Isolation Forest ≥ 70%' : 'Tidak ada klaim anomali tinggi'}</span>
+		</div>
 		<div class="stat-card">
-			<span class="stat-label">Menunggu ≥ 3 hari</span>
+			<span class="stat-label"><span class="stat-symbol waiting"><Icon name="clock" /></span>Menunggu ≥ 3 hari</span>
 			<span class="stat-value">{loading || loadError ? '...' : olderCount}</span>
 			<span class="stat-hint">Klaim terbuka yang perlu segera ditinjau</span>
 		</div>
@@ -179,12 +203,13 @@
 
 	<!-- Filter & Search Bar -->
 	<div class="toolbar">
-		<div class="search-box">
+		<div class="search-box"><Icon name="search" size={18} />
 			<input type="text" aria-label="Cari klaim" placeholder="Cari ID klaim atau karyawan..." bind:value={searchQuery} />
 		</div>
 		<select aria-label="Filter risiko" bind:value={riskFilter}>
 			<option value="all">Semua risiko</option>
 			<option value="high">Risiko tinggi</option>
+			<option value="anomaly">Anomali ML tinggi (≥ 70%)</option>
 			<option value="normal">Risiko normal</option>
 		</select>
 		<select aria-label="Filter usia klaim" bind:value={ageFilter}>
@@ -202,7 +227,7 @@
 
 		{#if loading}
 			<div class="queue-state" role="status">
-				<span class="spin" aria-hidden="true">⟳</span> Memuat antrean review...
+				<span class="spin"><Icon name="refresh" /></span> Memuat antrean review...
 			</div>
 		{:else if loadError}
 			<div class="queue-state error" role="alert">
@@ -211,6 +236,8 @@
 			</div>
 		{:else if filteredQueue.length === 0}
 			<div class="empty-state">
+				<span class="empty-symbol"><Icon name={queue.length === 0 ? 'check' : 'search'} size={28} /></span>
+				<h3>{queue.length === 0 ? 'Antrean sudah beres' : 'Klaim tidak ditemukan'}</h3>
 				<p>{queue.length === 0 ? 'Belum ada klaim yang membutuhkan review. Klaim yang diteruskan Tera akan muncul di sini.' : 'Tidak ada klaim yang cocok. Coba ubah pencarian atau filter.'}</p>
 			</div>
 		{:else}
@@ -220,6 +247,7 @@
 						<th>ID & Karyawan</th>
 						<th>Diajukan</th>
 						<th>Nominal</th>
+						<th>Skor Anomali</th>
 						<th>Alasan Eskalasi AI</th>
 						<th>Status</th>
 						<th>Aksi</th>
@@ -235,10 +263,17 @@
 							<td>{formatDateTime(item.claim.submitted_at)}</td>
 							<td class="amount">{formatCurrency(item.claim.declared_amount, item.claim.currency)}</td>
 							<td>
+								{#if item.decision?.anomaly_score != null || getAnomalySignal(item)}
+									<AnomalyBadge score={item.decision?.anomaly_score} signal={getAnomalySignal(item)} size="sm" />
+								{:else}
+									<span class="text-muted" style="font-size: 12px; color: var(--color-text-muted);">-</span>
+								{/if}
+							</td>
+							<td>
 								<span class="badge {item.decision?.outcome === 'rejected' ? 'danger' : 'warning'}">{primaryReason(item)}</span>
 								<p class="ai-reason">{item.decision?.explanation ?? 'Agent meneruskan klaim ini ke reviewer manusia.'}</p>
 								<button class="btn-inspect" onclick={() => (activeSignals = item)}>
-									Lihat bukti pemeriksaan
+									<Icon name="eye" size={18} />Lihat bukti pemeriksaan
 								</button>
 							</td>
 							<td>
@@ -248,11 +283,11 @@
 								</div>
 							</td>
 							<td>
-								<a class="btn-inspect" href={`/reviews/${encodeURIComponent(item.claim.id)}`}>Buka detail reviewer</a>
+								<a class="btn-inspect" href={`/reviews/${encodeURIComponent(item.claim.id)}`}><Icon name="review" size={18} />Buka detail reviewer</a>
 								{#if item.review.status === 'open'}
 									<div class="action-buttons">
-										<button class="btn-approve" onclick={() => openDecisionModal(item, 'approve')}>Setujui</button>
-										<button class="btn-reject" onclick={() => openDecisionModal(item, 'reject')}>Tolak</button>
+										<button class="btn-approve" onclick={() => openDecisionModal(item, 'approve')}><Icon name="check" size={18} />Setujui</button>
+										<button class="btn-reject" onclick={() => openDecisionModal(item, 'reject')}><Icon name="close" size={18} />Tolak</button>
 									</div>
 								{:else}
 									<span class="text-done">Selesai</span>
@@ -275,7 +310,7 @@
 					<span class="eyebrow">Audit Trail & Bukti Signal</span>
 					<h3>Klaim {shortClaimRef(activeSignals.claim.id)} · {activeSignals.claim.employee_id}</h3>
 				</div>
-				<button class="btn-close" aria-label="Tutup bukti pemeriksaan" onclick={() => (activeSignals = null)}>✕</button>
+				<button class="btn-close" aria-label="Tutup bukti pemeriksaan" onclick={() => (activeSignals = null)}><Icon name="close" /></button>
 			</div>
 
 			<div class="modal-body">
@@ -325,12 +360,36 @@
 							{#each activeSignals.signals as signal (signal.id)}
 								<div class="timeline-item">
 									<div class="timeline-badge {signal.severity === 'blocking' ? 'WARN' : 'PASS'}">
-										{signal.signal_type === 'duplicate' ? '⧉' : '⚠'}
+										<Icon name={signal.signal_type === 'duplicate' ? 'receipt' : 'alert'} size={18} />
 									</div>
 									<div class="timeline-content">
 										<strong>{signal.signal_type === 'duplicate' ? 'Duplikat' : 'Anomali'} · {severityLabel(signal.severity)}</strong>
+										{#if signal.signal_type === 'anomaly'}
+											<div style="margin: 6px 0;">
+												<AnomalyBadge score={signal.score} {signal} size="sm" />
+											</div>
+										{/if}
 										<p>{signal.explanation}</p>
-										{#if signal.score != null}<p class="signal-meta">Skor: {formatConfidence(signal.score)}</p>{/if}
+										{#if signal.score != null}<p class="signal-meta">Skor model: {formatConfidence(signal.score)}</p>{/if}
+										{#if signal.detector_version}
+											<p class="signal-meta">Versi detektor: <code>{signal.detector_version}</code></p>
+										{/if}
+										{#if signal.evidence && typeof signal.evidence === 'object'}
+											{@const ev = signal.evidence as Record<string, unknown>}
+											{#if ev.features && typeof ev.features === 'object'}
+												<details class="evidence-features" style="margin-top: 6px; font-size: 12px;">
+													<summary style="cursor: pointer; color: var(--color-primary-dark); font-weight: 600;">Detail fitur ML ({Object.keys(ev.features).length} variabel)</summary>
+													<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; padding: 6px; background: var(--color-light); border-radius: 4px; margin-top: 4px;">
+														{#each Object.entries(ev.features as Record<string, unknown>) as [name, val]}
+															<div style="font-size: 11px;">
+																<span style="color: var(--color-text-muted);">{name}:</span>
+																<strong>{typeof val === 'number' ? (Number.isInteger(val) ? val : val.toFixed(2)) : String(val)}</strong>
+															</div>
+														{/each}
+													</div>
+												</details>
+											{/if}
+										{/if}
 										{#if signal.matched_claim_ids.length}
 											<p class="signal-meta">Klaim terkait: {signal.matched_claim_ids.map((id) => shortClaimRef(id)).join(', ')}</p>
 										{/if}
@@ -343,10 +402,10 @@
 					<div class="modal-actions-bar">
 						{#if activeSignals.review.status === 'open'}
 							<button class="btn-approve full" onclick={() => openDecisionModal(activeSignals!, 'approve')}>
-								✓ Setujui Klaim Ini
+								<Icon name="check" size={18} />Setujui klaim ini
 							</button>
 							<button class="btn-reject full" onclick={() => openDecisionModal(activeSignals!, 'reject')}>
-								✕ Tolak Klaim
+								<Icon name="close" size={18} />Tolak klaim
 							</button>
 						{:else}
 							<p class="status-summary">
@@ -367,9 +426,9 @@
 			<div class="modal-header">
 				<div>
 					<span class="eyebrow">Konfirmasi Keputusan</span>
-					<h3>{decisionAction === 'approve' ? '✓ Setujui' : '✕ Tolak'} klaim {shortClaimRef(decisionTarget.claim.id)}</h3>
+					<h3>{decisionAction === 'approve' ? 'Setujui' : 'Tolak'} klaim {shortClaimRef(decisionTarget.claim.id)}</h3>
 				</div>
-				<button class="btn-close" aria-label="Tutup konfirmasi keputusan" onclick={closeDecisionModal}>✕</button>
+				<button class="btn-close" aria-label="Tutup konfirmasi keputusan" onclick={closeDecisionModal}><Icon name="close" /></button>
 			</div>
 			<div class="decision-modal-body">
 				<p class="ai-reason">
@@ -398,7 +457,7 @@
 						onclick={submitDecision}
 						disabled={submittingDecision || !decisionReason.trim()}
 					>
-						{submittingDecision ? 'Mengirim...' : decisionAction === 'approve' ? '✓ Konfirmasi Persetujuan' : '✕ Konfirmasi Penolakan'}
+						{submittingDecision ? 'Mengirim...' : decisionAction === 'approve' ? 'Konfirmasi persetujuan' : 'Konfirmasi penolakan'}
 					</button>
 				</div>
 			</div>
@@ -407,27 +466,34 @@
 {/if}
 
 <style>
+	.stat-label { display: flex; align-items: center; gap: var(--space-3); }
+	.stat-symbol, .empty-symbol { display: inline-flex; align-items: center; justify-content: center; background: var(--color-light); color: var(--color-primary-dark); padding: var(--space-3); border-radius: var(--radius-md); }
+	.stat-symbol.warning { background: var(--color-warning-soft); color: var(--color-warning); }
+	.stat-symbol.waiting { background: var(--color-info-soft); color: var(--color-info); }
+	.empty-symbol { margin-bottom: var(--space-5); }
+	.empty-state h3 { color: var(--color-ink); font-size: var(--text-lg); }
+	.empty-state p { max-width: 440px; margin-inline: auto; }
+	.search-box:focus-within { outline: 3px solid var(--color-focus); outline-offset: 3px; }
+	.search-box input:focus-visible { outline: none; }
+	@media (max-width: 768px) { .stat-label { flex-direction: column; align-items: flex-start; } .header-actions, .header-actions button { width: 100%; } }
+
 	main {
-		max-width: 1140px;
+		max-width: 1440px;
 		margin: 0 auto;
-		padding: 2.5rem 2rem;
+		padding: 0;
 		box-sizing: border-box;
 	}
 
 	.header {
+		padding: clamp(20px, 3vw, 32px);
+		background: var(--color-light);
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-lg);
+		gap: var(--space-5);
 		display: flex;
 		justify-content: space-between;
 		align-items: flex-start;
 		margin-bottom: 2rem;
-	}
-
-	.back-link {
-		color: #55745a;
-		text-decoration: none;
-		font-weight: 600;
-		font-size: 0.9rem;
-		display: inline-block;
-		margin-bottom: 0.6rem;
 	}
 
 	.eyebrow {

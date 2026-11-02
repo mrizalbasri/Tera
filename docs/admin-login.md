@@ -1,8 +1,14 @@
 # Login dan akses klaim dengan Clerk
 
-## Mode demo sementara
+## Status lokal: autentikasi aktif
 
-Login sementara ditahan sesuai permintaan pengguna. Pada backend `.env` lokal, `DEMO_MODE=true` memberi akses review/laporan tanpa Clerk atau OTP. Antarmuka menampilkan **Mode demo · tanpa login**, dan `/login` mengarah ke `/reviews`.
+Pada 2026-10-21, konfigurasi backend lokal diubah ke `DEMO_MODE=false` untuk mengaktifkan login Clerk dan pembatasan akses karyawan/admin. Backend berhasil startup dengan konfigurasi SQL, provider mock, dan kebijakan RAG yang sudah tersedia. File `.env` lokal tetap diabaikan Git; perubahan ini tidak otomatis mengubah konfigurasi mesin lain.
+
+Pemeriksaan HTTP tanpa sesi pada server lokal memastikan `/login` merespons 200; `/pengajuan`, `/riwayat`, `/reviews`, dan `/reports` mengarah ke `/login` (303); `/api/auth/session` serta `/api/claims` menolak dengan 401. Endpoint public JWKS Clerk merespons 200. Login dan logout memakai akun nyata masih perlu diverifikasi secara interaktif.
+
+## Mode demo opsional
+
+Untuk demonstrasi tanpa login, `DEMO_MODE=true` memberi akses review/laporan tanpa Clerk atau OTP. Antarmuka menampilkan mode demo, dan `/login` mengarah ke `/reviews`.
 
 Flag ini hanya diterima di development/test; startup dengan `ENVIRONMENT=production` ditolak. Mode demo memaksa penyimpanan memory, provider mock, kebijakan local, dan anomali rules. Checkpoint pemrosesan juga berada di memory. Data klaim demo hilang ketika backend direstart. Kredensial/database normal yang tertulis di `.env` tetap disimpan tetapi tidak digunakan selama mode demo aktif. Keputusan review dicatat atas nama `demo-reviewer`.
 
@@ -98,4 +104,4 @@ Cakupan ini adalah satu perusahaan. Pemisahan tenant/perusahaan, migrasi kepemil
 
 ## Validasi pembatasan kepemilikan
 
-Tes dengan JWT RSA sintetis mencakup dua karyawan dan admin pada memory/SQLite: pemalsuan identitas, filter riwayat, semua endpoint tanpa sesi, pembacaan/perubahan klaim asing, replay idempotency lintas akun, error duplikasi, privasi evidence duplikasi, identitas jawaban klarifikasi, dan penolakan origin lain. Tes frontend mencakup guard halaman karyawan/admin, mode demo, layanan sesi gagal, serta token baru untuk API klaim dengan query string. Login akun nyata tetap belum diuji otomatis; demo lokal tetap aktif.
+Tes dengan JWT RSA sintetis mencakup dua karyawan dan admin pada memory/SQLite: pemalsuan identitas, filter riwayat, semua endpoint tanpa sesi, pembacaan/perubahan klaim asing, replay idempotency lintas akun, error duplikasi, privasi evidence duplikasi, identitas jawaban klarifikasi, dan penolakan origin lain. Tes frontend mencakup guard halaman karyawan/admin, mode demo, layanan sesi gagal, serta token baru untuk API klaim dengan query string. Login akun nyata tetap belum diuji otomatis. Mode demo lokal dinonaktifkan pada 2026-10-21 sebagaimana dicatat di awal dokumen.

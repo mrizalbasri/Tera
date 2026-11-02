@@ -40,6 +40,9 @@ class RecoveryWorker:
         while not self.stopped.wait(self.settings.recovery_interval_seconds):
             try:
                 result = build_processing(self.settings).recover_pending()
+                from app.services.notifications import reconcile_notifications
+
+                reconcile_notifications(self.settings)
                 if result["recovered"] or result["failed"]:
                     logger.warning("claim recovery batch result=%s", result)
             except Exception:

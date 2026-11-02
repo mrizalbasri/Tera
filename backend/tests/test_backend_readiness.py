@@ -281,14 +281,23 @@ def test_readiness_checks_dependencies_without_exposing_details(persistent, monk
 PRODUCTION = dict(environment="production", storage_backend="sql",
                   database_url="postgresql+psycopg://tera:synthetic-secret@localhost/tera",
                   provider_mode="live", llm_api_key="synthetic-key", frontend_origin="https://tera.example.test",
-                  clerk_issuer="https://synthetic.clerk.accounts.dev", clerk_admin_user_ids="user_synthetic")
+                  secret_key="synthetic-strong-secret-key-32-chars", admin_users="admin,reviewer")
 
 
 @pytest.mark.parametrize("changes", [
     {"storage_backend": "memory"}, {"database_url": "sqlite:///x.db"}, {"provider_mode": "mock"},
-    {"llm_api_key": ""}, {"provider_fallback": "mock"}, {"clerk_issuer": ""},
-    {"clerk_admin_user_ids": ""}, {"frontend_origin": "http://localhost:5173"},
+    {"llm_api_key": ""}, {"provider_fallback": "mock"}, {"secret_key": ""},
+    {"admin_users": ""}, {"frontend_origin": "http://localhost:5173"},
     {"database_url": "postgresql://tera:change_me@localhost/tera"}, {"demo_mode": True},
+    {"database_url": "postgresql://tera:REPLACE_WITH_DATABASE_PASSWORD@localhost/tera"},
+    {"database_url": "postgresql://tera:Change_Me@localhost/tera"},
+    {"llm_api_key": "REPLACE_WITH_PROVIDER_KEY"}, {"llm_api_key": "  YOUR-API-KEY  "},
+    {"llm_model": "REPLACE_WITH_PROVIDER_MODEL"}, {"llm_model": "   "},
+    {"llm_base_url": "https://REPLACE_WITH_PROVIDER_ENDPOINT"},
+    {"llm_base_url": "https://api.example.com/v1"},
+    {"secret_key": "REPLACE_WITH_SECRET_KEY"},
+    {"frontend_origin": "https://tera.example.com"},
+    {"admin_users": "REPLACE_WITH_ADMIN_USER_ID"},
 ])
 def test_invalid_production_settings_fail_closed(changes):
     with pytest.raises(ValueError):
@@ -297,6 +306,22 @@ def test_invalid_production_settings_fail_closed(changes):
 
 def test_valid_production_settings():
     assert Settings(_env_file=None, **PRODUCTION).environment == "production"
+
+
+def test_production_allows_multiple_admin_ids():
+    settings = Settings(_env_file=None, **(PRODUCTION | {"admin_users": " user_alice, user_bob, "}))
+    assert "user_alice" in settings.admin_users and "user_bob" in settings.admin_users
+
+
+def test_production_example_is_rejected_without_exposing_credentials():
+    from pathlib import Path
+    from pydantic import ValidationError
+
+    path = Path(__file__).resolve().parents[2] / "docker" / "backend.production.env.example"
+    with pytest.raises(ValidationError) as raised:
+        Settings(_env_file=path)
+    assert "non-placeholder database credentials" in str(raised.value)
+    assert "REPLACE_WITH_DATABASE_PASSWORD" not in str(raised.value)
 
 
 def test_postgres_lock_excludes_other_process_and_releases(postgres_database_url):
@@ -554,7 +579,7 @@ def test_operations_are_admin_only():
 def test_production_readiness_does_not_create_missing_checkpoint_schema(postgres_database_url):
     from sqlalchemy.engine import make_url
 
-    url = make_url(postgres_database_url).set(password="synthetic-secret").render_as_string(hide_password=False)
+    url = make_url(postgres_database_url).render_as_string(hide_password=False)
     backend = SqlRepositories(url)
     backend.close()
     settings = Settings(_env_file=None, **(PRODUCTION | {"database_url": url}))

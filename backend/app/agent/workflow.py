@@ -29,14 +29,14 @@ def build_claim_workflow(
         elif resources is not None and name == "apply_review":
             def durable_review(state, runtime: Runtime[ReviewExecution]):
                 with resources.transaction():
-                    return nodes.apply_review(state, runtime)
+                    return resources.run_step("review_notification", state, lambda: nodes.apply_review(state, runtime))
             builder.add_node(name, durable_review)
         else:
             builder.add_node(name, step)
     builder.add_conditional_edges(START, lambda s: s["stage"],
                                   ["extract", "wait_clarification", "wait_review"])
     builder.add_conditional_edges("extract", lambda s: s["stage"],
-                                  ["validate", "wait_clarification"])
+                                  ["validate", "wait_clarification", "wait_review"])
     for source, target in (
         ("validate", "evaluate_policy"),
         ("evaluate_policy", "detect_duplicates"),

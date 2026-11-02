@@ -12,9 +12,9 @@
 		{ label: string; glyph: string; tone: 'neutral' | 'info' | 'warn' | 'success' | 'danger' }
 	> = {
 		received: { label: 'Diterima', glyph: '○', tone: 'neutral' },
-		processing: { label: 'Diproses', glyph: '⟳', tone: 'info' },
+		processing: { label: 'Sedang diperiksa', glyph: '⟳', tone: 'info' },
 		needs_clarification: { label: 'Perlu klarifikasi', glyph: '?', tone: 'warn' },
-		escalated: { label: 'Perlu review', glyph: '!', tone: 'warn' },
+		escalated: { label: 'Menunggu reviewer', glyph: '!', tone: 'warn' },
 		approved: { label: 'Disetujui', glyph: '✓', tone: 'success' },
 		rejected: { label: 'Ditolak', glyph: '✕', tone: 'danger' }
 	};
@@ -72,9 +72,9 @@
 	}
 
 	.status-badge.success, .status-badge.approved {
-		background: var(--color-light);
-		color: var(--color-primary-dark);
-		border-color: var(--color-border);
+		background: var(--color-success-soft);
+		color: var(--color-success);
+		border-color: var(--color-success-border);
 	}
 
 	.status-badge.danger, .status-badge.rejected {

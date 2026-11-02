@@ -2,7 +2,6 @@ from decimal import Decimal
 from io import BytesIO
 
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
 
 from app.api.deps import get_receipt_extractor
 from app.main import app
@@ -60,7 +59,8 @@ def test_low_confidence_extraction_retries_and_requests_clarification() -> None:
     assert payload["claim"]["status"] == "needs_clarification"
     assert len(payload["attempts"]) == 3
     assert payload["clarification"]["code"] == "extraction_confidence_low"
-    assert "clearer receipt" in payload["clarification"]["message"]
+    assert "bukti lebih jelas" in payload["clarification"]["message"]
+    assert "receipt_date" in payload["clarification"]["fields"]
 
 
 def test_retry_with_preprocessing_can_recover_extraction() -> None:

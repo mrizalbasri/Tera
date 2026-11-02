@@ -48,9 +48,7 @@
 		isError?: boolean;
 	};
 
-	let { demoMode = false }: { demoMode?: boolean } = $props();
 	let messages = $state<Message[]>([]);
-	let loadingSample = $state(false);
 	let draft = $state('');
 	let fileInput: HTMLInputElement | undefined;
 	let nextId = 2;
@@ -157,20 +155,6 @@
 		if (file) handleFileSelection(file);
 	}
 
-	async function loadSampleReceipt(path: string, filename: string) {
-		if (submitPhase !== 'idle' || loadingSample) return;
-		loadingSample = true;
-		try {
-			const res = await fetch(path);
-			if (!res.ok) throw new Error('Sample unavailable');
-			const blob = await res.blob();
-			const file = new File([blob], filename, { type: blob.type || 'image/png' });
-			handleFileSelection(file);
-				showToast(`Nota sampel "${filename}" dipilih. Tekan Periksa nota untuk mulai.`);
-		} catch {
-			showToast('Gagal memuat nota sampel.');
-		} finally { loadingSample = false; }
-	}
 
 	function removeSelectedFile(messageId: number) {
 		if (submitPhase !== 'idle') return;
@@ -651,20 +635,6 @@
 				</span>
 			</button>
 			<p class="intake-note">Setelah diunggah, kamu bisa meninjau hasil dan melengkapi data yang belum terbaca.</p>
-			{#if demoMode}<details class="sample-actions" role="region" aria-label="Nota sampel demo" open>
-				<summary>Coba dengan nota contoh</summary>
-				<div class="sample-chips">
-					<button type="button" class="sample-btn" disabled={loadingSample} onclick={() => loadSampleReceipt('/samples/nota-bbm.png', 'nota-bbm.png')}>
-						SPBU Shell (Rp 350rb)
-					</button>
-					<button type="button" class="sample-btn" disabled={loadingSample} onclick={() => loadSampleReceipt('/samples/nota-makan.png', 'nota-makan.png')}>
-						Resto Padang (Rp 185rb)
-					</button>
-					<button type="button" class="sample-btn" disabled={loadingSample} onclick={() => loadSampleReceipt('/samples/nota-hotel.png', 'nota-hotel.png')}>
-						Hotel Santika (Rp 650rb)
-					</button>
-				</div>
-			</details>{/if}
 		</div>
 	{/if}
 
@@ -786,7 +756,6 @@
 		{#if activeClaim}<section class="claim-context"><span class="guide-label">Pengajuan aktif</span><h2>{shortClaimRef(activeClaim.claimId ?? '')}</h2><p>{isProcessing ? 'Tera sedang membaca dan memeriksa nota.' : awaitingClarification ? 'Lengkapi informasi agar pemeriksaan bisa dilanjutkan.' : 'Lihat bukti dan perkembangan pengajuan.'}</p><a href={`/riwayat/${activeClaim.claimId}`}>Buka detail klaim</a></section>{/if}
 		<section class="guide-section"><h2>Siapkan nota yang jelas</h2><ul><li>Nama tempat atau penyedia jasa</li><li>Tanggal transaksi</li><li>Total pembayaran</li></ul><p>BBM, makan, tol, parkir, atau hotel. Gunakan nota asli pengeluaran kerja.</p></section>
 		<section class="guide-section workflow-guide"><h2>Setelah nota dikirim</h2><ol><li><strong>Nota dibaca</strong><span>Detail transaksi diambil dari bukti.</span></li><li><strong>Klaim diperiksa</strong><span>Kebijakan dan indikasi duplikat dicocokkan.</span></li><li><strong>Hasil ditampilkan</strong><span>Ikuti status atau lengkapi klarifikasi.</span></li></ol></section>
-		{#if demoMode}<p class="demo-note">Mode demo · data sementara, menggunakan provider mock.</p>{/if}
 	</aside>
 	</div>
 </section>
@@ -808,7 +777,6 @@
 	.task-status { font-size: var(--text-xs); padding: 8px 12px; border-radius: var(--radius-sm); background: var(--color-light); color: var(--color-primary-dark); }
 	.intake-start { flex: 1; min-height: 0; padding: 0; }
 	.intake-note { max-width: 420px; margin: 16px auto 24px; text-align: center; font-size: var(--text-xs); color: var(--color-text-muted); }
-	.sample-actions summary { cursor: pointer; min-height: 44px; padding: 12px; color: var(--color-text-muted); font-size: var(--text-xs); }
 
 	/* Dropzone Box */
 	.dropzone-box {
@@ -860,38 +828,6 @@
 	.dropzone-text span {
 		font-size: var(--text-xs);
 		color: var(--color-text-muted);
-	}
-
-	.sample-actions {
-		text-align: center;
-		margin-top: 0.5rem;
-		width: 100%;
-		padding-top: 0.75rem;
-		border-top: 1px solid var(--color-border);
-	}
-
-	.sample-chips {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		justify-content: center;
-	}
-
-	.sample-btn {
-		font-size: var(--text-xs);
-		min-height: 44px;
-		padding: 0.35rem 0.75rem;
-		background: var(--color-surface);
-		color: var(--color-primary-dark);
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-pill);
-		cursor: pointer;
-		transition: background-color var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
-	}
-
-	.sample-btn:hover {
-		background: var(--color-light);
-		border-color: var(--color-primary);
 	}
 
 	/* Messages */
@@ -1192,7 +1128,7 @@
 	.guide-section { padding: var(--space-5); border-bottom: 1px solid var(--color-border); }
 	.guide-section h2, .claim-context h2 { font-size: var(--text-md); margin: 0 0 var(--space-4); }
 	.guide-section ul { padding-left: var(--space-5); margin: 0; display: grid; gap: var(--space-3); color: var(--color-ink); font-size: var(--text-xs); }
-	.guide-section p, .claim-context p, .demo-note { color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.8; }
+	.guide-section p, .claim-context p { color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.8; }
 	.guide-section p { margin: var(--space-5) 0 0; }
 	.workflow-guide ol { list-style: decimal; padding-left: var(--space-5); margin: 0; display: grid; gap: var(--space-5); }
 	.workflow-guide li { padding-left: var(--space-2); color: var(--color-primary); font-size: var(--text-xs); }
@@ -1202,12 +1138,7 @@
 	.claim-context { background: var(--color-light); border-radius: var(--radius-md); padding: var(--space-5); }
 	.guide-label { display: block; font-size: var(--text-xs); color: var(--color-primary-dark); margin-bottom: var(--space-3); }
 	.claim-context a { min-height: 44px; display: inline-flex; align-items: center; font-size: var(--text-xs); font-weight: 600; }
-	.demo-note { margin: 0 var(--space-5); }
 	.dropzone-box { min-height: 248px; border-color: var(--color-border-strong); padding: var(--space-8) var(--space-5); }
-	.sample-actions { text-align: left; }
-	.sample-actions summary { padding-inline: 0; }
-	.sample-chips { justify-content: flex-start; }
-	.sample-btn { border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); }
 	.messages { flex: 1; max-height: max(240px, calc(100dvh - 360px)); padding: var(--space-1); gap: var(--space-4); }
 	.bubble { max-width: calc(100% - 36px); }
 	.bubble.error-bubble { color: var(--color-danger); background: var(--color-danger-soft); border-color: var(--color-danger); }
@@ -1221,6 +1152,6 @@
 	.next-upload { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); border-top: 1px solid var(--color-border); padding-top: var(--space-4); margin-top: var(--space-5); }
 	.next-upload a { display: inline-flex; align-items: center; min-height: 44px; font-size: var(--text-xs); }
 	@media (max-width: 1100px) { .intake-layout { grid-template-columns: minmax(0, 1fr) 248px; gap: var(--space-4); } }
-	@media (max-width: 900px) { .intake-layout { grid-template-columns: minmax(0, 1fr); } .intake-guide { grid-template-columns: repeat(2, minmax(0, 1fr)); } .demo-note { grid-column: 1 / -1; } }
+	@media (max-width: 900px) { .intake-layout { grid-template-columns: minmax(0, 1fr); } .intake-guide { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 	@media (max-width: 680px) { .intake-main { padding: var(--space-4); min-height: 0; } .intake-guide { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); } .selection-summary { flex-basis: 100%; order: -1; } .send-btn { margin-left: auto; } .messages { max-height: 55dvh; } .dropzone-text strong { font-size: var(--text-md); } }
 </style>

@@ -9,7 +9,6 @@ from app.api.claim_access import ClaimActor, get_claim_actor, require_claim_acce
 
 from app.api.deps import (
     get_claim_repository,
-    get_clarification_repository,
     get_clarification_service,
     get_decision_repository,
     get_extraction_attempt_repository,

@@ -1,0 +1,12 @@
+flowchart TB
+    U["Karyawan dan finance"] --> API["API terotorisasi"]
+    API --> G["LangGraph: jalankan pemeriksaan"]
+    G --> T["Ekstraksi AI dan alat pemeriksaan"]
+    T --> R{"Bukti dan aturan cukup?"}
+    R -->|Ya| D["Catat keputusan dan bukti"]
+    R -->|Butuh informasi| H["Tunggu klarifikasi atau review"]
+    H -->|Input terotorisasi| G
+    G --> S["Domain dan checkpoint"]
+    D --> S
+    S --> N["Notifikasi dan metrik"]
+    P["Versi kebijakan terbit"] --> T

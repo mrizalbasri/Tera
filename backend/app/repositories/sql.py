@@ -88,6 +88,17 @@ class ClaimRow(OrderedRecord, Base):
     payload: Mapped[dict] = mapped_column(JSON)
 
 
+class OperationalRow(Base):
+    __tablename__ = "operational_records"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    namespace: Mapped[str] = mapped_column(String(100), index=True)
+    owner: Mapped[str] = mapped_column(String(100), index=True)
+    aggregate_id: Mapped[str] = mapped_column(String(100), index=True)
+    created_at: Mapped[str] = mapped_column(String(40), index=True)
+    revision: Mapped[int] = mapped_column()
+    payload: Mapped[dict] = mapped_column(JSON)
+
+
 class ReceiptRow(OrderedRecord, Base):
     __tablename__ = "receipts"
     id: Mapped[str] = mapped_column(String(_ID_LENGTH), primary_key=True)
@@ -199,6 +210,9 @@ class SqlRepositories:
             self._engine.dispose()
             raise
         self._session_factory = SessionScope(self._engine)
+        from app.repositories.operational import SqlOperationalStore
+
+        self.operational = SqlOperationalStore(self._session_factory, OperationalRow)
         self.claims = SqlClaimRepository(self._session_factory)
         self.receipts = SqlReceiptRepository(self._session_factory)
         self.runs = SqlProcessingRunRepository(self._session_factory)

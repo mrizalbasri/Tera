@@ -22,7 +22,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 			if (session.role === 'admin') event.locals.admin = session;
 		} else if (response.status !== 401 && protectedPage) error(503, 'Sesi login belum dapat diperiksa. Coba lagi nanti.');
 	}
-	if (event.locals.demoMode && ['/login', '/sso-callback'].includes(event.url.pathname)) redirect(303, '/reviews');
+	if (event.locals.demoMode && event.url.pathname === '/login') redirect(303, '/reviews');
 	if (protectedPage && !event.locals.user) redirect(303, '/login');
 	if (isAdminPath(event.url.pathname) && !event.locals.admin) error(403, 'Akses admin diperlukan.');
 	const response = await resolve(event);

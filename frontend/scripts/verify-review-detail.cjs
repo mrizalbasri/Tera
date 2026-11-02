@@ -30,7 +30,7 @@ const backend = createServer((req, res) => {
   let browser;
   try {
     for (let i=0; i<100; i++) { try { await fetch('http://127.0.0.1:13001/'); break; } catch { await new Promise(r => setTimeout(r, 100)); } }
-    browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome' });
+    browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) });
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:13001/reviews/${A}`);
     await page.getByRole('heading', { name: `Klaim ${A}`, exact: true }).waitFor();

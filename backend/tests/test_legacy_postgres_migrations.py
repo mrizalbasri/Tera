@@ -59,7 +59,7 @@ def test_failed_legacy_upgrade_does_not_stamp_version(postgres_database_url):
     try:
         upgrade(engine)
         with engine.begin() as connection:
-            connection.execute(text("DELETE FROM schema_migrations WHERE version = 3"))
+            connection.execute(text("DELETE FROM schema_migrations WHERE version >= 3"))
             for name in ORDERED_TABLES:
                 connection.execute(text(f'ALTER TABLE "{name}" DROP COLUMN insertion_order'))
 

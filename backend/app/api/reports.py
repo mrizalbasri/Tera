@@ -28,6 +28,17 @@ class ReportSummary(BaseModel):
     anomaly_count: int
     average_duration_ms: int | None
     estimated_time_saved_minutes: int
+    time_saved_basis: str
+    active_duration_ms: int | None
+    employee_wait_ms: int | None
+    reviewer_wait_ms: int | None
+    measured_claims: int
+    provider_cost: float | None
+    provider_cost_basis: str
+    provider_input_tokens: int | None
+    provider_output_tokens: int | None
+    provider_measured_calls: int
+    provider_models: list[str]
 
 
 @router.get("/summary", response_model=ReportSummary)

@@ -2,13 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RequestEvent } from '@sveltejs/kit';
 import { handle } from './hooks.server';
 
-vi.mock('$lib/server/admin', () => ({
-	adminCookie: '__session',
-	backendUrl: () => 'http://backend.test',
-	isAdminPath: (path: string) => /^\/(reviews?|reports)(\/|$)/.test(path),
-	isEmployeePath: (path: string) => /^\/(dashboard|pengajuan|riwayat|claims)(\/|$)/.test(path)
-}));
-
 const resolve = vi.fn(async () => new Response('workspace'));
 beforeEach(() => vi.clearAllMocks());
 
@@ -22,7 +15,7 @@ function request(path: string, session: object | null, status = 200) {
 }
 
 describe('workspace access', () => {
-	it.each(['/dashboard', '/pengajuan', '/riwayat', '/claims/example', '/reviews', '/reports'])('redirects anonymous visitors at %s', async (path) => {
+	it.each(['/dashboard', '/pengajuan', '/riwayat', '/claims/example', '/reviews', '/reports', '/admin/claims', '/admin/claims/example', '/notifikasi', '/admin/policies'])('redirects anonymous visitors at %s', async (path) => {
 		await expect(handle({ event: request(path, null), resolve })).rejects.toMatchObject({ status: 303, location: '/login' });
 		expect(resolve).not.toHaveBeenCalled();
 	});
@@ -34,6 +27,10 @@ describe('workspace access', () => {
 		expect(event.locals.admin).toBeNull();
 		expect(response.headers.get('cache-control')).toBe('no-store');
 		await expect(handle({ event: request('/reviews', member), resolve })).rejects.toMatchObject({ status: 403 });
+		await expect(handle({ event: request('/admin/claims?role=admin', member), resolve })).rejects.toMatchObject({ status: 403 });
+		await expect(handle({ event: request('/admin/claims/example', member), resolve })).rejects.toMatchObject({ status: 403 });
+		await expect(handle({ event: request('/admin/policies', member), resolve })).rejects.toMatchObject({ status: 403 });
+		expect((await handle({ event: request('/notifikasi', member), resolve })).status).toBe(200);
 	});
 	it('keeps the demo open and redirects the disabled login page', async () => {
 		const demo = { username: 'demo-reviewer', role: 'admin', demo_mode: true };

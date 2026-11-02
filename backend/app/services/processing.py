@@ -5,8 +5,10 @@ repositories remain the source of truth; completed requests replay their records
 """
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from langgraph.types import Command
@@ -45,11 +47,11 @@ class ClaimProcessingService:
             ClaimNodes(claims, runs, extraction), graph_resources.saver, graph_resources,
         )
 
-    def claim_lock(self, claim_id: UUID):
+    def claim_lock(self, claim_id: UUID) -> AbstractContextManager[None]:
         return self.resources.claim_lock(claim_id)
 
     @staticmethod
-    def _config(claim_id: UUID) -> dict:
+    def _config(claim_id: UUID) -> dict[str, Any]:
         return {"configurable": {"thread_id": str(claim_id)}}
 
     def process_claim(self, claim_id: UUID, *, resume: bool = False,
@@ -171,8 +173,62 @@ class ClaimProcessingService:
 
         return recover_pending(self, limit=limit)
 
-    def pending_claim_ids(self, *, limit: int):
+    def pending_claim_ids(self, *, limit: int) -> Sequence[UUID]:
         return self._runs.pending_claim_ids(limit=limit)
+
+    def get_checkpoint_detail(self, claim_id: UUID) -> dict[str, Any]:
+        config = self._config(claim_id)
+        snapshot = self.graph.get_state(config)
+        history_snapshots = list(self.graph.get_state_history(config))
+        claim = self._claims.get(claim_id)
+        run = self._runs.latest_for_claim(claim_id)
+        history = []
+        for s in history_snapshots:
+            history.append({
+                "checkpoint_id": s.config.get("configurable", {}).get("checkpoint_id"),
+                "stage": s.values.get("stage") if s.values else None,
+                "next": list(s.next) if s.next else [],
+                "step": s.metadata.get("step") if s.metadata else None,
+                "source": s.metadata.get("source") if s.metadata else None,
+                "created_at": s.created_at,
+                "has_interrupts": bool(s.interrupts) if hasattr(s, "interrupts") else False,
+            })
+        return {
+            "claim_id": str(claim_id),
+            "status": claim.status if claim else "unknown",
+            "run_status": run.status if run else None,
+            "stage": snapshot.values.get("stage") if snapshot.values else None,
+            "next_nodes": list(snapshot.next) if snapshot.next else [],
+            "checkpoint_id": snapshot.config.get("configurable", {}).get("checkpoint_id"),
+            "created_at": snapshot.created_at,
+            "values": snapshot.values if snapshot.values else {},
+            "history": history,
+        }
+
+    def list_checkpoints(self, *, limit: int = 50, stage_filter: str | None = None) -> list[dict[str, Any]]:
+        claims = list(self._claims.list())
+        claims.sort(key=lambda c: c.submitted_at, reverse=True)
+        results = []
+        for claim in claims[:limit]:
+            config = self._config(claim.id)
+            snapshot = self.graph.get_state(config)
+            stage = snapshot.values.get("stage") if snapshot.values else None
+            next_nodes = list(snapshot.next) if snapshot.next else []
+            if stage_filter and stage != stage_filter:
+                continue
+            results.append({
+                "claim_id": str(claim.id),
+                "employee_id": claim.employee_id,
+                "status": claim.status,
+                "declared_amount": str(claim.declared_amount) if claim.declared_amount is not None else None,
+                "currency": claim.currency,
+                "submitted_at": claim.submitted_at.isoformat(),
+                "stage": stage,
+                "next_nodes": next_nodes,
+                "checkpoint_id": snapshot.config.get("configurable", {}).get("checkpoint_id"),
+                "created_at": snapshot.created_at,
+            })
+        return results
 
     def _process_claim(
         self,

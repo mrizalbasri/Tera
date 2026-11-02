@@ -35,8 +35,10 @@ class ClaimNodes:
         claim, run = self._records(state)
         self._extraction.extract_receipts(claim, run)
         run = self._runs.get(run.id)
-        return {"stage": "wait_clarification" if run.status == ProcessingRunStatus.NEEDS_CLARIFICATION
-                else "validate"}
+        return {"stage": {
+            ProcessingRunStatus.NEEDS_CLARIFICATION: "wait_clarification",
+            ProcessingRunStatus.ESCALATED: "wait_review",
+        }.get(run.status, "validate")}
 
     def validate(self, state: ClaimGraphState) -> dict[str, str]:
         self._extraction.validate_claim(*self._records(state))

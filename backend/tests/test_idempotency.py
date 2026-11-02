@@ -22,7 +22,7 @@ from app.repositories.memory import (
     InMemoryAuditRepository,
     InMemoryClaimRepository,
 )
-from app.repositories.sql import SqlAuditRepository, SqlRepositories
+from app.repositories.sql import SqlRepositories
 
 client = TestClient(app)
 

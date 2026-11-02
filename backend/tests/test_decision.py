@@ -263,3 +263,61 @@ def test_same_claim_without_degraded_signal_is_approved() -> None:
     )
 
     assert decision.outcome == "approved"
+
+
+def test_nfr07_decision_determinism_and_property_equivalence() -> None:
+    """NFR-07: Konsistensi. Keputusan deterministik: input + policy version sama -> keputusan sama.
+    Order-independence: Permutasi urutan evaluasi dan signal tidak mengubah outcome keputusan."""
+    import itertools
+
+    claim_id = uuid4()
+    run_id = uuid4()
+    claim = _claim()
+
+    # Base case: deterministic purity
+    args = dict(
+        claim=claim,
+        total=Decimal("60000"),
+        confidence=Decimal("0.95"),
+        findings=[],
+        evaluations=[_policy_violation(claim_id)],
+        signals=[_duplicate_signal(claim_id)],
+        policy_version=1,
+        processing_run_id=run_id,
+    )
+    d1 = ENGINE.decide(**args)
+    d2 = ENGINE.decide(**args)
+    assert d1.outcome == d2.outcome
+    assert d1.reason_codes == d2.reason_codes
+    assert d1.policy_version == d2.policy_version
+
+    # Property: Order-independence of signals and evaluations
+    evals = [_policy_violation(claim_id), PolicyEvaluation(
+        claim_id=claim_id, processing_run_id=run_id,
+        policy_id="hotel-policy", policy_version=1, rule_id="hotel_limit",
+        rule_type="threshold", passed=False, explanation="Exceeds hotel limit",
+        severity=Severity.BLOCKING, clarifiable=False, actual_value="800000", limit="600000",
+        reason_code="hotel_limit_exceeded"
+    )]
+    sigs = [_duplicate_signal(claim_id), _provider_degraded_signal(claim_id)]
+
+    outcomes = []
+    reason_sets = []
+    for perm_evals in itertools.permutations(evals):
+        for perm_sigs in itertools.permutations(sigs):
+            dec = ENGINE.decide(
+                claim=claim,
+                total=Decimal("120000"),
+                confidence=Decimal("0.90"),
+                findings=[],
+                evaluations=list(perm_evals),
+                signals=list(perm_sigs),
+                policy_version=1,
+                processing_run_id=uuid4(),
+            )
+            outcomes.append(dec.outcome)
+            reason_sets.append(set(dec.reason_codes))
+
+    assert len(set(outcomes)) == 1, "Decision outcome varied across input permutations!"
+    assert all(r == reason_sets[0] for r in reason_sets), "Reason codes varied across input permutations!"
+    assert outcomes[0] == "rejected"

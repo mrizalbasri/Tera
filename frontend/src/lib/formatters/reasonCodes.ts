@@ -9,6 +9,15 @@ export interface ReasonCodeInfo {
 }
 
 const REASON_CODES: Record<string, ReasonCodeInfo> = {
+	total_ambiguous: { label: 'Total pembayaran belum jelas', explanation: 'Nominal belum dapat dibedakan dari subtotal atau angka lain pada nota.' },
+	total_breakdown_mismatch: { label: 'Rincian nominal berbeda', explanation: 'Subtotal, pajak, dan diskon belum cocok dengan total pembayaran.' },
+	invalid_total: { label: 'Total nota tidak valid' },
+	invalid_receipt_date: { label: 'Tanggal nota tidak valid' },
+	clarification_limit_reached: { label: 'Perlu pemeriksaan finance', explanation: 'Informasi belum cukup setelah batas klarifikasi tercapai.' },
+	policy_date_gap: { label: 'Kebijakan tanggal nota belum tersedia', explanation: 'Finance perlu memeriksa klaim karena belum ada versi kebijakan yang berlaku.' },
+	policy_evidence_missing: { label: 'Dasar kebijakan belum tersedia' },
+	auto_approve_amount_limit: { label: 'Melebihi batas persetujuan otomatis' },
+	confidence_unavailable: { label: 'Keyakinan pembacaan belum tersedia' },
 	auto_approved: { label: 'Disetujui otomatis' },
 	below_auto_approve_limit: {
 		label: 'Di bawah batas auto-approve',

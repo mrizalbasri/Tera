@@ -3,7 +3,7 @@
 from sqlalchemy import BigInteger, Column, Identity, Integer, JSON, LargeBinary, MetaData, String, Table, UniqueConstraint, inspect, select, text
 from sqlalchemy.engine import Connection, Engine
 
-CURRENT_VERSION = 3
+CURRENT_VERSION = 4
 versions = Table("schema_migrations", MetaData(), Column("version", Integer, primary_key=True))
 BASELINE_TABLES = (
     "claims", "receipts", "file_storage", "processing_runs", "domain_records",
@@ -41,6 +41,12 @@ def migration_metadata() -> MetaData:
     Table("workflow_steps", metadata, Column("key", String(100), primary_key=True), payload())
     Table("api_rate_limits", metadata, Column("key", String(64), primary_key=True),
           Column("window", BigInteger, index=True, nullable=False), Column("count", Integer, nullable=False))
+    Table("operational_records", metadata, identifier(primary_key=True),
+          Column("namespace", String(100), index=True, nullable=False),
+          Column("owner", String(100), index=True, nullable=False),
+          Column("aggregate_id", String(100), index=True, nullable=False),
+          Column("created_at", String(40), index=True, nullable=False),
+          Column("revision", Integer, nullable=False), payload())
     return metadata
 
 
@@ -68,7 +74,7 @@ def _add_order_columns(connection: Connection) -> None:
 
 def upgrade(engine: Engine) -> None:
     # Import registers the SQLite compatibility compiler for the order column.
-    from app.repositories import sql as _sql
+    from app.repositories import sql as _sql  # noqa: F401
 
     metadata = migration_metadata()
 
@@ -90,3 +96,6 @@ def upgrade(engine: Engine) -> None:
             # Repair databases stamped v1/v2 before PostgreSQL legacy support.
             _add_order_columns(connection)
             connection.execute(versions.insert().values(version=3))
+        if version < 4:
+            metadata.tables["operational_records"].create(connection, checkfirst=True)
+            connection.execute(versions.insert().values(version=4))

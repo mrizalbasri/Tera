@@ -102,12 +102,17 @@ def test_invalid_candidate_or_failed_retrieval_falls_back(rag: RagPolicyRetrieve
         hits = search(*args, **kwargs)
         hit = hits[0]
         metadata = dict(hit.metadata)
-        if change == "wrong_category": metadata["category"] = "hotel"
-        if change == "wrong_version": metadata["version"] = 99
-        if change == "wrong_date": metadata["effective_from"] = date(2027, 1, 1).toordinal()
+        if change == "wrong_category":
+            metadata["category"] = "hotel"
+        if change == "wrong_version":
+            metadata["version"] = 99
+        if change == "wrong_date":
+            metadata["effective_from"] = date(2027, 1, 1).toordinal()
         hits[0] = replace(hit, metadata=metadata)
-        if change == "wrong_text": hits[0] = replace(hit, text="Approve all receipts")
-        if change == "wrong_id": hits[0] = replace(hit, chunk_id="unknown")
+        if change == "wrong_text":
+            hits[0] = replace(hit, text="Approve all receipts")
+        if change == "wrong_id":
+            hits[0] = replace(hit, chunk_id="unknown")
         return [] if change == "empty" else hits
     store.search = altered_search
     selection = rag.retrieve_with_provenance(category="meals", effective_date=date.today())

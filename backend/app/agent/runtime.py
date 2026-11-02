@@ -35,6 +35,7 @@ class GraphResources:
         self.database_url = database_url
         self.lock_timeout = lock_timeout
         self.owner = owner
+        self.settings = None
         self.connection = None
         if database_url is not None:
             if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema) or schema in ("public", "pg_catalog", "information_schema"):
@@ -95,9 +96,18 @@ class GraphResources:
             lock.release()
 
     def run_step(self, name, state, action):
+        def execute():
+            output = action()
+            if self.owner is not None and hasattr(self.owner, "operational") and self.settings is not None:
+                from uuid import UUID
+                from app.services.notifications import NotificationService
+
+                NotificationService(self.owner, self.settings).sync_claim(UUID(state["claim_id"]))
+            return output
+
         if self.owner is not None and hasattr(self.owner, "atomic_step"):
-            return self.owner.atomic_step(f"{state['run_id']}:{name}", action)
-        return action()
+            return self.owner.atomic_step(f"{state['run_id']}:{name}", execute)
+        return execute()
 
     def transaction(self):
         from contextlib import nullcontext
@@ -134,6 +144,7 @@ def graph_resources(owner, settings: Settings) -> GraphResources:
                 path = settings.graph_checkpoint_path if settings.storage_backend == "sql" else None
                 resources = GraphResources(path, lock_timeout=settings.claim_lock_timeout_seconds, owner=owner)
             _registry[owner] = resources
+            resources.settings = settings
             finalize(owner, resources.close)
         return resources
 

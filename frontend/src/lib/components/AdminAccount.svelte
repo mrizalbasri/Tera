@@ -1,25 +1,39 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getClerk } from '$lib/clerk';
+	import { getSession, logout } from '$lib/auth';
 	let label = $state('Akun kerja');
 	let busy = $state(false);
 	let error = $state('');
+
 	onMount(() => {
 		let disposed = false;
-		void getClerk().then((clerk) => {
-			if (!disposed) label = clerk.user?.fullName || clerk.user?.primaryEmailAddress?.emailAddress || 'Akun kerja';
-		}).catch(() => {});
+		void getSession().then((session) => {
+			if (!disposed && session) {
+				label = `${session.username} (${session.role === 'admin' ? 'Reviewer' : 'Karyawan'})`;
+			}
+		});
 		return () => { disposed = true; };
 	});
-	async function logout() {
+
+	async function handleLogout() {
 		busy = true;
 		error = '';
-		try { await (await getClerk()).signOut({ redirectUrl: '/login' }); }
-		catch { error = 'Belum berhasil keluar. Coba lagi.'; busy = false; }
+		try {
+			await logout();
+		} catch {
+			error = 'Belum berhasil keluar. Coba lagi.';
+			busy = false;
+		}
 	}
 </script>
 
-<div class="admin-account"><span>{label}</span><button type="button" class="secondary" onclick={logout} disabled={busy}>{busy ? 'Keluar...' : 'Keluar'}</button>{#if error}<p role="alert">{error}</p>{/if}</div>
+<div class="admin-account">
+	<span>{label}</span>
+	<button type="button" class="secondary" onclick={handleLogout} disabled={busy}>
+		{busy ? 'Keluar...' : 'Keluar'}
+	</button>
+	{#if error}<p role="alert">{error}</p>{/if}
+</div>
 
 <style>
 	.admin-account { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-3); }

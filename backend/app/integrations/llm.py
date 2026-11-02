@@ -31,7 +31,7 @@ from uuid import uuid4
 import openai
 from langchain_core.exceptions import OutputParserException
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
 
 from app.config import Settings
 from app.domain.enums import ErrorClassification
@@ -103,6 +103,20 @@ _PROVIDER_ERROR_MAP: tuple[
 )
 
 
+class LlmLineItem(BaseModel):
+    description: str = Field(min_length=1, max_length=255, pattern=r"\S")
+    quantity: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    unit_price: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    total: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+
+    @field_validator("unit_price", "total", mode="before")
+    @classmethod
+    def printed_amount(cls, value: object) -> object:
+        from app.services.money import receipt_money
+
+        return receipt_money(value)
+
+
 class LlmExtractionOutput(BaseModel):
     """The structured contract the vision model must return."""
 
@@ -115,6 +129,20 @@ class LlmExtractionOutput(BaseModel):
     quantity: Decimal = Field(default=Decimal("1"), gt=0, max_digits=18, decimal_places=6)
     confidence: Decimal = Field(ge=0, le=1)
     warnings: list[str] = Field(default_factory=list)
+    subtotal: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6)
+    tax: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6)
+    discount: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=6)
+    total_ambiguous: bool = False
+    line_items: list[LlmLineItem] = Field(default_factory=list, max_length=100)
+    line_items_complete: bool = Field(default=False, strict=True)
+    _provider_usage: dict = PrivateAttr(default_factory=dict)
+
+    @field_validator("total", "subtotal", "tax", "discount", mode="before")
+    @classmethod
+    def printed_amount(cls, value: object) -> object:
+        from app.services.money import receipt_money
+
+        return receipt_money(value)
 
 
 def _uncertain_fields(warnings: list[str]) -> set[str]:
@@ -240,12 +268,19 @@ class LlmReceiptExtractor:
         last_error: ApplicationError | None = None
         for retry in range(self._settings.llm_max_retries + 1):
             try:
-                raw = self._structured.invoke([message])
+                from app.integrations.usage import UsageCapture
+
+                capture = UsageCapture()
+                structured = self._structured.with_config(callbacks=[capture]) if hasattr(self._structured, "with_config") else self._structured
+                raw = structured.invoke([message])
                 if isinstance(raw, BaseModel):
-                    return LlmExtractionOutput.model_validate(
+                    output = LlmExtractionOutput.model_validate(
                         raw.model_dump(mode="json")
                     )
-                return LlmExtractionOutput.model_validate(raw)
+                else:
+                    output = LlmExtractionOutput.model_validate(raw)
+                output._provider_usage = {**capture.usage, "model": self._settings.llm_model}
+                return output
             except OutputParserException as exc:
                 # LangChain could not parse the model response into the
                 # contract — the provider answered, but unusably. That is a
@@ -353,7 +388,7 @@ class LlmReceiptExtractor:
                 category=FieldConfidence(
                     value=output.category, confidence=output.confidence
                 ),
-                line_items=[
+                line_items=[ExtractedLineItem(**item.model_dump()) for item in output.line_items] or [
                     ExtractedLineItem(
                         description=vendor or "Receipt summary",
                         quantity=output.quantity,
@@ -362,6 +397,13 @@ class LlmReceiptExtractor:
                     )
                 ],
                 warnings=warnings,
+                subtotal=output.subtotal,
+                tax=output.tax,
+                discount=output.discount,
+                total_ambiguous=output.total_ambiguous,
+                line_items_derived=not bool(output.line_items),
+                line_items_complete=bool(output.line_items) and output.line_items_complete,
+                provider_usage=output._provider_usage,
                 provider=(
                     f"{self.provider_name}:{self._settings.llm_model}:attempt-{attempt}"
                 ),

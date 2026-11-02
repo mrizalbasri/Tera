@@ -182,7 +182,7 @@ class ExtractionService:
                     logger.warning(
                         "provider output failed validation for receipt %s: %s",
                         receipt.id,
-                        exc,
+                        type(exc).__name__,
                     )
                     errors.append(ErrorCode.MALFORMED_EXTRACTION)
                     continue
@@ -195,6 +195,7 @@ class ExtractionService:
                     preprocessing,
                     confidence={},
                     error_code=errors[0],
+                    provider_usage=[r.provider_usage for r in attempt_results if r.provider_usage],
                 )
                 return self._fail_run(
                     run, errors[0], _EXTRACTION_USER_MESSAGE, 502, attempts
@@ -208,6 +209,7 @@ class ExtractionService:
                     preprocessing,
                     confidence=confidence,
                     extraction_id=attempt_results[0].id if attempt_results else None,
+                    provider_usage=[r.provider_usage for r in attempt_results if r.provider_usage],
                 )
             )
             missing_fields = [
@@ -245,6 +247,12 @@ class ExtractionService:
                             if outcome.policy_evaluations else None),
             processing_run_id=run.id, answered_codes=self._answered_codes(claim.id),
         )
+        if decision.outcome == DecisionOutcome.NEEDS_CLARIFICATION and self._clarification_limit_reached(claim.id):
+            decision = decision.model_copy(update={
+                "outcome": DecisionOutcome.ESCALATED,
+                "reason_codes": ["clarification_limit_reached", *decision.reason_codes],
+                "explanation": "Batas klarifikasi tercapai. Finance perlu memeriksa bukti yang masih belum cukup.",
+            })
         self._decisions.save(decision)
         claim = self.transition_claim(claim, _DECISION_CLAIM_STATUS[decision.outcome])
         claim = self._claims.save(claim.model_copy(update={"current_decision_id": decision.id}))
@@ -257,9 +265,9 @@ class ExtractionService:
 
     @staticmethod
     def extracted_total(results: list[ExtractionResult]) -> Decimal:
-        # Preserve the existing multi-receipt decision semantics.
-        return max((_as_decimal(r.total.value) or Decimal("0") for r in results),
-                   default=Decimal("0"))
+        values = [_as_decimal(r.total.value) for r in results]
+        return sum((value for value in values if value is not None and value.is_finite() and value > 0),
+                   start=Decimal("0"))
 
     def active_receipts(self, claim_id: UUID) -> list[Receipt]:
         receipts = list(self._receipts.list_for_claim(claim_id))
@@ -304,6 +312,13 @@ class ExtractionService:
     ) -> list[PolicyEvaluation]:
         evaluations: list[PolicyEvaluation] = []
         for result in saved:
+            total = _as_decimal(result.total.value)
+            if total is None or not total.is_finite() or total <= 0:
+                continue
+            try:
+                effective_date = _as_date(result.receipt_date.value)
+            except (TypeError, ValueError):
+                continue
             category = str(result.category.value or "")
             if category not in SUPPORTED_CATEGORIES:
                 # Validation already flags the unknown category as blocking;
@@ -313,13 +328,13 @@ class ExtractionService:
                 retrieve_with_provenance = getattr(self._policy_retriever, "retrieve_with_provenance", None)
                 if retrieve_with_provenance is None:
                     policy = self._policy_retriever.retrieve(
-                        category=category, effective_date=_as_date(result.receipt_date.value),
+                        category=category, effective_date=effective_date,
                     )
                 else:
                     from app.integrations.rag.query import PolicyQueryContext
 
                     selection = retrieve_with_provenance(
-                        category=category, effective_date=_as_date(result.receipt_date.value),
+                        category=category, effective_date=effective_date,
                         context=PolicyQueryContext.from_extraction(result, participants),
                     )
                     record_audit_event(
@@ -328,7 +343,17 @@ class ExtractionService:
                         safe_payload=selection.audit_payload(), processing_run_id=run.id,
                     )
                     policy = selection.require_policy()
-            except ApplicationError:
+            except ApplicationError as exc:
+                if exc.code == "policy_date_gap":
+                    evaluation = PolicyEvaluation(
+                        claim_id=claim.id, processing_run_id=run.id, policy_id="expense-policy",
+                        policy_version=None, rule_id="effective_policy_missing", rule_type="effective_policy_missing",
+                        passed=False, severity=Severity.WARNING, reason_code="policy_date_gap",
+                        explanation="Kebijakan pada tanggal nota belum tersedia. Finance perlu memeriksa klaim.",
+                    )
+                    self._evaluations.save(evaluation)
+                    evaluations.append(evaluation)
+                    continue
                 return self._fail_run(
                     run,
                     ErrorCode.POLICY_UNAVAILABLE,
@@ -337,13 +362,22 @@ class ExtractionService:
                     503,
                     attempts,
                 )
-            for evaluation in self._policy_evaluator.evaluate(
+            results = self._policy_evaluator.evaluate(
                 claim=claim,
                 extraction=result,
                 policy=policy,
                 processing_run_id=run.id,
                 participants=participants,
-            ):
+            )
+            if not results:
+                results = [PolicyEvaluation(
+                    claim_id=claim.id, processing_run_id=run.id,
+                    policy_id=policy.policy_id, policy_version=policy.version,
+                    policy_snapshot=policy.model_dump(mode="json"), rule_id="policy_available",
+                    rule_type="policy_available", passed=True, severity=Severity.INFO,
+                    explanation="The effective policy has no additional rules for this category.",
+                )]
+            for evaluation in results:
                 self._evaluations.save(evaluation)
                 evaluations.append(evaluation)
         return evaluations
@@ -494,6 +528,19 @@ class ExtractionService:
         attempts: list[ExtractionAttempt],
         confidence: dict[str, Decimal],
     ) -> ProcessingOutcome:
+        if self._clarification_limit_reached(claim.id):
+            decision = Decision(
+                id=uuid4(), claim_id=claim.id, processing_run_id=run.id,
+                outcome=DecisionOutcome.ESCALATED, reason_codes=["clarification_limit_reached"],
+                explanation="Bukti belum cukup setelah batas klarifikasi. Finance perlu memeriksa nota.",
+                created_by=ActorType.AGENT, created_at=datetime.now(UTC),
+            )
+            self._decisions.save(decision)
+            claim = self.transition_claim(claim, ClaimStatus.ESCALATED)
+            claim = self._claims.save(claim.model_copy(update={"current_decision_id": decision.id}))
+            self._open_review(claim, run)
+            self.complete_run(run, ProcessingRunStatus.ESCALATED, attempts, error_code=None)
+            return self.replay(claim.id, self._runs.get(run.id))
         now = datetime.now(UTC)
         clarification = Clarification(
             id=uuid4(),
@@ -501,7 +548,10 @@ class ExtractionService:
             processing_run_id=run.id,
             code=ErrorCode.EXTRACTION_CONFIDENCE_LOW,
             fields=list(confidence.keys()),
-            question=_CONFIDENCE_LOW_MESSAGE,
+            question="Mohon lengkapi atau unggah bukti lebih jelas untuk: " + ", ".join(
+                {"vendor": "nama toko", "receipt_date": "tanggal nota", "total": "total pembayaran",
+                 "currency": "mata uang", "category": "kategori pengeluaran"}.get(field, field)
+                for field in confidence) + ".",
             answer=None,
             status=ClarificationStatus.OPEN,
             created_at=now,
@@ -522,6 +572,10 @@ class ExtractionService:
                 fields=clarification.fields,
             ),
         )
+
+    def _clarification_limit_reached(self, claim_id: UUID) -> bool:
+        return sum(q.status == ClarificationStatus.ANSWERED
+                   for q in self._clarifications.list_for_claim(claim_id)) >= self._settings.max_clarification_rounds
 
     def _fail_run(
         self,
@@ -545,6 +599,7 @@ class ExtractionService:
         confidence: dict[str, Decimal],
         extraction_id: UUID | None = None,
         error_code: str | None = None,
+        provider_usage: list[dict[str, object]] | None = None,
     ) -> ExtractionAttempt:
         attempt = ExtractionAttempt(
             attempt=attempt_number,
@@ -553,6 +608,7 @@ class ExtractionService:
             confidence=confidence,
             extraction_id=extraction_id,
             error_code=error_code,
+            provider_usage=provider_usage or [],
             message="Extraction provider returned an invalid result."
             if error_code
             else None,
@@ -578,6 +634,8 @@ class ExtractionService:
                     "status": status,
                     "completed_at": completed_at,
                     "error_code": error_code,
+                    "provider_usage": [usage for attempt in self._attempts.list_for_claim(run.claim_id)
+                                       if attempt.processing_run_id == run.id for usage in attempt.provider_usage],
                 }
             )
         )
@@ -664,7 +722,10 @@ class ExtractionService:
 def _as_decimal(value: object) -> Decimal | None:
     if value is None:
         return None
-    return value if isinstance(value, Decimal) else Decimal(str(value))
+    try:
+        return value if isinstance(value, Decimal) else Decimal(str(value))
+    except (ValueError, ArithmeticError):
+        return None
 
 
 def _as_date(value: object) -> date:

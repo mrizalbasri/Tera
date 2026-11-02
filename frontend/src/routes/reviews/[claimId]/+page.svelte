@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import AnomalyBadge from '$lib/components/AnomalyBadge.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
 	import { getClaim } from '$lib/api/claims';
 	import { listReviews, decideReview } from '$lib/api/reviews';
@@ -102,7 +103,16 @@
 				<h1>Klaim {detail.claim.id}</h1>
 				<p class="muted">{detail.claim.employee_id} · {formatDateTime(detail.claim.submitted_at)}</p>
 			</div>
-			<StatusBadge status={detail.claim.status} size="sm" />
+			<div style="display: flex; gap: 8px; align-items: center;">
+				{#if detail.decisions.at(-1)?.anomaly_score != null || detail.signals.some((s) => s.signal_type === 'anomaly')}
+					<AnomalyBadge
+						score={detail.decisions.at(-1)?.anomaly_score}
+						signal={detail.signals.find((s) => s.signal_type === 'anomaly')}
+						size="md"
+					/>
+				{/if}
+				<StatusBadge status={detail.claim.status} size="sm" />
+			</div>
 		</header>
 
 			<section class="evidence-workbench" aria-label="Nota dan hasil pembacaan">
@@ -130,6 +140,18 @@
 				<h2>Ringkasan klaim</h2>
 				<div class="row"><span>Nominal</span><strong>{formatCurrency(detail.claim.declared_amount, detail.claim.currency)}</strong></div>
 				<div class="row"><span>Review</span><strong>{review?.review.status ?? (detail.claim.status === 'escalated' ? 'Tidak tersedia di antrean' : 'Tidak ada review terbuka')}</strong></div>
+				<div class="row">
+					<span>Skor anomali ML</span>
+					{#if detail.decisions.at(-1)?.anomaly_score != null || detail.signals.some((s) => s.signal_type === 'anomaly')}
+						<AnomalyBadge
+							score={detail.decisions.at(-1)?.anomaly_score}
+							signal={detail.signals.find((s) => s.signal_type === 'anomaly')}
+							size="sm"
+						/>
+					{:else}
+						<strong>-</strong>
+					{/if}
+				</div>
 				<div class="row"><span>Signal</span><strong>{detail.signals.length}</strong></div>
 					<a class="button secondary" href={`/admin/claims/${encodeURIComponent(detail.claim.id)}`}>Lihat nota dan hasil pembacaan</a>
 				{#if detail.decisions.at(-1)}
@@ -143,8 +165,32 @@
 				{:else}
 					{#each detail.signals as signal (signal.id)}
 						<div class="evidence">
-							<strong>{signal.signal_type} · {signal.severity}</strong>
+							<div style="display: flex; justify-content: space-between; align-items: center;">
+								<strong>{signal.signal_type} · {signal.severity}</strong>
+								{#if signal.signal_type === 'anomaly'}
+									<AnomalyBadge score={signal.score} {signal} size="sm" />
+								{/if}
+							</div>
 							<span>{signal.explanation}</span>
+							{#if signal.detector_version}
+								<small class="muted" style="font-family: monospace;">Detektor: {signal.detector_version}</small>
+							{/if}
+							{#if signal.evidence && typeof signal.evidence === 'object'}
+								{@const ev = signal.evidence as Record<string, unknown>}
+								{#if ev.features && typeof ev.features === 'object'}
+									<details style="margin-top: 4px; font-size: 12px;">
+										<summary style="cursor: pointer; color: var(--color-primary-dark); font-weight: 500;">Fitur analisis ML ({Object.keys(ev.features).length} variabel)</summary>
+										<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 4px; padding: 6px; background: var(--color-light, #f8fafc); border-radius: 4px; margin-top: 4px;">
+											{#each Object.entries(ev.features as Record<string, unknown>) as [name, val]}
+												<div style="font-size: 11px;">
+													<span style="color: var(--color-text-muted);">{name}:</span>
+													<strong>{typeof val === 'number' ? (Number.isInteger(val) ? val : val.toFixed(2)) : String(val)}</strong>
+												</div>
+											{/each}
+										</div>
+									</details>
+								{/if}
+							{/if}
 						</div>
 					{/each}
 				{/if}

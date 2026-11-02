@@ -1,6 +1,7 @@
 import { apiRequest } from './client';
 import type {
 	ClaimDetailResponse,
+	Claim,
 	ClaimListResponse,
 	ClarificationListResponse,
 	CreateClaimResponse,
@@ -10,8 +11,7 @@ import type {
 } from '$lib/types/claim';
 
 /**
- * Identitas karyawan sementara sampai halaman login tersedia.
- * Dipakai sebagai employee_id saat membuat klaim dan filter daftar riwayat.
+ * Identitas contoh untuk mode demo. Saat login aktif, backend memakai ID akun Clerk.
  */
 export const CURRENT_EMPLOYEE_ID = 'salesman-001';
 
@@ -43,8 +43,28 @@ export async function createClaim(input: {
 }
 
 export async function listClaims(employeeId?: string): Promise<ClaimListResponse> {
-	const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : '';
-	return apiRequest<ClaimListResponse>(`/claims${query}`);
+	const items: Claim[] = [];
+	const ids = new Set<string>();
+	const limit = 200;
+	let total: number | undefined;
+	let offset = 0;
+	do {
+		const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+		if (employeeId) params.set('employee_id', employeeId);
+		const response = await apiRequest<ClaimListResponse>(`/claims?${params}`);
+		if ((total !== undefined && response.total !== total) || (response.items.length === 0 && offset < response.total)) {
+			throw new Error('Daftar klaim berubah saat dimuat. Silakan muat ulang.');
+		}
+		total = response.total;
+		for (const claim of response.items) {
+			if (ids.has(claim.id)) throw new Error('Daftar klaim berubah saat dimuat. Silakan muat ulang.');
+			ids.add(claim.id);
+		}
+		items.push(...response.items);
+		offset += limit;
+	} while (offset < total);
+	if (items.length !== total) throw new Error('Daftar klaim berubah saat dimuat. Silakan muat ulang.');
+	return { items, total };
 }
 
 export async function getClaim(claimId: string): Promise<ClaimDetailResponse> {

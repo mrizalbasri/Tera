@@ -239,12 +239,14 @@ class IntakeService:
             )
 
         now = datetime.now(UTC)
-        if current_status is not ClaimStatus.PROCESSING:
-            claim = claim.model_copy(
-                update={"status": ClaimStatus.PROCESSING, "updated_at": now}
-            )
-            self._claims.save(claim)
-
+        previous_receipts = list(self._receipts.list_for_claim(claim_id))
+        superseded_ids = {item.replaces_receipt_id for item in previous_receipts}
+        active = [item for item in previous_receipts if item.id not in superseded_ids]
+        replaced = active[-1] if active else None
+        claim = claim.model_copy(update={
+            "status": ClaimStatus.PROCESSING, "updated_at": now,
+            "current_decision_id": None, "receipt_revision": claim.receipt_revision + 1,
+        })
         reference = self._storage.put(
             candidate.content,
             filename=candidate.filename,
@@ -259,9 +261,11 @@ class IntakeService:
             content_hash=candidate.content_hash,
             quality_score=Decimal(str(candidate.quality_score)),
             quality_findings=candidate.quality_findings,
+            replaces_receipt_id=replaced.id if replaced else None,
             created_at=now,
         )
         self._receipts.save(receipt)
+        self._claims.save(claim)
         record_audit_event(
             self._audit,
             aggregate_type="claim",

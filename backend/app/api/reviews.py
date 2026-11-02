@@ -30,6 +30,7 @@ class ReviewQueueItem(BaseModel):
 class ReviewQueueResponse(BaseModel):
     items: list[ReviewQueueItem]
     total: int
+    snapshot: str
     limit: int = 100
     offset: int = 0
 
@@ -44,8 +45,10 @@ class ReviewDecisionResponse(BaseModel):
 def list_open_reviews(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0, le=10_000_000),
+    snapshot: str | None = Query(None, pattern=r"^[a-f0-9]{64}$"),
     service: ReviewService = Depends(get_review_service),
 ) -> ReviewQueueResponse:
+    page, total, version = service.open_queue_page(limit=limit, offset=offset, snapshot=snapshot)
     items = [
         ReviewQueueItem(
             review=item["review"],
@@ -53,9 +56,9 @@ def list_open_reviews(
             decision=item["decision"],
             signals=item["signals"],
         )
-        for item in service.list_open(limit=limit, offset=offset)
+        for item in page
     ]
-    return ReviewQueueResponse(items=items, total=service.count_open(), limit=limit, offset=offset)
+    return ReviewQueueResponse(items=items, total=total, snapshot=version, limit=limit, offset=offset)
 
 
 @router.post("/{claim_id}/decision", response_model=ReviewDecisionResponse)

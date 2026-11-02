@@ -77,6 +77,7 @@ class ClaimProcessingService:
         return self._runs.save(ProcessingRun(
             id=uuid4(), claim_id=claim_id, status=ProcessingRunStatus.QUEUED,
             pipeline_version=PIPELINE_VERSION, started_at=None,
+            receipt_revision=claim.receipt_revision,
             retry_count=len(self._runs.list_for_claim(claim_id)),
         ))
 
@@ -97,6 +98,7 @@ class ClaimProcessingService:
             run = self._runs.save(ProcessingRun(
                 id=uuid4(), claim_id=claim_id, status=ProcessingRunStatus.RUNNING,
                 pipeline_version=PIPELINE_VERSION, started_at=now,
+                receipt_revision=self._claims.get(claim_id).receipt_revision,
                 retry_count=len(self._runs.list_for_claim(claim_id)),
             ))
             execution = ReviewExecution(apply)
@@ -185,10 +187,12 @@ class ClaimProcessingService:
         run_key = f"run:{claim_id}:{idempotency_key}" if idempotency_key else None
 
         latest_run = self._runs.latest_for_claim(claim_id)
+        new_receipt = latest_run is not None and claim.receipt_revision > latest_run.receipt_revision
         if latest_run is not None and latest_run.status in (ProcessingRunStatus.RUNNING, ProcessingRunStatus.QUEUED):
             return self.recover_claim(claim_id)
         if (
             latest_run is not None
+            and not new_receipt
             and latest_run.status
             in (
                 ProcessingRunStatus.SUCCEEDED,
@@ -210,7 +214,7 @@ class ClaimProcessingService:
         can_retry = (
             current_status is ClaimStatus.PROCESSING
             and latest_run is not None
-            and latest_run.status == ProcessingRunStatus.FAILED
+            and (latest_run.status == ProcessingRunStatus.FAILED or new_receipt)
         )
         if current_status is not ClaimStatus.RECEIVED and not can_retry:
             raise ApplicationError(
@@ -224,6 +228,7 @@ class ClaimProcessingService:
             claim_id=claim_id,
             status=ProcessingRunStatus.QUEUED,
             pipeline_version=PIPELINE_VERSION,
+            receipt_revision=claim.receipt_revision,
             started_at=None,
             completed_at=None,
             retry_count=len(self._runs.list_for_claim(claim_id)),

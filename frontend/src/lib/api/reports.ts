@@ -1,4 +1,5 @@
 import { apiRequest, BASE_URL } from './client';
+import { authFetch } from '$lib/clerk';
 
 export interface ReportSummary {
 	period_from: string | null;
@@ -35,7 +36,8 @@ export function getReportSummary(filters: ReportFilters = {}): Promise<ReportSum
 }
 
 export async function downloadReport(filters: ReportFilters = {}): Promise<Blob> {
-	const response = await fetch(`${BASE_URL}/reports/claims.csv${query(filters)}`);
+	const response = await authFetch(`${BASE_URL}/reports/claims.csv${query(filters)}`);
+	if (response.status === 401) window.location.assign('/login');
 	if (!response.ok) throw new Error(`Export gagal (HTTP ${response.status}).`);
 	return response.blob();
 }

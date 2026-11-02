@@ -1,3 +1,5 @@
+import { authFetch } from '$lib/clerk';
+
 // All browser requests use the same-origin SvelteKit proxy. BACKEND_URL is server-only.
 const BASE_URL = '/api';
 
@@ -22,6 +24,10 @@ export class ApiError extends Error {
 }
 
 const USER_MESSAGES: Record<string, string> = {
+	authentication_required: 'Sesi berakhir. Silakan login kembali.',
+	admin_access_required: 'Akun ini belum memiliki akses admin.',
+	auth_unavailable: 'Sesi login belum dapat diperiksa. Coba lagi nanti.',
+	auth_not_configured: 'Login belum dikonfigurasi. Hubungi pengelola Tera.',
 	network_error: 'Tidak dapat menghubungi server Tera. Pastikan backend berjalan.',
 	unsupported_media_type: 'Format file tidak didukung. Gunakan JPG, PNG, atau PDF.',
 	file_too_large: 'Ukuran file melebihi batas maksimal 10 MB.',
@@ -33,6 +39,7 @@ const USER_MESSAGES: Record<string, string> = {
 	malformed_extraction: 'Pembacaan nota gagal. Coba upload nota yang lebih jelas.',
 	not_found: 'Data tidak ditemukan.',
 	invalid_state_transition: 'Status klaim tidak bisa diubah sekarang.',
+	review_queue_changed: 'Antrean review berubah saat dimuat. Silakan muat ulang.',
 	policy_unavailable: 'Kebijakan belum tersedia. Coba lagi setelah layanan pulih.',
 	provider_unavailable: 'Layanan pembaca nota belum tersedia. Coba lagi nanti.',
 	provider_timeout: 'Pembacaan nota melewati batas waktu. Coba lagi.',
@@ -46,12 +53,13 @@ function shortMessage(code: string, fallback: string): string {
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
 	let response: Response;
 	try {
-		response = await fetch(`${BASE_URL}${path}`, init);
+		response = await authFetch(`${BASE_URL}${path}`, init);
 	} catch {
 		throw new ApiError(0, 'network_error', USER_MESSAGES.network_error);
 	}
 
 	if (!response.ok) {
+		if (response.status === 401 && typeof window !== 'undefined') window.location.assign('/login');
 		let code = `http_${response.status}`;
 		const message = response.status === 422
 			? 'Periksa isian formulir. Ada nilai yang belum sesuai.'

@@ -35,6 +35,7 @@ class ClarificationStatus(StrEnum):
 class ReviewStatus(StrEnum):
     OPEN = "open"
     DECIDED = "decided"
+    CANCELLED = "cancelled"
 
 
 class ActorType(StrEnum):

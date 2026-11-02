@@ -433,13 +433,17 @@ def test_recovery_does_not_resume_unanswered_clarification(persistent):
     assert backend.runs.latest_for_claim(claim_id) == original_run
     assert backend.clarifications.latest_for_claim(claim_id) == question
     assert not backend.context.list_for_claim(claim_id)
-    assert client.post(f"/claims/{claim_id}/process").status_code == 200
+    processed = client.post(f"/claims/{claim_id}/process")
+    assert processed.status_code == 200, processed.text
+    assert processed.json()["claim"]["status"] == "needs_clarification"
     assert client.post(f"/claims/{claim_id}/process?resume=true").status_code == 409
-    assert backend.runs.latest_for_claim(claim_id) == original_run
-    answered = client.post(f"/claims/{claim_id}/clarifications/{question.id}/answer", json={"answer": "4"})
+    assert backend.runs.latest_for_claim(claim_id).id != original_run.id
+    assert backend.clarifications.list_for_claim(claim_id)[0].status == "cancelled"
+    replacement_question = backend.clarifications.latest_for_claim(claim_id)
+    answered = client.post(f"/claims/{claim_id}/clarifications/{replacement_question.id}/answer", json={"answer": "4"})
     assert answered.status_code == 200, answered.text
-    assert backend.clarifications.list_for_claim(claim_id)[0].status == "answered"
-    assert len(backend.runs.list_for_claim(claim_id)) == 2
+    assert backend.clarifications.latest_for_claim(claim_id).status == "answered"
+    assert len(backend.runs.list_for_claim(claim_id)) == 3
 
 
 def test_answer_and_queued_run_roll_back_together(persistent, monkeypatch):

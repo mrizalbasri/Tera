@@ -50,6 +50,7 @@ from app.schemas.core import (
     PolicyEvaluation,
     ProcessingOutcome,
     ProcessingRun,
+    Receipt,
     Review,
     Signal,
     ValidationFinding,
@@ -140,7 +141,7 @@ class ExtractionService:
         )
         self._runs.save(run)
 
-        receipts = list(self._receipts.list_for_claim(claim.id))
+        receipts = self.active_receipts(claim.id)
         if not receipts:
             return self._fail_run(
                 run,
@@ -148,6 +149,14 @@ class ExtractionService:
                 "Claim has no receipt to extract.",
                 422,
             )
+
+        if run.receipt_revision > 0:
+            for question in self._clarifications.list_for_claim(claim.id):
+                if question.status == ClarificationStatus.OPEN and question.processing_run_id != run.id:
+                    self._clarifications.save(question.model_copy(update={"status": ClarificationStatus.CANCELLED}))
+            for review in self._reviews.list_for_claim(claim.id):
+                if review.status == ReviewStatus.OPEN:
+                    self._reviews.save(review.model_copy(update={"status": ReviewStatus.CANCELLED}))
 
         attempts: list[ExtractionAttempt] = []
         for attempt_number in range(1, self._settings.max_processing_retries + 2):
@@ -201,6 +210,16 @@ class ExtractionService:
                     extraction_id=attempt_results[0].id if attempt_results else None,
                 )
             )
+            missing_fields = [
+                field for field in _CONFIDENCE_FIELDS
+                if any(getattr(result, field).value is None for result in attempt_results)
+            ]
+            if missing_fields:
+                for result in attempt_results:
+                    self._extractions.save(result.model_copy(update={"processing_run_id": run.id}))
+                return self._request_clarification(
+                    claim, run, attempts, {field: confidence[field] for field in missing_fields},
+                )
             threshold = Decimal(str(self._settings.extraction_confidence_threshold))
             if all(value >= threshold for value in confidence.values()):
                 for result in attempt_results:
@@ -241,6 +260,11 @@ class ExtractionService:
         # Preserve the existing multi-receipt decision semantics.
         return max((_as_decimal(r.total.value) or Decimal("0") for r in results),
                    default=Decimal("0"))
+
+    def active_receipts(self, claim_id: UUID) -> list[Receipt]:
+        receipts = list(self._receipts.list_for_claim(claim_id))
+        superseded_ids = {receipt.replaces_receipt_id for receipt in receipts}
+        return [receipt for receipt in receipts if receipt.id not in superseded_ids]
 
     def validate_claim(self, claim: Claim, run: ProcessingRun) -> list[ValidationFinding]:
         """Validate the extraction records belonging to this processing run."""
@@ -370,7 +394,7 @@ class ExtractionService:
 
     def detect_duplicates(self, claim: Claim, run: ProcessingRun) -> None:
         for signal in self._duplicate_detector.find_matches(
-            claim=claim, receipts=list(self._receipts.list_for_claim(claim.id)),
+            claim=claim, receipts=self.active_receipts(claim.id),
             processing_run_id=run.id,
         ):
             self._signals.save(signal)

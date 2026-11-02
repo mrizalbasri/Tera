@@ -11,6 +11,8 @@
 	import { downloadReport } from '$lib/api/reports';
 	import type { Claim } from '$lib/types/claim';
 
+	let { data } = $props();
+	const employeeId = $derived(data.demoMode ? CURRENT_EMPLOYEE_ID : data.user?.username);
 	let claims = $state<Claim[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
@@ -19,7 +21,7 @@
 		loading = true;
 		loadError = null;
 		try {
-			const response = await listClaims(CURRENT_EMPLOYEE_ID);
+			const response = await listClaims(employeeId);
 			claims = [...response.items].sort(
 				(a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
 			);
@@ -41,13 +43,33 @@
 		approved.reduce((sum, c) => sum + (Number(c.declared_amount) || 0), 0)
 	);
 
+	let searchQuery = $state('');
+	let statusFilter = $state<'all' | 'approved' | 'waiting' | 'rejected'>('all');
+
+	const filteredClaims = $derived(
+		claims.filter((c) => {
+			const q = searchQuery.trim().toLowerCase();
+			const matchesSearch = !q || (
+				shortClaimRef(c.id).toLowerCase().includes(q) ||
+				String(c.declared_amount || '').includes(q)
+			);
+			const matchesStatus =
+				statusFilter === 'all' ||
+				(statusFilter === 'approved' && c.status === 'approved') ||
+				(statusFilter === 'rejected' && c.status === 'rejected') ||
+				(statusFilter === 'waiting' && c.status !== 'approved' && c.status !== 'rejected');
+
+			return matchesSearch && matchesStatus;
+		})
+	);
+
 	async function exportToCSV() {
 		if (loading || claims.length === 0) {
 			showToast('Tidak ada data untuk diekspor.', 'error');
 			return;
 		}
 		try {
-			const blob = await downloadReport({ employeeId: CURRENT_EMPLOYEE_ID });
+			const blob = await downloadReport({ employeeId });
 			const url = URL.createObjectURL(blob);
 			const link = document.createElement('a');
 			link.href = url;
@@ -73,7 +95,7 @@
 			<h1>Riwayat klaim</h1>
 			<p>Nota yang sudah diajukan, lengkap dengan status dan tindak lanjutnya.</p>
 		</div>
-		<div class="header-actions">
+		{#if data.admin}<div class="header-actions">
 			<button class="export-btn" id="btn-export-csv" onclick={exportToCSV}>
 				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -82,7 +104,7 @@
 				</svg>
 				Unduh CSV
 			</button>
-		</div>
+		</div>{/if}
 	</div>
 
 	{#if loading}
@@ -149,9 +171,52 @@
 		</div>
 
 		<div class="table-card">
-			<div class="table-header">
-				<span class="table-title">Semua Klaim</span>
-				<span class="table-count">{claims.length} klaim</span>
+			<div class="table-toolbar">
+				<div class="filter-tabs" role="tablist" aria-label="Filter status klaim">
+					<button
+						type="button"
+						class="filter-tab"
+						class:active={statusFilter === 'all'}
+						onclick={() => (statusFilter = 'all')}
+					>
+						Semua ({claims.length})
+					</button>
+					<button
+						type="button"
+						class="filter-tab"
+						class:active={statusFilter === 'approved'}
+						onclick={() => (statusFilter = 'approved')}
+					>
+						Disetujui ({approved.length})
+					</button>
+					<button
+						type="button"
+						class="filter-tab"
+						class:active={statusFilter === 'waiting'}
+						onclick={() => (statusFilter = 'waiting')}
+					>
+						Sedang Proses ({waiting.length})
+					</button>
+					<button
+						type="button"
+						class="filter-tab"
+						class:active={statusFilter === 'rejected'}
+						onclick={() => (statusFilter = 'rejected')}
+					>
+						Ditolak ({rejected.length})
+					</button>
+				</div>
+				<div class="search-box">
+					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+					</svg>
+					<input
+						type="search"
+						placeholder="Cari ID klaim atau nominal..."
+						bind:value={searchQuery}
+						aria-label="Cari klaim"
+					/>
+				</div>
 			</div>
 			<div class="table-wrap">
 				<table>
@@ -165,15 +230,23 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each claims as claim (claim.id)}
+						{#if filteredClaims.length === 0}
 							<tr>
-								<td class="claim-id-cell">{shortClaimRef(claim.id)}</td>
-								<td>{formatDate(claim.submitted_at)}</td>
-								<td>{formatCurrency(claim.declared_amount, claim.currency)}</td>
-								<td><StatusBadge status={claim.status} size="sm" /></td>
-								<td><a href="/riwayat/{claim.id}" class="detail-link">Lihat klaim</a></td>
+								<td colspan="5" class="empty-filtered">
+									Tidak ada klaim yang cocok dengan filter atau pencarian.
+								</td>
 							</tr>
-						{/each}
+						{:else}
+							{#each filteredClaims as claim (claim.id)}
+								<tr>
+									<td class="claim-id-cell">{shortClaimRef(claim.id)}</td>
+									<td>{formatDate(claim.submitted_at)}</td>
+									<td>{formatCurrency(claim.declared_amount, claim.currency)}</td>
+									<td><StatusBadge status={claim.status} size="sm" /></td>
+									<td><a href="/riwayat/{claim.id}" class="detail-link">Lihat klaim</a></td>
+								</tr>
+							{/each}
+						{/if}
 					</tbody>
 				</table>
 			</div>
@@ -337,23 +410,71 @@
 		overflow: hidden;
 	}
 
-	.table-header {
+	.table-toolbar {
 		display: flex;
-		align-items: center;
 		justify-content: space-between;
-		padding: 1rem 1.25rem;
+		align-items: center;
+		padding: 0.75rem 1rem;
 		border-bottom: 1px solid var(--color-border);
+		gap: 0.75rem;
+		flex-wrap: wrap;
 	}
 
-	.table-title { font-weight: 700; font-size: 0.9rem; color: var(--color-text); }
+	.filter-tabs {
+		display: flex;
+		gap: 0.35rem;
+		flex-wrap: wrap;
+	}
 
-	.table-count {
+	.filter-tab {
 		font-size: 0.75rem;
-		color: var(--color-text-muted);
-		background: rgba(26, 107, 92, 0.07);
-		padding: 0.2rem 0.6rem;
-		border-radius: 20px;
 		font-weight: 600;
+		padding: 0.35rem 0.75rem;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-pill);
+		background: var(--color-surface);
+		color: var(--color-text-muted);
+		cursor: pointer;
+		min-height: 32px;
+		transition: all var(--transition);
+	}
+
+	.filter-tab:hover {
+		background: var(--color-soft);
+		color: var(--color-text);
+	}
+
+	.filter-tab.active {
+		background: var(--color-light);
+		color: var(--color-primary-dark);
+		border-color: var(--color-primary);
+	}
+
+	.search-box {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.2rem 0.6rem;
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-sm);
+		background: var(--color-surface);
+		color: var(--color-text-muted);
+	}
+
+	.search-box input {
+		border: none;
+		outline: none;
+		background: transparent;
+		font-size: 0.78rem;
+		min-height: 28px;
+		width: 180px;
+	}
+
+	.empty-filtered {
+		text-align: center;
+		padding: 2.5rem 1rem;
+		color: var(--color-text-muted);
+		font-size: 0.85rem;
 	}
 
 	.table-wrap { overflow-x: auto; }

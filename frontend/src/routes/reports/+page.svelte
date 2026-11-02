@@ -23,6 +23,10 @@
 		{ label: 'Ditolak', value: summary.rejected_claims },
 		{ label: 'Menunggu tindak lanjut', value: summary.pending_claims }
 	] : []);
+	const approvedPct = $derived(summary ? Math.round((summary.approved_claims / (summary.total_claims || 1)) * 100) : 0);
+	const rejectedPct = $derived(summary ? Math.round((summary.rejected_claims / (summary.total_claims || 1)) * 100) : 0);
+	const pendingPct = $derived(summary ? Math.max(0, 100 - approvedPct - rejectedPct) : 0);
+	const autoPct = $derived(summary ? Math.round((summary.automated_claims / (summary.total_claims || 1)) * 100) : 0);
 
 	const hasActiveFilters = $derived(
 		Boolean(appliedFilters.periodFrom || appliedFilters.periodTo || appliedFilters.employeeId)
@@ -213,50 +217,47 @@
 					<strong>{summary.total_claims}</strong>
 					<p>Klaim tercatat</p>
 				</div>
-				<dl class="outcome-list">
-					{#each outcomes as outcome}
-						<div>
-							<dt>{outcome.label}</dt>
-							<dd>{outcome.value}</dd>
+				<div class="outcome-col">
+					<dl class="outcome-list">
+						{#each outcomes as outcome}
+							<div><dt>{outcome.label}</dt><dd>{outcome.value}</dd></div>
+						{/each}
+					</dl>
+					<div class="ratio-bar-wrap">
+						<div class="ratio-bar" role="progressbar" aria-label="Distribusi keputusan klaim" aria-valuenow={approvedPct} aria-valuemin="0" aria-valuemax="100">
+							<div class="ratio-segment approved" style="width: {approvedPct}%;" title="Disetujui: {approvedPct}%"></div>
+							<div class="ratio-segment pending" style="width: {pendingPct}%;" title="Menunggu: {pendingPct}%"></div>
+							<div class="ratio-segment rejected" style="width: {rejectedPct}%;" title="Ditolak: {rejectedPct}%"></div>
 						</div>
-					{/each}
-				</dl>
+						<div class="ratio-legend">
+							<span><span class="legend-dot approved"></span> Disetujui ({approvedPct}%)</span>
+							<span><span class="legend-dot pending"></span> Menunggu ({pendingPct}%)</span>
+							<span><span class="legend-dot rejected"></span> Ditolak ({rejectedPct}%)</span>
+						</div>
+					</div>
+				</div>
 			</div>
-
 			<section class="report-breakdown">
 				<h2>Hasil pemeriksaan</h2>
+				<div class="automation-meter">
+					<div class="meter-header">
+						<span>Tingkat Otomatisasi AI Agent</span>
+						<strong>{autoPct}% Otomatis</strong>
+					</div>
+					<div class="meter-bar">
+						<div class="meter-fill" style="width: {autoPct}%;"></div>
+					</div>
+					<span class="meter-caption">{summary.automated_claims} dari {summary.total_claims} klaim diproses otomatis tanpa eskalasi manusia.</span>
+				</div>
 				<dl>
-					<div>
-						<dt>Diproses otomatis</dt>
-						<dd>{summary.automated_claims}</dd>
-					</div>
-					<div>
-						<dt>Melalui review manual</dt>
-						<dd>{summary.manual_claims}</dd>
-					</div>
-					<div>
-						<dt>Temuan duplikat</dt>
-						<dd>{summary.duplicate_count}</dd>
-					</div>
-					<div>
-						<dt>Pemeriksaan anomali</dt>
-						<dd>{summary.anomaly_count}</dd>
-					</div>
-					<div>
-						<dt>Rata-rata durasi proses</dt>
-						<dd>
-							{summary.average_duration_ms != null
-								? `${Math.round(summary.average_duration_ms / 1000)} detik`
-								: 'Belum tersedia'}
-						</dd>
-					</div>
-					<div>
-						<dt>Waktu dihemat (estimasi)</dt>
-						<dd>{summary.estimated_time_saved_minutes} menit</dd>
-					</div>
+					<div><dt>Diproses otomatis</dt><dd>{summary.automated_claims}</dd></div>
+					<div><dt>Melalui review manual</dt><dd>{summary.manual_claims}</dd></div>
+					<div><dt>Temuan duplikat</dt><dd>{summary.duplicate_count}</dd></div>
+					<div><dt>Pemeriksaan anomali</dt><dd>{summary.anomaly_count}</dd></div>
+					<div><dt>Rata-rata durasi proses</dt><dd>{summary.average_duration_ms != null ? `${Math.round(summary.average_duration_ms / 1000)} detik` : 'Belum tersedia'}</dd></div>
+					<div><dt>Waktu dihemat (estimasi)</dt><dd>{summary.estimated_time_saved_minutes} menit</dd></div>
 				</dl>
 			</section>
-
 			<p class="report-note">
 				Pemeriksaan anomali mencakup hasil tanpa indikasi risiko. Temuan duplikat dan pemeriksaan anomali dapat muncul pada klaim yang sama. Estimasi waktu dihemat menggunakan asumsi review manual 5 menit per nota. Unduh CSV untuk melihat rincian pengajuan.
 			</p>
@@ -297,11 +298,11 @@
 		color: var(--color-text-muted);
 	}
 	.filter-field input {
-		background: var(--color-bg, #ffffff);
+		background: var(--color-surface);
 		border: 1px solid var(--color-border);
 		border-radius: var(--radius-sm);
-		min-height: 44px;
 		padding: var(--space-3);
+		min-height: 44px;
 		font-size: var(--text-sm);
 		font-family: inherit;
 		color: var(--color-text);
@@ -368,6 +369,26 @@
 	}
 
 	.report-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: var(--space-16); padding-block: var(--space-8); border-block: 1px solid var(--color-border); }
+	.outcome-col { display: flex; flex-direction: column; gap: var(--space-6); justify-content: center; }
+	.ratio-bar-wrap { display: flex; flex-direction: column; gap: var(--space-2); }
+	.ratio-bar { display: flex; height: 10px; width: 100%; border-radius: var(--radius-pill); overflow: hidden; background: var(--color-border); }
+	.ratio-segment.approved { background: var(--color-primary); }
+	.ratio-segment.pending { background: var(--color-warning); }
+	.ratio-segment.rejected { background: var(--color-danger); }
+	.ratio-legend { display: flex; flex-wrap: wrap; gap: var(--space-4); font-size: var(--text-xs); color: var(--color-text-muted); }
+	.ratio-legend span { display: inline-flex; align-items: center; gap: var(--space-1); }
+	.legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+	.legend-dot.approved { background: var(--color-primary); }
+	.legend-dot.pending { background: var(--color-warning); }
+	.legend-dot.rejected { background: var(--color-danger); }
+
+	.automation-meter { padding: var(--space-5); background: var(--color-soft); border-radius: var(--radius-md); margin-bottom: var(--space-6); display: flex; flex-direction: column; gap: var(--space-2); }
+	.meter-header { display: flex; justify-content: space-between; align-items: center; font-size: var(--text-sm); }
+	.meter-header strong { color: var(--color-primary-dark); font-variant-numeric: tabular-nums; }
+	.meter-bar { height: 8px; width: 100%; border-radius: var(--radius-pill); background: var(--color-border); overflow: hidden; }
+	.meter-fill { height: 100%; background: var(--color-primary); border-radius: var(--radius-pill); transition: width var(--transition); }
+	.meter-caption { font-size: var(--text-xs); color: var(--color-text-muted); }
+
 	.report-total > span { color: var(--color-text-muted); font-size: var(--text-sm); }
 	.report-total strong { display: block; font-size: 64px; line-height: 1.3; font-weight: 650; letter-spacing: -.06em; font-variant-numeric: tabular-nums; }
 	.report-total p { color: var(--color-text-muted); margin: 0; font-size: var(--text-xs); }

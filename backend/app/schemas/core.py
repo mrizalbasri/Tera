@@ -35,6 +35,7 @@ class Claim(SchemaBase):
     currency: str
     declared_amount: Decimal | None = None
     current_decision_id: UUID | None = None
+    receipt_revision: int = Field(default=0, ge=0)
     created_at: datetime
     updated_at: datetime
 
@@ -48,6 +49,7 @@ class Receipt(SchemaBase):
     content_hash: str = Field(min_length=64, max_length=64)
     quality_score: Decimal | None = Field(default=None, ge=0, le=1)
     quality_findings: list[str] = Field(default_factory=list)
+    replaces_receipt_id: UUID | None = None
     created_at: datetime
 
 
@@ -107,6 +109,7 @@ class ProcessingRun(SchemaBase):
     completed_at: datetime | None = None
     retry_count: int = Field(default=0, ge=0)
     recovery_count: int = Field(default=0, ge=0)
+    receipt_revision: int = Field(default=0, ge=0)
     error_code: str | None = Field(default=None, max_length=100)
 
 

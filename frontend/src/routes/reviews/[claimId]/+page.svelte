@@ -4,7 +4,7 @@
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
 	import { getClaim } from '$lib/api/claims';
-	import { listReviews, decideReview, CURRENT_REVIEWER_ID } from '$lib/api/reviews';
+	import { listReviews, decideReview } from '$lib/api/reviews';
 	import { ApiError } from '$lib/api/client';
 	import { formatCurrency } from '$lib/formatters/currency';
 	import { formatDateTime } from '$lib/formatters/date';
@@ -46,11 +46,16 @@
 			const saved = await decideReview({
 				claimId: review.claim.id,
 				action,
-				reason: reason.trim(),
-				reviewerReference: CURRENT_REVIEWER_ID
+				reason: reason.trim()
 			});
 			review = { ...review, claim: saved.claim, review: saved.review, decision: saved.decision };
-			if (detail) detail = { ...detail, claim: saved.claim, decisions: [...detail.decisions.filter((item) => item.id !== saved.decision.id), saved.decision] };
+			if (detail) {
+				detail = {
+					...detail,
+					claim: saved.claim,
+					decisions: [...detail.decisions.filter((item) => item.id !== saved.decision.id), saved.decision]
+				};
+			}
 			action = null;
 			reason = '';
 		} catch (cause) {
@@ -87,14 +92,15 @@
 			<div class="panel">
 				<h2>Ringkasan klaim</h2>
 				<div class="row"><span>Nominal</span><strong>{formatCurrency(detail.claim.declared_amount, detail.claim.currency)}</strong></div>
-				<div class="row"><span>Review</span><strong>{review?.review.status ?? 'Tidak ada review terbuka'}</strong></div>
+				<div class="row"><span>Review</span><strong>{review?.review.status ?? (detail.claim.status === 'escalated' ? 'Tidak tersedia di antrean' : 'Tidak ada review terbuka')}</strong></div>
 				<div class="row"><span>Signal</span><strong>{detail.signals.length}</strong></div>
+				<a class="button secondary" href={`/riwayat/${encodeURIComponent(detail.claim.id)}`}>Lihat nota dan hasil pembacaan</a>
 				{#if detail.decisions.at(-1)}
 					<DecisionBanner decision={detail.decisions.at(-1)} />
 				{/if}
 			</div>
 			<div class="panel">
-				<h2>Bukti backend</h2>
+				<h2>Bukti dan temuan</h2>
 				{#if detail.signals.length === 0}
 					<p class="muted">Tidak ada signal tambahan.</p>
 				{:else}

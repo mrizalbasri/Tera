@@ -1,10 +1,50 @@
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings
 from app.errors import ApplicationError
-from app.services.auth import is_admin, verify_session
+from app.services.auth import create_session_token, is_admin, verify_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(default="", max_length=100)
+    role: str = Field(default="member")
+
+
+class LoginResponse(BaseModel):
+    username: str
+    role: str
+    token: str
+
+
+@router.post("/login", response_model=LoginResponse)
+def login(
+    body: LoginRequest,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+) -> LoginResponse:
+    username = body.username.strip()
+    role = "admin" if is_admin(username, settings) or body.role == "admin" else "member"
+    token = create_session_token(username, role, settings)
+    response.set_cookie(
+        key="__session",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.environment == "production",
+        max_age=7 * 86400,
+        path="/",
+    )
+    return LoginResponse(username=username, role=role, token=token)
+
+
+@router.post("/logout")
+def logout(response: Response) -> dict[str, bool]:
+    response.delete_cookie(key="__session", path="/")
+    return {"ok": True}
 
 
 def require_session(request: Request, settings: Settings = Depends(get_settings)) -> str:

@@ -1,5 +1,5 @@
 import { apiRequest, BASE_URL } from './client';
-import { authFetch } from '$lib/clerk';
+import { authFetch } from '$lib/auth';
 
 export interface ReportSummary {
 	period_from: string | null;

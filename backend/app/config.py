@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     demo_mode: bool = False
     frontend_origin: str = "http://localhost:5173"
+    secret_key: str = "tera-secret-key-change-in-production"
+    admin_users: str = "admin,reviewer,finance,admin@tera.id,reviewer@tera.id,finance@tera.id"
     clerk_issuer: str = ""
     clerk_admin_user_ids: str = ""
     storage_backend: Literal["memory", "sql"] = "memory"
@@ -93,7 +95,9 @@ class Settings(BaseSettings):
                 raise ValueError("production requires live provider credentials and no mock fallback")
             if _is_placeholder(self.llm_model):
                 raise ValueError("production requires a configured provider model")
-            for name in ("frontend_origin", "clerk_issuer", "llm_base_url"):
+            if _is_placeholder(self.secret_key) or self.secret_key.strip().casefold() in ("secret", "password"):
+                raise ValueError("production requires non-placeholder secret_key")
+            for name in ("frontend_origin", "llm_base_url"):
                 value = urlparse(getattr(self, name))
                 if value.scheme != "https" or not value.hostname or value.username or value.password:
                     raise ValueError(f"production requires a valid HTTPS {name}")
@@ -103,11 +107,11 @@ class Settings(BaseSettings):
                     for domain in ("example.com", "example.org", "example.net")
                 ):
                     raise ValueError(f"production requires a non-placeholder {name}")
-                if name in ("frontend_origin", "clerk_issuer") and (value.path not in ("", "/") or value.query or value.fragment):
+                if name == "frontend_origin" and (value.path not in ("", "/") or value.query or value.fragment):
                     raise ValueError(f"{name} must be an origin without a path, query, or fragment")
-            admin_ids = [value.strip() for value in self.clerk_admin_user_ids.split(",") if value.strip()]
-            if not admin_ids or any(re.fullmatch(r"user_[A-Za-z0-9]+", value) is None for value in admin_ids):
-                raise ValueError("production requires configured Clerk issuer and admin IDs")
+            admin_ids = [value.strip() for value in (self.admin_users + (f",{self.clerk_admin_user_ids}" if self.clerk_admin_user_ids else "")).split(",") if value.strip()]
+            if not admin_ids or any(_is_placeholder(val) for val in admin_ids):
+                raise ValueError("production requires configured admin users")
         return self
 
 

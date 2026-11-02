@@ -1,4 +1,4 @@
-import { authFetch } from '$lib/clerk';
+import { authFetch } from '$lib/auth';
 
 // All browser requests use the same-origin SvelteKit proxy. BACKEND_URL is server-only.
 const BASE_URL = '/api';

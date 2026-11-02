@@ -22,8 +22,6 @@ services:
     image: tera-frontend:local
     build:
       context: ../frontend
-      args:
-        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?Set the public Clerk key for this build}
     environment:
       BACKEND_URL: http://backend:8000
       ORIGIN: ${FRONTEND_ORIGIN:?Set the public HTTPS origin}

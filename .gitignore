@@ -68,3 +68,5 @@ anti-slop/
 # Local agent configuration and caches
 /.codex/
 /.impeccable/
+AGENTS.md
+CLAUDE.md

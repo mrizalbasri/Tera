@@ -1,9 +1,54 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { listClaims, processClaim, replaceClaimReceipt } from './claims';
+import { answerClarification, createClaim, listClaims, processClaim, replaceClaimReceipt } from './claims';
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('claim submission APIs', () => {
+	it('creates claim with optional employeeId and declaredAmount', async () => {
+		const fetchMock = vi.fn(async (_url, init) => {
+			const body = init?.body as FormData;
+			expect(body.get('employee_id')).toBe('emp-123');
+			expect(body.get('declared_amount')).toBe('50000');
+			return Response.json({ claim: { id: 'c1' }, receipts: [] }, { status: 201 });
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		const file = new File(['test'], 'receipt.png', { type: 'image/png' });
+		await createClaim({ file, employeeId: 'emp-123', declaredAmount: 50000 });
+	});
+
+	it('creates claim without employeeId', async () => {
+		const fetchMock = vi.fn(async (_url, init) => {
+			const body = init?.body as FormData;
+			expect(body.has('employee_id')).toBe(false);
+			return Response.json({ claim: { id: 'c1' }, receipts: [] }, { status: 201 });
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		const file = new File(['test'], 'receipt.png', { type: 'image/png' });
+		await createClaim({ file });
+	});
+
+	it('answers clarification with and without answeredBy', async () => {
+		const fetchMock = vi.fn(async (_url, init) => {
+			return Response.json({ claim: { id: 'c1' } });
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		await answerClarification({ claimId: 'c1', clarificationId: 'cl1', answer: 'Clarified', answeredBy: 'emp-1' });
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/claims/c1/clarifications/cl1/answer',
+			expect.objectContaining({
+				body: JSON.stringify({ answer: 'Clarified', answered_by: 'emp-1' })
+			})
+		);
+
+		await answerClarification({ claimId: 'c1', clarificationId: 'cl1', answer: 'Clarified 2' });
+		expect(fetchMock).toHaveBeenCalledWith(
+			'/api/claims/c1/clarifications/cl1/answer',
+			expect.objectContaining({
+				body: JSON.stringify({ answer: 'Clarified 2' })
+			})
+		);
+	});
+
 	it('sends an idempotency key when processing a claim', async () => {
 		const fetchMock = vi.fn(async () => Response.json({ claim: { id: 'claim-1' } }));
 		vi.stubGlobal('fetch', fetchMock);

@@ -15,6 +15,11 @@ coverage:
           - backend
         target: auto
         threshold: 1%
+      frontend:
+        flags:
+          - frontend
+        target: auto
+        threshold: 1%
     patch:
       default:
         target: auto
@@ -24,6 +29,10 @@ flags:
   backend:
     paths:
       - backend/app
+    carryforward: true
+  frontend:
+    paths:
+      - frontend/src
     carryforward: true
 
 comment:
@@ -37,3 +46,4 @@ ignore:
   - "data"
   - "docker"
   - "frontend/scripts"
+  - "frontend/src/mocks"

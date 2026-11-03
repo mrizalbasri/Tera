@@ -1,9 +1,10 @@
 import { apiRequest } from './client';
+import type { ClaimStatus } from '$lib/types/claim';
 
 export interface CheckpointSummary {
 	claim_id: string;
 	employee_id: string;
-	status: string;
+	status: ClaimStatus;
 	declared_amount: string | null;
 	currency: string;
 	submitted_at: string;
@@ -25,7 +26,7 @@ export interface CheckpointHistoryEntry {
 
 export interface CheckpointDetail {
 	claim_id: string;
-	status: string;
+	status: ClaimStatus;
 	run_status: string | null;
 	stage: string | null;
 	next_nodes: string[];

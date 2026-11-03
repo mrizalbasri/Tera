@@ -19,7 +19,7 @@ class ClaimActor:
     demo: bool = False
 
     def employee_id(self, supplied: str | None) -> str:
-        return (supplied or "") if self.demo else self.user_id
+        return (supplied or self.user_id) if self.demo else self.user_id
 
     def idempotency_key(self, key: str | None, operation: str) -> str | None:
         if key is None or self.demo:

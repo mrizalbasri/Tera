@@ -60,7 +60,7 @@ class NotificationService:
             return
         recipients = {claim.employee_id}
         if status == "escalated":
-            recipients = {u.strip() for u in (self.settings.admin_users + "," + self.settings.clerk_admin_user_ids).split(",") if u.strip()}
+            recipients = {u.strip() for u in self.settings.admin_users.split(",") if u.strip()}
             if self.settings.demo_mode:
                 recipients.add("demo-reviewer")
         for recipient in recipients:

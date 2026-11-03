@@ -28,12 +28,12 @@ from app.services.time_metrics import claim_time_metrics
 def bundle(request, tmp_path):
     if request.param == "memory":
         backend = InMemoryRepositories()
-        settings = Settings(_env_file=None, storage_backend="memory", clerk_admin_user_ids="finance")
+        settings = Settings(_env_file=None, storage_backend="memory", admin_users="finance")
     else:
         url = request.getfixturevalue("postgres_database_url") if request.param == "postgres" else f"sqlite:///{tmp_path}/ops.db"
         backend = SqlRepositories(url)
         settings = Settings(_env_file=None, storage_backend="sql", database_url=url,
-                            graph_checkpoint_path=str(tmp_path / "graph.db"), clerk_admin_user_ids="finance")
+                            graph_checkpoint_path=str(tmp_path / "graph.db"), admin_users="finance")
     resources = graph_resources(backend, settings)
     yield backend, settings, resources
     resources.close()

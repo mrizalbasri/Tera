@@ -1,3 +1,3 @@
 import { redirect } from '@sveltejs/kit';
 
-export const load = () => redirect(303, '/login?flow=signup');
+export const load = () => redirect(303, '/login');

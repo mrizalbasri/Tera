@@ -27,7 +27,9 @@ export async function createClaim(input: {
 	idempotencyKey?: string;
 }): Promise<CreateClaimResponse> {
 	const form = new FormData();
-	form.append('employee_id', input.employeeId ?? CURRENT_EMPLOYEE_ID);
+	if (input.employeeId) {
+		form.append('employee_id', input.employeeId);
+	}
 	form.append('currency', 'IDR');
 	if (input.declaredAmount != null) form.append('declared_amount', String(input.declaredAmount));
 	form.append('files', input.file, input.file.name);
@@ -121,6 +123,12 @@ export async function answerClarification(input: {
 	answer: string;
 	answeredBy?: string;
 }): Promise<ProcessClaimResponse> {
+	const body: { answer: string; answered_by?: string } = {
+		answer: input.answer
+	};
+	if (input.answeredBy) {
+		body.answered_by = input.answeredBy;
+	}
 	return apiRequest<ProcessClaimResponse>(
 		`/claims/${encodeURIComponent(input.claimId)}/clarifications/${encodeURIComponent(
 			input.clarificationId
@@ -128,10 +136,7 @@ export async function answerClarification(input: {
 		{
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				answer: input.answer,
-				answered_by: input.answeredBy ?? CURRENT_EMPLOYEE_ID
-			})
+			body: JSON.stringify(body)
 		}
 	);
 }

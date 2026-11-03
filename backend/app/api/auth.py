@@ -27,7 +27,12 @@ def login(
     settings: Settings = Depends(get_settings),
 ) -> LoginResponse:
     username = body.username.strip()
-    role = "admin" if is_admin(username, settings) or body.role == "admin" else "member"
+    if not body.password:
+        raise ApplicationError("invalid_credentials", "Username atau password salah.", 401)
+    # ponytail: password checked against hardcoded demo credentials only;
+    # upgrade to hashed-password store when real user management is added.
+    _verify_credentials(username, body.password, settings)
+    role = "admin" if is_admin(username, settings) else "member"
     token = create_session_token(username, role, settings)
     response.set_cookie(
         key="__session",
@@ -39,6 +44,26 @@ def login(
         path="/",
     )
     return LoginResponse(username=username, role=role, token=token)
+
+
+# ponytail: replace with DB-backed credential store when needed.
+_DEMO_CREDENTIALS: dict[str, str] = {
+    "admin": "demo123",
+    "reviewer": "demo123",
+    "finance": "demo123",
+    "salesman-001": "demo123",
+    "finance@tera.id": "demo123",
+    "karyawan@tera.id": "demo123",
+}
+
+
+def _verify_credentials(username: str, password: str, settings: Settings) -> None:
+    if settings.environment != "production":
+        if password in ("demo123", "any") or _DEMO_CREDENTIALS.get(username) == password:
+            return
+    elif _DEMO_CREDENTIALS.get(username) == password:
+        return
+    raise ApplicationError("invalid_credentials", "Username atau password salah.", 401)
 
 
 @router.post("/logout")

@@ -11,7 +11,7 @@ import type {
 } from '$lib/types/claim';
 
 /**
- * Identitas contoh untuk mode demo. Saat login aktif, backend memakai ID akun Clerk.
+ * Identitas contoh untuk mode demo. Saat login aktif, backend memakai identitas sesi pengguna.
  */
 export const CURRENT_EMPLOYEE_ID = 'salesman-001';
 

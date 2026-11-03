@@ -56,7 +56,7 @@ Persetujuan klaim juga tidak berarti pembayaran sudah dilakukan.
 | Berkontribusi | [Kontribusi](CONTRIBUTING.md) · [Panduan tugas frontend](frontend/README.md) |
 
 Mode demo lokal menggunakan penyimpanan memory dan provider mock tanpa API key
-atau akun Clerk. Aktifkan `DEMO_MODE=true` dan `ENVIRONMENT=development` di
+eksternal. Aktifkan `DEMO_MODE=true` dan `ENVIRONMENT=development` di
 `backend/.env`, lalu ikuti panduan lokal untuk menjalankan kedua server.
 Data demo bersifat sementara dan hilang saat backend direstart.
 
@@ -77,7 +77,7 @@ sementara audit mencatat peristiwa pemrosesan.
 | Agent dan ekstraksi | LangChain, LangGraph, provider vision OpenAI-compatible |
 | Penyimpanan | SQLAlchemy, PostgreSQL, checkpoint LangGraph |
 | Retrieval dan anomali opsional | pgvector, SentenceTransformers, scikit-learn |
-| Autentikasi | Clerk |
+| Autentikasi | Native Auth (JWT HS256) |
 | Pengujian | pytest, Vitest, svelte-check |
 
 ```text

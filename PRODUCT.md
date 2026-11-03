@@ -32,7 +32,7 @@ No unique-market or comparative performance claim has been established.
 - Employees upload receipts, track claim history and status, and supply missing information or replacement evidence when requested.
 - Finance uses a review workspace to inspect receipt evidence, extracted fields, policy findings, and risk signals, then records a decision with a reason.
 - Claim history, processing steps, reports, and CSV exports support follow-up and review.
-- The existing implementation uses SvelteKit/TypeScript and a Python/FastAPI backend. Normal login uses Clerk; a local demo mode supports evaluation without an account.
+- The existing implementation uses SvelteKit/TypeScript and a Python/FastAPI backend. Normal login uses Native JWT authentication; quick-login buttons support instant evaluation.
 
 ## Capabilities and Constraints
 

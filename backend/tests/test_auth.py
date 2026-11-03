@@ -158,3 +158,23 @@ def test_prefix_username_not_admin(auth_client):
     res = client.post("/auth/login", json={"username": "administrator_imposter", "password": "demo123"})
     assert res.status_code == 200
     assert res.json()["role"] == "member"
+
+
+def test_login_production_credentials_check(auth_client):
+    client, settings, _ = auth_client
+    settings.environment = "production"
+    # Valid demo credentials in production
+    res = client.post("/auth/login", json={"username": "admin", "password": "demo123"})
+    assert res.status_code == 200
+    assert res.json()["username"] == "admin"
+
+    # Invalid password in production
+    res_bad = client.post("/auth/login", json={"username": "admin", "password": "wrongpassword"})
+    assert res_bad.status_code == 401
+    assert res_bad.json()["code"] == "invalid_credentials"
+
+    # Unknown user in production
+    res_unknown = client.post("/auth/login", json={"username": "unknown_user", "password": "demo123"})
+    assert res_unknown.status_code == 401
+    assert res_unknown.json()["code"] == "invalid_credentials"
+

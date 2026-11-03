@@ -1,6 +1,9 @@
-import adapter from '@sveltejs/adapter-auto';
+import adapterAuto from '@sveltejs/adapter-auto';
+import adapterNode from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
+
+declare const process: { env: Record<string, string | undefined> };
 
 export default defineConfig({
 	plugins: [
@@ -11,7 +14,7 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 
-			adapter: adapter()
+			adapter: process.env.VERCEL ? adapterAuto() : adapterNode()
 		})
 	]
 });

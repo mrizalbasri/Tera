@@ -22,9 +22,7 @@ class Settings(BaseSettings):
     demo_mode: bool = False
     frontend_origin: str = "http://localhost:5173"
     secret_key: str = "tera-secret-key-change-in-production"
-    admin_users: str = "admin,reviewer,finance,admin@tera.id,reviewer@tera.id,finance@tera.id"
-    clerk_issuer: str = ""
-    clerk_admin_user_ids: str = ""
+    admin_users: str = "admin,reviewer,finance,finance@tera.id"
     storage_backend: Literal["memory", "sql"] = "memory"
     database_url: str = "postgresql+psycopg://postgres:change_me@127.0.0.1:5432/tera"
     graph_checkpoint_path: str = "./expense_agent_checkpoints.db"
@@ -109,7 +107,7 @@ class Settings(BaseSettings):
                     raise ValueError(f"production requires a non-placeholder {name}")
                 if name == "frontend_origin" and (value.path not in ("", "/") or value.query or value.fragment):
                     raise ValueError(f"{name} must be an origin without a path, query, or fragment")
-            admin_ids = [value.strip() for value in (self.admin_users + (f",{self.clerk_admin_user_ids}" if self.clerk_admin_user_ids else "")).split(",") if value.strip()]
+            admin_ids = [value.strip() for value in self.admin_users.split(",") if value.strip()]
             if not admin_ids or any(_is_placeholder(val) for val in admin_ids):
                 raise ValueError("production requires configured admin users")
         return self

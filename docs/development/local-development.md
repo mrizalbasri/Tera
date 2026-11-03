@@ -60,8 +60,7 @@ masing-masing. Jangan menimpa `.env` lokal yang sudah dikonfigurasi.
 | --- | --- | --- |
 | Backend | `DEMO_MODE`, `ENVIRONMENT` | Untuk mencoba tanpa login, set `DEMO_MODE=true` dan `ENVIRONMENT=development`; demo memaksa memory, mock, kebijakan local, dan anomali rules |
 | Backend | `FRONTEND_ORIGIN` | Origin frontend untuk pemeriksaan permintaan; default `http://localhost:5173` |
-| Backend | `CLERK_ISSUER`, `CLERK_ADMIN_USER_IDS` | Mode normal: issuer Clerk yang cocok dengan frontend dan daftar user ID admin dipisahkan koma; daftar kosong tidak memberi akses admin |
-| Frontend | `VITE_CLERK_PUBLISHABLE_KEY` | Mode normal: publishable key dari instance Clerk yang sama |
+| Backend | `SECRET_KEY`, `ADMIN_USERS` | Mode normal: kunci rahasia JWT dan daftar nama pengguna admin dipisahkan koma |
 | Frontend | `BACKEND_URL` | Origin FastAPI, default `http://127.0.0.1:8000`; hanya digunakan server |
 | Backend | `STORAGE_BACKEND`, `DATABASE_URL`, `GRAPH_CHECKPOINT_SCHEMA` | Pilih `memory` atau `sql`; mode SQL membutuhkan URL database dan schema checkpoint |
 | Backend | `PROVIDER_MODE` | Default `mock`; pilih `live` untuk ekstraksi model vision |
@@ -84,7 +83,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
-# Untuk percobaan lokal tanpa Clerk, ubah DEMO_MODE=true dan ENVIRONMENT=development di .env.
+# Untuk percobaan lokal tanpa login, ubah DEMO_MODE=true dan ENVIRONMENT=development di .env.
 uvicorn app.main:app --reload
 ```
 

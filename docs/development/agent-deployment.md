@@ -6,9 +6,9 @@ Paket ini mempertahankan SvelteKit 2 dengan adapter-node 5.5.7, FastAPI dan Post
 
 1. Siapkan PostgreSQL terpisah serta host/domain HTTPS. Tujuan hosting publik belum diberikan pada pekerjaan ini.
 2. Salin `docker/backend.production.env.example` menjadi `docker/backend.production.env`, lalu isi konfigurasi sendiri. File hasil salinan diabaikan Git. Jangan menaruh secret di perintah shell atau commit.
-3. Tentukan `VITE_CLERK_PUBLISHABLE_KEY` dan `FRONTEND_ORIGIN` di environment proses Compose. Publishable key adalah konfigurasi publik yang tertanam saat build; secret key Clerk tidak digunakan aplikasi ini.
+3. Tentukan `FRONTEND_ORIGIN` dan variabel backend di environment proses Compose.
 4. Jalankan `docker compose -f docker/compose.app.yaml build`, lalu `docker compose -f docker/compose.app.yaml up -d`. Job migrate menyelesaikan migrasi sebelum backend berjalan. Frontend menunggu backend sehat.
-5. Reverse proxy HTTPS mengarah ke frontend pada loopback port 3000. Backend loopback port 8000 dapat dipakai untuk monitor internal; jangan mengekspos database ke publik. Origin frontend, proxy, dan Clerk harus sesuai.
+5. Reverse proxy HTTPS mengarah ke frontend pada loopback port 3000. Backend loopback port 8000 dapat dipakai untuk monitor internal; jangan mengekspos database ke publik. Origin frontend dan proxy harus sesuai.
 6. Verifikasi `/api/health/ready`, login pengguna, hak karyawan/admin, unggah, klarifikasi, review, notifikasi, pengelolaan kebijakan dan CSV. HTTP/build berhasil belum membuktikan login akun nyata atau seluruh alur production.
 
 Image backend default memasang `requirements-runtime.txt` untuk mode kebijakan local dan anomali rules. Instalasi pengembangan `pip install -r requirements.txt` tetap menyertakan pytest dan model lokal seperti sebelumnya. Untuk RAG/ML lokal pada image, build dengan `--build-arg LOCAL_MODELS=true`, siapkan model/indeks secara eksplisit, lalu konfigurasikan mode dan cache. Volume `/app/data/local` menyimpan artefak lokal. Mengaktifkan RAG/ML tanpa model/index tidak dianggap deployment siap. Image default tidak mengunduh model saat request.
@@ -45,6 +45,6 @@ Untuk QA, jalankan backend terpisah dengan `DEMO_MODE=true` pada loopback dan fr
 
 ## Login dan UAT
 
-Pengujian JWT sintetis memeriksa otorisasi, bukan keberhasilan login browser pada akun nyata. Login/OTP diselesaikan pemilik akun di UI. Pengujian otomatis Clerk yang membutuhkan sesi memakai test instance dan token pengujian sesuai [panduan Clerk](https://clerk.com/docs/guides/development/testing/overview); jangan menyalin sesi production ke fixture.
+Pengujian JWT sintetis memeriksa otorisasi, bukan keberhasilan login browser pada akun nyata. Login diselesaikan pengguna melalui form login di UI.
 
 Gunakan [panduan UAT](agent-uat.md) untuk sesi karyawan dan finance. Sesi yang belum dilakukan tidak dicatat sebagai lulus. Pembayaran, akuntansi dan approval bertingkat tetap di luar scope.

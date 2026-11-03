@@ -59,9 +59,7 @@ def get_token_role(token: str, settings: Settings) -> str:
 def is_admin(user_id: str, settings: Settings) -> bool:
     if settings.demo_mode:
         return True
-    admin_spec = getattr(settings, "admin_users", "") or getattr(settings, "clerk_admin_user_ids", "")
+    admin_spec = getattr(settings, "admin_users", "")
     allowed = {value.strip().lower() for value in admin_spec.split(",") if value.strip()}
     norm_user = user_id.strip().lower()
-    if norm_user in allowed:
-        return True
-    return any(norm_user.startswith(prefix) for prefix in ("admin", "reviewer", "finance"))
+    return norm_user in allowed

@@ -131,3 +131,50 @@ def test_review_uses_verified_identity(auth_client):
     response = client.post(f"/reviews/{claim_id}/decision", json={"action": "approve", "reason": "Synthetic evidence checked", "reviewer_reference": "impersonated-user"})
     assert response.status_code == 200, response.text
     assert response.json()["review"]["reviewer_reference"] == ADMIN_USER
+
+
+def test_login_invalid_password_rejected(auth_client):
+    client, _, _ = auth_client
+    res = client.post("/auth/login", json={"username": ADMIN_USER, "password": "wrongpassword"})
+    assert res.status_code == 401
+    assert res.json()["code"] == "invalid_credentials"
+
+    res_empty = client.post("/auth/login", json={"username": ADMIN_USER, "password": ""})
+    assert res_empty.status_code == 401
+
+
+def test_login_cannot_self_assign_admin(auth_client):
+    client, _, _ = auth_client
+    # Non-admin user attempts to claim role=admin
+    res = client.post("/auth/login", json={"username": MEMBER_USER, "password": "demo123", "role": "admin"})
+    assert res.status_code == 200
+    assert res.json()["role"] == "member"
+
+
+def test_prefix_username_not_admin(auth_client):
+    client, settings, _ = auth_client
+    settings.admin_users = "admin,reviewer,finance"
+    # User starting with 'admin' or 'finance' prefix but not exact match
+    res = client.post("/auth/login", json={"username": "administrator_imposter", "password": "demo123"})
+    assert res.status_code == 200
+    assert res.json()["role"] == "member"
+
+
+def test_login_production_credentials_check(auth_client):
+    client, settings, _ = auth_client
+    settings.environment = "production"
+    # Valid demo credentials in production
+    res = client.post("/auth/login", json={"username": "admin", "password": "demo123"})
+    assert res.status_code == 200
+    assert res.json()["username"] == "admin"
+
+    # Invalid password in production
+    res_bad = client.post("/auth/login", json={"username": "admin", "password": "wrongpassword"})
+    assert res_bad.status_code == 401
+    assert res_bad.json()["code"] == "invalid_credentials"
+
+    # Unknown user in production
+    res_unknown = client.post("/auth/login", json={"username": "unknown_user", "password": "demo123"})
+    assert res_unknown.status_code == 401
+    assert res_unknown.json()["code"] == "invalid_credentials"
+

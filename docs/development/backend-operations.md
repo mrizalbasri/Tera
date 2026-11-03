@@ -7,12 +7,10 @@ Jalankan perintah dari `backend/` dengan interpreter yang memiliki dependensi
 
 Untuk production, isi `ENVIRONMENT=production`, `STORAGE_BACKEND=sql`, URL
 PostgreSQL dengan kredensial sendiri, `PROVIDER_MODE=live`, API key provider,
-origin frontend HTTPS, issuer Clerk HTTPS, dan ID admin. Mock, memory, SQLite,
+origin frontend HTTPS, secret key JWT yang aman, dan daftar ID admin di `ADMIN_USERS`. Mock, memory, SQLite,
 fallback mock, demo, serta kredensial contoh ditolak sebelum aplikasi berjalan.
 Nilai `REPLACE_WITH_*`, `your-*`, model kosong dan domain `example.com/org/net`
-juga ditolak. Setiap ID pada `CLERK_ADMIN_USER_IDS` harus berbentuk `user_...`
-dari Clerk, bukan email atau nama pengguna. Mengisi file contoh tanpa mengganti
-placeholder tidak menghasilkan konfigurasi production yang dapat dijalankan.
+juga ditolak. Mengisi file contoh tanpa mengganti placeholder tidak menghasilkan konfigurasi production yang dapat dijalankan.
 
 Sebelum menjalankan versi baru:
 

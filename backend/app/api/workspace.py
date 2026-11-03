@@ -29,19 +29,6 @@ def policies(settings: Settings = Depends(get_settings)) -> PolicyVersionService
 @router.get("/notifications")
 def inbox(actor: ClaimActor = Depends(get_claim_actor), service: NotificationService = Depends(notifications),
           limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)) -> dict:
-    # Reconcile durable state after restarts; never invoke the model or process a claim here.
-    filters = ClaimFilter(employee_id=None if actor.admin else actor.user_id)
-    cursor = 0
-    while batch := service.backend.claims.page(filters, limit=200, offset=cursor):
-        for claim in batch:
-            resources = graph_resources(service.backend, service.settings)
-            try:
-                with resources.claim_lock(claim.id, timeout=0), resources.transaction():
-                    service.sync_claim(claim.id)
-            except ApplicationError as exc:
-                if exc.code != "claim_busy":
-                    raise
-        cursor += len(batch)
     items = service.inbox(actor.user_id, limit=limit, offset=offset)
     return {"items": items, "limit": limit, "offset": offset}
 

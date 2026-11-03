@@ -180,10 +180,11 @@ def get_claim(
     claim = claims.get(claim_id)
     if claim is None:
         raise NotFoundError("Claim", str(claim_id))
-    receipt_ids = [receipt.id for receipt in receipts.list_for_claim(claim_id)]
+    claim_receipts = list(receipts.list_for_claim(claim_id))
+    receipt_ids = [receipt.id for receipt in claim_receipts]
     return ClaimDetailResponse(
         claim=claim,
-        receipts=list(receipts.list_for_claim(claim_id)),
+        receipts=claim_receipts,
         extractions=list(extractions.list_for_receipts(receipt_ids)),
         attempts=list(attempts.list_for_claim(claim_id)),
         validation_findings=list(findings.list_for_claim(claim_id)),

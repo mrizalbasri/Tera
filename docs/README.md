@@ -38,7 +38,7 @@ teknis. Tautan di halaman ini dapat dibuka di GitHub maupun Obsidian.
 ## Pengembangan dan operasional
 
 - [Pengembangan lokal](development/local-development.md) — struktur repo, environment, backend/frontend, dan tes.
-- [Login dan akses](admin-login.md) — Clerk, peran, dan mode demo.
+- [Login dan akses](admin-login.md) — Sesi JWT, peran, dan mode demo.
 - [PostgreSQL dan pgvector](development/pgvector.md) — instalasi lokal, seed kebijakan, dan verifikasi.
 - [ML anomaly scoring](development/ml-anomaly.md) — training sintetis, evaluasi, dan aktivasi.
 - [Operasional backend](development/backend-operations.md) — migrasi, recovery, batas layanan, dan monitoring.

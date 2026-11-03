@@ -10,6 +10,9 @@ on:
 jobs:
   frontend:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     defaults:
       run:
         working-directory: frontend
@@ -22,7 +25,16 @@ jobs:
         with:
           package_json_file: frontend/package.json
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - run: pnpm run test:coverage
+      - name: Upload frontend coverage to Codecov
+        if: ${{ !cancelled() && hashFiles('frontend/coverage/lcov.info') != '' }}
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        with:
+          use_oidc: true
+          files: frontend/coverage/lcov.info
+          disable_search: true
+          flags: frontend
+          fail_ci_if_error: true
       - run: pnpm check
       - run: pnpm build
       - name: Install Playwright browsers

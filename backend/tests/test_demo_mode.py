@@ -26,14 +26,14 @@ def test_demo_forces_isolated_storage_and_mock_providers():
     assert graph_resources(_backend(settings), settings).connection is None
 
 
-def test_demo_needs_no_clerk_and_disabled_demo_restores_auth(monkeypatch):
+def test_demo_needs_no_auth_and_disabled_demo_restores_auth(monkeypatch):
     app.dependency_overrides.pop(require_admin, None)
     app.dependency_overrides.pop(get_claim_actor, None)
     settings = Settings(_env_file=None, demo_mode=True)
     app.dependency_overrides[get_settings] = lambda: settings
-    def no_clerk(*args):
-        pytest.fail("demo must not contact Clerk")
-    monkeypatch.setattr("app.api.auth.verify_session", no_clerk)
+    def no_auth(*args):
+        pytest.fail("demo must not verify session")
+    monkeypatch.setattr("app.api.auth.verify_session", no_auth)
     with TestClient(app) as client:
         assert client.get("/auth/session").json() == {"username": "demo-reviewer", "role": "admin", "demo_mode": True}
         for path in ("/reviews", "/reports/summary", "/reports/claims.csv"):

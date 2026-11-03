@@ -14,7 +14,7 @@ Implementasi aplikasi: `64768a7d89da7e28c630ee398ecf40ba7b078760`. Perluasan ver
 | Dump/restore | **passed**, 2 klaim; nota, keputusan, checkpoint, notifikasi, 6 versi kebijakan dan vector-schema probe pulih | Dua database disposable; versi custom efektif tetap v2; replay tidak menduplikasi keputusan |
 | Docker | Kedua image berhasil dibangun; backend **healthy** | Default runtime local/rules; model ML/RAG opsional memerlukan provisioning sendiri |
 | Smoke container akhir | Readiness dan halaman notifikasi/kebijakan/laporan HTTP **200**; 3 fixture berakhir approved/needs_clarification/escalated melalui proxy frontend | Demo memory pada loopback 5177, bukan deployment publik |
-| Audit antarmuka | **0 temuan baru** pada scope yang diperiksa | [Audit after](../../anti-slop/audit-001-2026-10-23.md), viewport 1440×1000 dan 375×812 |
+| Audit antarmuka | **0 temuan baru** pada scope yang diperiksa | [Audit after](./ui-audit-2026-10-23.md), viewport 1440×1000 dan 375×812 |
 
 Evaluator offline mencatat revision `64768a7` dan `working_tree_dirty=true` karena dokumen/perubahan lokal masih ada. Latensi mock p50 11 ms dan p95 117 ms pada run tersebut tidak mewakili latensi provider live. Dua kasus error yang diharapkan termasuk dalam 18 kasus, bukan dihapus dari denominator. Output JSON rinci ada pada `backend/data/local/evaluation/` yang diabaikan Git.
 

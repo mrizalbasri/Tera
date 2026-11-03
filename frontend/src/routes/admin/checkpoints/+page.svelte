@@ -152,7 +152,7 @@
 							<td>{cp.employee_id}</td>
 							<td>{formatCurrency(cp.declared_amount, cp.currency)}</td>
 							<td>
-								<StatusBadge status={cp.status as any} size="sm" />
+								<StatusBadge status={cp.status} size="sm" />
 							</td>
 							<td>
 								<span class="stage-tag {cp.stage ?? 'unknown'}">
@@ -244,7 +244,7 @@
 						<div class="snapshot-grid">
 							<div class="snap-card">
 								<span class="snap-label">Status Klaim</span>
-								<span class="snap-val"><StatusBadge status={detail.status as any} size="sm" /></span>
+								<span class="snap-val"><StatusBadge status={detail.status} size="sm" /></span>
 							</div>
 							<div class="snap-card">
 								<span class="snap-label">Stage Saat Ini</span>

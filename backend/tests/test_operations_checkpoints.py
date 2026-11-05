@@ -1,10 +1,8 @@
 from io import BytesIO
-from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api import deps
 from app.api.auth import require_admin
 from app.config import Settings, get_settings
 from app.main import app

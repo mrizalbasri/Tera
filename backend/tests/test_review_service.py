@@ -4,10 +4,10 @@ from datetime import UTC, datetime
 from uuid import uuid4
 import pytest
 
-from app.domain.enums import ClaimStatus, DecisionOutcome, ReviewStatus
+from app.domain.enums import ClaimStatus, ReviewStatus
 from app.errors import ApplicationError, NotFoundError
 from app.repositories.memory import InMemoryRepositories
-from app.schemas.core import Claim, Decision, Review
+from app.schemas.core import Claim, Review
 from app.services.review import ReviewService
 
 

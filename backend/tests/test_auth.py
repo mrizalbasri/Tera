@@ -10,7 +10,6 @@ from app.api.auth import require_admin
 from app.api.claim_access import get_claim_actor
 from app.config import get_settings
 from app.main import app
-from app.services.auth import create_session_token
 
 USER = "admin_user"
 ADMIN_USER = USER

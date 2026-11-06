@@ -20,6 +20,8 @@ const backend = createServer((req, res) => {
   res.setHeader('content-type', 'application/json');
   if (req.url.startsWith('/auth/session')) return res.end(JSON.stringify({ username: 'synthetic', role: 'admin', demo_mode: true }));
   if (req.url.startsWith('/reviews')) return res.end(JSON.stringify({ items: fixtures.map(d => ({ claim: d.claim, review: { id: `review-${d.claim.id}`, status: 'open' }, signals: [], decision: null })), total: 2, snapshot: 'a'.repeat(64) }));
+  if (req.url.startsWith('/claims?')) return res.end(JSON.stringify({ items: fixtures.map(d => d.claim), total: fixtures.length }));
+  if (/^\/claims\/[^/]+\/(timeline|clarifications)$/.test(req.url)) return res.end(JSON.stringify({ items: [] }));
   const d = fixtures.find(d => req.url === `/claims/${d.claim.id}`);
   if (d) return res.end(JSON.stringify(d));
   res.statusCode = 404; res.end('{}');
@@ -109,6 +111,31 @@ const backend = createServer((req, res) => {
       assert.equal(await page.getByRole('heading', { name: `Klaim ${B}`, exact: true }).count(), 1);
       await page.getByRole('button', { name: 'Setujui klaim', exact: true }).waitFor();
       await page.unroute(endpoint);
+    });
+    await check('history matches OCR to the selected receipt after a replacement', async () => {
+      const claim = detail(A);
+      claim.extractions.pop();
+      await page.route(`**/api/claims/${A}`, route => route.fulfill({ json: claim }));
+      await page.goto(`http://127.0.0.1:13001/riwayat/${A}`);
+      await page.getByRole('img', { name: 'Bukti nota synthetic-2.png' }).waitFor();
+      assert.equal(await page.getByText('Vendor A1').count(), 0);
+      await page.getByLabel('Pilih nota').selectOption(`${A}-1`);
+      await page.getByRole('img', { name: 'Bukti nota synthetic-1.png' }).waitFor();
+      await page.getByText('Vendor A1').waitFor();
+      await page.unroute(`**/api/claims/${A}`);
+    });
+    await check('a missing timeline leaves claim evidence accessible and can be retried', async () => {
+      const endpoint = `**/api/claims/${B}/timeline`;
+      await page.route(endpoint, route => route.fulfill({ status: 404, json: {} }));
+      await page.goto(`http://127.0.0.1:13001/admin/claims/${B}`);
+      await page.getByRole('img', { name: 'Bukti nota synthetic-2.png' }).waitFor({ timeout: 3000 });
+      await page.getByText('Vendor B2').waitFor();
+      await page.getByText('Jejak pemeriksaan gagal dimuat.').waitFor();
+      await page.unroute(endpoint);
+      const retried = page.waitForResponse(endpoint);
+      await page.getByRole('button', { name: 'Muat ulang jejak pemeriksaan' }).click();
+      assert.equal((await retried).status(), 200);
+      await page.getByText('Jejak pemeriksaan gagal dimuat.').waitFor({ state: 'hidden' });
     });
     console.log(JSON.stringify(results, null, 2));
     process.exitCode = results.every(r => r.passed) ? 0 : 1;

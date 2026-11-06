@@ -22,14 +22,27 @@
 	const historyPath = $derived(page.data.financeWorkspace ? '/admin/claims' : '/riwayat');
 
 	let detail = $state<ClaimDetailResponse | null>(null);
-	let clarifications = $state<Clarification[]>([]);
+	let clarificationRequest = $state<Promise<{ items: Clarification[] }>>();
+	let historyRequest = $state<Promise<Claim[]>>();
+	let timelineRequest = $state<Promise<void>>();
 	let timeline = $state<TimelineEntry[]>([]);
-	let employeeHistory = $state<Claim[]>([]);
 	let loading = $state(true);
 	let loadError = $state<string | null>(null);
 	let notFound = $state(false);
 	let receiptRotation = $state(0);
 	let isReceiptZoomed = $state(false);
+	let selectedReceiptId = $state('');
+
+	function loadHistory(claim: Claim) {
+		historyRequest = listClaims(claim.employee_id).then(({ items }) =>
+			items.filter((item) => item.id !== claim.id)
+				.sort((a, b) => b.submitted_at.localeCompare(a.submitted_at))
+		);
+	}
+
+	function loadTimeline(claimId: string) {
+		timelineRequest = getClaimTimeline(claimId).then(({ items }) => { timeline = items; });
+	}
 
 	function rotateReceipt() {
 		receiptRotation = (receiptRotation + 90) % 360;
@@ -52,16 +65,9 @@
 
 		try {
 			detail = await getClaim(id as string);
-			const historyResponse = await listClaims(detail.claim.employee_id);
-			employeeHistory = historyResponse.items
-				.filter((item) => item.id !== detail?.claim.id)
-				.sort((a, b) => b.submitted_at.localeCompare(a.submitted_at));
-			// FR-15: konteks percakapan hanya dari respons API yang diotorisasi
-			const clarificationResponse = await listClarifications(id as string);
-			clarifications = clarificationResponse.items;
-			// FR-12: urutan kerja agent dari endpoint timeline backend
-			const timelineResponse = await getClaimTimeline(id as string);
-			timeline = timelineResponse.items;
+			loadHistory(detail.claim);
+			clarificationRequest = listClarifications(detail.claim.id);
+			loadTimeline(detail.claim.id);
 		} catch (error) {
 			if (error instanceof ApiError && (error.status === 404 || error.code === 'not_found')) {
 				notFound = true;
@@ -76,8 +82,8 @@
 	onMount(load);
 
 	const claim = $derived(detail?.claim ?? null);
-	const receipt = $derived(detail?.receipts.at(-1) ?? null);
-	const extraction = $derived(detail?.extractions.at(-1) ?? null);
+	const receipt = $derived(detail?.receipts.find((item) => item.id === selectedReceiptId) ?? detail?.receipts.at(-1));
+	const extraction = $derived(detail?.extractions.findLast((item) => item.receipt_id === receipt?.id));
 	const attempts = $derived(detail?.attempts ?? []);
 	const validationFindings = $derived(detail?.validation_findings ?? []);
 	const policyEvaluations = $derived(detail?.policy_evaluations ?? []);
@@ -172,6 +178,17 @@
 					{/if}
 				</div>
 
+				{#if detail && detail.receipts.length > 1}
+					<label for="history-receipt">Pilih nota</label>
+					<select id="history-receipt" value={receipt?.id} onchange={(event) => {
+						selectedReceiptId = event.currentTarget.value;
+						receiptRotation = 0;
+					}}>
+						{#each detail.receipts as item (item.id)}
+							<option value={item.id}>{item.original_filename}</option>
+						{/each}
+					</select>
+				{/if}
 				{#if receipt}
 					<div class="receipt-display-frame">
 						{#if receipt.media_type.startsWith('image/')}
@@ -275,7 +292,7 @@
 								<div class="info-row">
 									<span class="info-label">{item.label}</span>
 									<span class="info-val field-value">
-										{item.isCurrency
+								{item.value == null ? 'Belum terbaca' : item.isCurrency
 											? formatCurrency(item.value)
 											: item.isDate
 												? formatDate(String(item.value))
@@ -312,6 +329,10 @@
 							</ul>
 						{/if}
 					</div>
+				{/if}
+
+				{#if receipt && !extraction}
+					<div class="glass-panel"><h3>Hasil pembacaan nota</h3><p>Belum ada hasil pembacaan untuk nota ini.</p></div>
 				{/if}
 
 				{#if attempts.length}
@@ -398,82 +419,103 @@
 					{/if}
 				</div>
 
-				{#if timeline.length}
-					<div class="glass-panel">
-						<h3>Jejak pemeriksaan</h3>
-						<p class="scope-note">Aktivitas tersimpan sesuai urutan proses.</p>
-						<details><summary>Lihat {timeline.length} aktivitas</summary>
-						<ol class="timeline-list">
-							{#each timeline as entry (entry.sequence)}
-								{@const tone = timelineTone(entry.status)}
-								<li class="timeline-entry">
-									<span class="timeline-glyph {tone}" aria-hidden="true">{timelineGlyph(tone)}</span>
-									<div class="timeline-body">
-										<div class="timeline-head">
-											<strong>{describeTimelineStep(entry.step_name).label}</strong>
-											<span class="timeline-status {tone}">{entry.status}</span>
+				{#await timelineRequest}
+					<p role="status">Memuat jejak pemeriksaan...</p>
+				{:then}
+					{#if timeline.length}
+						<div class="glass-panel">
+							<h3>Jejak pemeriksaan</h3>
+							<p class="scope-note">Aktivitas tersimpan sesuai urutan proses.</p>
+							<details><summary>Lihat {timeline.length} aktivitas</summary>
+							<ol class="timeline-list">
+								{#each timeline as entry (entry.sequence)}
+									{@const tone = timelineTone(entry.status)}
+									<li class="timeline-entry">
+										<span class="timeline-glyph {tone}" aria-hidden="true">{timelineGlyph(tone)}</span>
+										<div class="timeline-body">
+											<div class="timeline-head">
+												<strong>{describeTimelineStep(entry.step_name).label}</strong>
+												<span class="timeline-status {tone}">{entry.status}</span>
+											</div>
+											<p class="timeline-summary">{entry.summary}</p>
+											<div class="timeline-meta">
+												<span>#{entry.sequence}</span>
+												{#if entry.timestamp}<span>{formatDateTime(entry.timestamp)}</span>{/if}
+												{#if formatDuration(entry.duration_ms)}<span>{formatDuration(entry.duration_ms)}</span>{/if}
+												{#if entry.error_code}<span class="timeline-error">{describeReasonCode(entry.error_code).label}</span>{/if}
+											</div>
 										</div>
-										<p class="timeline-summary">{entry.summary}</p>
-										<div class="timeline-meta">
-											<span>#{entry.sequence}</span>
-											{#if entry.timestamp}<span>{formatDateTime(entry.timestamp)}</span>{/if}
-											{#if formatDuration(entry.duration_ms)}<span>{formatDuration(entry.duration_ms)}</span>{/if}
-											{#if entry.error_code}<span class="timeline-error">{describeReasonCode(entry.error_code).label}</span>{/if}
-										</div>
-									</div>
-								</li>
-							{/each}
-						</ol>
-						</details>
-					</div>
-				{/if}
+									</li>
+								{/each}
+							</ol>
+							</details>
+						</div>
+					{/if}
+				{:catch}
+					<div class="glass-panel"><p role="alert">Jejak pemeriksaan gagal dimuat.</p>
+						<button type="button" onclick={() => loadTimeline(claim.id)}>Muat ulang jejak pemeriksaan</button></div>
+				{/await}
 
-				{#if clarifications.length}
-					<div class="glass-panel">
-						<h3>Riwayat klarifikasi</h3>
-						<p class="scope-note">Pertanyaan dan jawaban yang tercatat pada klaim ini.</p>
-						<ol class="clarification-list">
-							{#each clarifications as item (item.id)}
-								<li class="clarification-item">
-									<div class="clarification-entry agent-entry">
-										<span class="entry-author">Agent · {formatDateTime(item.created_at)}</span>
-										<p>{item.question}</p>
-									</div>
-									{#if item.answer}
-										<div class="clarification-entry user-entry">
-											<span class="entry-author">Karyawan · {formatDateTime(item.answered_at)}</span>
-											<p>{item.answer}</p>
+				{#await clarificationRequest}
+					<p role="status">Memuat riwayat klarifikasi...</p>
+				{:then response}
+					{#if response?.items.length}
+						<div class="glass-panel">
+							<h3>Riwayat klarifikasi</h3>
+							<p class="scope-note">Pertanyaan dan jawaban yang tercatat pada klaim ini.</p>
+							<ol class="clarification-list">
+								{#each response.items as item (item.id)}
+									<li class="clarification-item">
+										<div class="clarification-entry agent-entry">
+											<span class="entry-author">Agent · {formatDateTime(item.created_at)}</span>
+											<p>{item.question}</p>
 										</div>
-									{:else if item.status === 'open'}
-										<div class="clarification-entry pending-entry">
-											<span class="entry-author">Menunggu jawaban</span>
-											{#if !page.data.financeWorkspace}<a href={`/claims/${claim.id}/clarification`}>Jawab klarifikasi</a>{:else}<span>Menunggu jawaban karyawan</span>{/if}
-										</div>
-									{/if}
-								</li>
-							{/each}
-						</ol>
-					</div>
-				{/if}
+										{#if item.answer}
+											<div class="clarification-entry user-entry">
+												<span class="entry-author">Karyawan · {formatDateTime(item.answered_at)}</span>
+												<p>{item.answer}</p>
+											</div>
+										{:else if item.status === 'open'}
+											<div class="clarification-entry pending-entry">
+												<span class="entry-author">Menunggu jawaban</span>
+												{#if !page.data.financeWorkspace}<a href={`/claims/${claim.id}/clarification`}>Jawab klarifikasi</a>{:else}<span>Menunggu jawaban karyawan</span>{/if}
+											</div>
+										{/if}
+									</li>
+								{/each}
+							</ol>
+						</div>
+					{/if}
+				{:catch}
+					<div class="glass-panel"><p role="alert">Riwayat klarifikasi gagal dimuat.</p>
+						<button type="button" onclick={() => { clarificationRequest = listClarifications(claim.id); }}>Muat ulang klarifikasi</button></div>
+				{/await}
 
 				<div class="glass-panel">
 					<h3>Klaim lain dari karyawan ini</h3>
 					<p class="scope-note">
 						Pengajuan sebelumnya sebagai konteks tambahan untuk pemeriksaan.
 					</p>
-					{#if employeeHistory.length}
-						<ul class="history-list">
-							{#each employeeHistory as item (item.id)}
-								<li class="history-item">
-									<a href={`${historyPath}/${item.id}`}>{shortClaimRef(item.id)}</a>
-									<span>{formatDateTime(item.submitted_at)}</span>
-									<StatusBadge status={item.status} size="sm" />
-								</li>
-							{/each}
-						</ul>
-					{:else}
-						<p class="scope-note">Belum ada klaim historis lain untuk karyawan ini.</p>
-					{/if}
+					{#await historyRequest}
+						<p role="status">Memuat riwayat klaim...</p>
+					{:then employeeHistory}
+						{#if employeeHistory?.length}
+							<ul class="history-list">
+								{#each employeeHistory as item (item.id)}
+									<li class="history-item">
+										<a href={`${historyPath}/${item.id}`}>{shortClaimRef(item.id)}</a>
+										<span>{formatDateTime(item.submitted_at)}</span>
+										<StatusBadge status={item.status} size="sm" />
+									</li>
+								{/each}
+							</ul>
+						{:else}
+							<p class="scope-note">Belum ada klaim historis lain untuk karyawan ini.</p>
+						{/if}
+					{:catch}
+						<p role="alert">Riwayat klaim gagal dimuat.</p>
+						<button type="button" onclick={() => loadHistory(claim)}>Muat ulang riwayat klaim</button>
+					{/await}
 				</div>
 			</div>
 		</div>

@@ -6,7 +6,7 @@
 
 	let username = $state('');
 	let password = $state('');
-	let role = $state<'member' | 'admin'>('admin');
+	let showPassword = $state(false);
 	let busy = $state(false);
 	let error = $state('');
 
@@ -31,22 +31,8 @@
 		busy = true;
 		error = '';
 		try {
-			const session = await login(username.trim(), password, role);
-			window.location.replace(session.role === 'admin' ? '/reviews' : '/pengajuan');
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Login gagal. Coba lagi.';
-			busy = false;
-		}
-	}
-
-	async function quickLogin(targetUser: string, targetRole: 'member' | 'admin') {
-		if (busy) return;
-		username = targetUser;
-		role = targetRole;
-		busy = true;
-		error = '';
-		try {
-			const session = await login(targetUser, 'demo123', targetRole);
+			// Peran ditentukan backend dari akun; nilai 'member' hanya default aman.
+			const session = await login(username.trim(), password, 'member');
 			window.location.replace(session.role === 'admin' ? '/reviews' : '/pengajuan');
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Login gagal. Coba lagi.';
@@ -74,7 +60,7 @@
 					<header>
 						<span class="form-kicker">SELAMAT DATANG</span>
 						<h2>Masuk ke ruang kerjamu.</h2>
-						<p>Pilih peran cepat untuk demo atau masukkan akun Anda.</p>
+						<p>Gunakan akun kerja yang terdaftar di perusahaanmu.</p>
 					</header>
 
 					{#if error}
@@ -83,42 +69,6 @@
 							<span>{error}</span>
 						</div>
 					{/if}
-
-					<!-- Persona Quick Login for GTNIC Judges and Reviewers -->
-					<div class="persona-section">
-						<span class="persona-label">AKSES CEPAT PERAN</span>
-						<div class="persona-buttons">
-							<button
-								type="button"
-								class="persona-btn finance"
-								onclick={() => quickLogin('finance@tera.id', 'admin')}
-								disabled={busy}
-							>
-								<Icon name="shield" size={18} />
-								<div class="btn-text">
-									<strong>Reviewer / Finance</strong>
-									<small>finance@tera.id · Akses antrean & review</small>
-								</div>
-							</button>
-
-							<button
-								type="button"
-								class="persona-btn employee"
-								onclick={() => quickLogin('karyawan@tera.id', 'member')}
-								disabled={busy}
-							>
-								<Icon name="user" size={18} />
-								<div class="btn-text">
-									<strong>Karyawan</strong>
-									<small>karyawan@tera.id · Ajukan klaim nota</small>
-								</div>
-							</button>
-						</div>
-					</div>
-
-					<div class="divider">
-						<span>atau masuk manual</span>
-					</div>
 
 					<form onsubmit={handleSubmit} aria-busy={busy}>
 						<div class="field">
@@ -145,24 +95,24 @@
 								<input
 									id="login-password"
 									name="password"
-									type="password"
+									type={showPassword ? 'text' : 'password'}
 									autocomplete="current-password"
 									bind:value={password}
 									disabled={busy}
 									placeholder="Password"
 								/>
+								<button
+									class="password-toggle"
+									type="button"
+									aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+									aria-pressed={showPassword}
+									aria-controls="login-password"
+									disabled={busy}
+									onclick={() => { showPassword = !showPassword; }}
+								>
+									<Icon name={showPassword ? 'eye-off' : 'eye'} size={18} />
+								</button>
 							</div>
-						</div>
-
-						<div class="role-selector">
-							<label class="role-option">
-								<input type="radio" name="role" value="admin" bind:group={role} disabled={busy} />
-								<span>Tim Finance / Reviewer</span>
-							</label>
-							<label class="role-option">
-								<input type="radio" name="role" value="member" bind:group={role} disabled={busy} />
-								<span>Karyawan</span>
-							</label>
 						</div>
 
 						<button class="submit-button" type="submit" disabled={busy || !username.trim()}>
@@ -175,7 +125,7 @@
 
 			<p class="login-help">
 				<Icon name="shield" size={16} />
-				<span>Akses pemeriksaan dan persetujuan klaim otomatis terlindungi.</span>
+				<span>Sesi terenkripsi · akses sesuai peran · setiap keputusan tercatat</span>
 			</p>
 		</div>
 	</section>
@@ -183,40 +133,42 @@
 
 <style>
 	.login-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 100svh; }
-	.login-form-area { display: flex; align-items: center; justify-content: center; padding: 40px clamp(24px, 4vw, 64px); background: var(--color-paper); }
-	.login-content { width: 100%; max-width: 440px; }
-	.auth-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+	.login-form-area { display: flex; align-items: center; justify-content: center; padding: 24px clamp(20px, 3.5vw, 48px); background: var(--color-paper); overflow-y: auto; }
+	.login-content { width: 100%; max-width: 448px; margin: auto; }
+	.auth-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 	.auth-topline > span { font-size: 10px; font-weight: 600; letter-spacing: 1.2px; color: var(--color-text-muted); }
-	.login-back { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--color-text-muted); font-size: 12px; text-decoration: none; }
+	.login-back { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; color: var(--color-text-muted); font-size: 12px; text-decoration: none; transition: color var(--dur-short) ease; }
 	.login-back:hover { color: var(--color-primary); }
-	.auth-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 20px; box-shadow: var(--shadow-md); overflow: clip; }
-	.login-card { padding: 32px 28px; }
-	header { margin-bottom: 24px; }
-	.form-kicker { display: block; font-size: 10px; letter-spacing: 1.2px; color: var(--color-primary); font-weight: 700; margin-bottom: 8px; }
-	h2 { font-size: 26px; line-height: 1.25; letter-spacing: -.03em; margin: 0 0 8px; }
-	header p { color: var(--color-text-muted); font-size: 13px; margin: 0; line-height: 1.6; }
-	.sign-in-error { display: flex; align-items: center; gap: 10px; color: var(--color-danger); background: var(--color-danger-soft); padding: 12px 14px; border-left: 3px solid var(--color-danger); border-radius: 6px; font-size: 13px; margin-bottom: 20px; }
-	.persona-section { margin-bottom: 20px; }
-	.persona-label { display: block; font-size: 10px; font-weight: 700; letter-spacing: 1px; color: var(--color-text-muted); margin-bottom: 10px; }
-	.persona-buttons { display: flex; flex-direction: column; gap: 10px; }
-	.persona-btn { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-soft); cursor: pointer; text-align: left; transition: all 0.15s ease; color: var(--color-ink); }
-	.persona-btn:hover:not(:disabled) { border-color: var(--color-primary); background: var(--color-light); transform: translateY(-1px); }
-	.persona-btn.finance { border-left: 4px solid var(--color-primary); }
-	.persona-btn.employee { border-left: 4px solid var(--color-info, #2563eb); }
-	.btn-text strong { display: block; font-size: 13px; font-weight: 600; color: var(--color-ink); }
-	.btn-text small { display: block; font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
-	.divider { display: flex; align-items: center; gap: 12px; margin-block: 20px; color: var(--color-text-muted); font-size: 12px; }
-	.divider::before, .divider::after { content: ''; height: 1px; flex: 1; background: var(--color-border); }
-	.field { margin-bottom: 16px; }
-	.field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--color-ink); }
-	.input-wrap { display: flex; align-items: center; gap: 10px; padding: 0 14px; border: 1px solid var(--color-border-strong); background: var(--color-soft); border-radius: 8px; transition: border-color 0.15s ease; }
-	.input-wrap:focus-within { border-color: var(--color-primary); background: var(--color-surface); outline: 2px solid var(--color-primary); outline-offset: 1px; }
-	.input-wrap input { flex: 1; border: 0; background: transparent; min-height: 44px; font-size: 14px; outline: none; }
-	.role-selector { display: flex; gap: 16px; margin: 16px 0 24px; padding: 10px 14px; background: var(--color-soft); border-radius: 8px; border: 1px solid var(--color-border); }
-	.role-option { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
-	.role-option input { cursor: pointer; accent-color: var(--color-primary); }
-	.submit-button { width: 100%; min-height: 48px; border-radius: 8px; font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--color-primary); color: var(--color-inverse); border: none; cursor: pointer; transition: background 0.15s ease; }
-	.submit-button:hover:not(:disabled) { background: var(--color-primary-dark); }
-	.login-help { display: flex; justify-content: center; align-items: center; gap: 8px; color: var(--color-text-muted); font-size: 11px; margin: 24px 0 0; text-align: center; }
-	@media (max-width: 760px) { .login-page { display: flex; flex-direction: column; } .login-form-area { padding: 24px 20px 40px; } .auth-topline { margin-bottom: 12px; } }
+	.auth-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 16px; box-shadow: var(--shadow-md); overflow: clip; }
+	.login-card { padding: 28px 28px 24px; }
+	header { margin-bottom: 20px; }
+	.form-kicker { display: block; font-size: 10px; letter-spacing: 1.4px; color: var(--color-primary); font-weight: 700; margin-bottom: 8px; }
+	h2 { font-size: 24px; line-height: 1.22; letter-spacing: -.03em; margin: 0 0 6px; }
+	header p { color: var(--color-text-muted); font-size: 12.5px; margin: 0; line-height: 1.55; }
+	.sign-in-error { display: flex; align-items: center; gap: 10px; color: var(--color-danger); background: var(--color-danger-soft); padding: 10px 12px; border: 1px solid var(--color-danger); border-radius: 6px; font-size: 12px; margin-bottom: 16px; }
+	.field { margin-bottom: 14px; }
+	.field label { display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 6px; color: var(--color-ink); }
+	.input-wrap { position: relative; display: flex; align-items: center; overflow: clip; border: 1px solid var(--color-border-strong); background: var(--color-soft); border-radius: 10px; transition: border-color var(--dur-short) ease, background var(--dur-short) ease, box-shadow var(--dur-short) ease; }
+	.input-wrap > :global(svg) { position: absolute; left: 12px; z-index: 1; pointer-events: none; color: var(--color-text-muted); flex-shrink: 0; }
+	.input-wrap:focus-within { border-color: var(--color-primary); background: var(--color-surface); box-shadow: 0 0 0 3px var(--color-action-shadow); }
+	.login-page .input-wrap input { flex: 1; min-width: 0; width: 100%; border: 0; border-radius: 9px; padding: 0 12px 0 38px; background: transparent; min-height: 44px; font-size: 13.5px; outline: none; box-shadow: none; }
+	.login-page .input-wrap:has(.password-toggle) input { padding-right: 44px; }
+	.login-page .input-wrap input:-webkit-autofill, .login-page .input-wrap input:-webkit-autofill:hover { -webkit-box-shadow: 0 0 0 1000px var(--color-soft) inset !important; box-shadow: 0 0 0 1000px var(--color-soft) inset !important; -webkit-text-fill-color: var(--color-ink) !important; caret-color: var(--color-ink); }
+	.login-page .input-wrap:focus-within input:-webkit-autofill, .login-page .input-wrap:focus-within input:-webkit-autofill:focus { -webkit-box-shadow: 0 0 0 1000px var(--color-surface) inset !important; box-shadow: 0 0 0 1000px var(--color-surface) inset !important; -webkit-text-fill-color: var(--color-ink) !important; }
+	.login-page .password-toggle { position: absolute; right: 0; z-index: 1; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--color-text-muted); cursor: pointer; box-shadow: none; }
+	.login-page .password-toggle:hover:not(:disabled) { color: var(--color-primary); background: var(--color-action-shadow); }
+	.login-page .password-toggle:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -4px; }
+	.login-page .password-toggle:disabled { cursor: default; opacity: .5; }
+	.submit-button { width: 100%; min-height: 46px; margin-top: 4px; border-radius: 10px; font-size: 13.5px; font-weight: 650; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--color-primary-dark); color: var(--color-inverse); border: none; cursor: pointer; transition: background var(--dur-short) ease, transform var(--dur-short) var(--ease-out), box-shadow var(--dur-short) ease; box-shadow: 0 8px 20px var(--color-action-shadow); }
+	.submit-button:hover:not(:disabled) { background: var(--color-primary); transform: translateY(-1px); }
+	.submit-button:active:not(:disabled) { transform: translateY(0); }
+	.submit-button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+	.login-help { display: flex; justify-content: center; align-items: center; gap: 8px; color: var(--color-text-muted); font-size: 11px; margin: 18px 0 0; text-align: center; }
+	@media (max-width: 760px) { .login-page { display: flex; flex-direction: column; } .login-form-area { padding: 20px 16px 32px; } .auth-topline { margin-bottom: 12px; } .login-card { padding: 22px 20px 20px; } }
+	@media (max-width: 760px) and (max-height: 740px) {
+		.login-form-area { padding-block: 12px 20px; }
+		.login-card { padding: 16px 20px; }
+		header { margin-bottom: 14px; }
+		.login-help { margin-top: 12px; }
+	}
 </style>

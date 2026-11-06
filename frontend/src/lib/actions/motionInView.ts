@@ -1,8 +1,7 @@
 export function motionInView(node: Element) {
-	const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
 	let inView = false;
 	const update = () => {
-		node.classList.toggle('motion-active', inView && !document.hidden && !preference.matches);
+		node.classList.toggle('motion-active', inView && !document.hidden);
 	};
 	const observer = new IntersectionObserver(([entry]) => {
 		inView = entry.isIntersecting;
@@ -10,13 +9,11 @@ export function motionInView(node: Element) {
 	});
 	observer.observe(node);
 	document.addEventListener('visibilitychange', update);
-	preference.addEventListener('change', update);
 
 	return {
 		destroy() {
 			observer.disconnect();
 			document.removeEventListener('visibilitychange', update);
-			preference.removeEventListener('change', update);
 		}
 	};
 }

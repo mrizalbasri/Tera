@@ -477,6 +477,31 @@
 	.search-box input:focus-visible { outline: none; }
 	@media (max-width: 768px) { .stat-label { flex-direction: column; align-items: flex-start; } .header-actions, .header-actions button { width: 100%; } }
 
+	.review-context {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem 1rem;
+		padding: 0.75rem 1.1rem;
+		background: #f7faf6;
+		border: 1px solid #dce4da;
+		border-radius: 8px;
+		font-size: 0.88rem;
+		color: #556356;
+		margin-bottom: 1.5rem;
+	}
+
+	.review-context strong {
+		color: #172018;
+	}
+
+	.review-context a {
+		color: #1e5a22;
+		font-weight: 600;
+		text-decoration: underline;
+		margin-left: auto;
+	}
+
 	main {
 		max-width: 1440px;
 		margin: 0 auto;

@@ -41,7 +41,7 @@ p { line-height: 1.65; }
 .muted { color: var(--muted); font-size: 13px; }
 .field { display: grid; gap: 8px; margin-bottom: 20px; }
 label, legend { font-size: 13px; font-weight: 600; }
-input, textarea, select { min-width: 0; width: 100%; border: 1px solid #ccd6c8; border-radius: 9px; padding: 12px; background: white; color: #20382c; }
+input:not([type='radio']):not([type='checkbox']), textarea, select { min-width: 0; width: 100%; border: 1px solid #ccd6c8; border-radius: 9px; padding: 12px; background: white; color: #20382c; }
 textarea { resize: vertical; min-height: 100px; }
 .field small { color: var(--muted); font-size: 12px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -70,4 +70,3 @@ summary { cursor: pointer; font-size: 13px; color: var(--green); padding: 12px 0
 .skip-link:focus { top: 10px; }
 @media (max-width: 1000px) { .split { grid-template-columns: 1fr; } .sidebar { width: 215px; padding: 24px 15px; } }
 @media (max-width: 700px) { .app-shell { flex-direction: column; } .sidebar { width: 100%; padding: 16px; } .brand { margin-bottom: 16px; } .brand img { width: 36px; height: 36px; } .brand strong { font-size: 26px; } .brand strong span { display: none; } nav { grid-template-columns: repeat(3, 1fr); gap: 5px; } nav a { font-size: 12px; gap: 5px; padding: 12px 8px; justify-content: center; } nav a span, nav a small, .nav-caption, .sidebar-note, .sidebar-footer { display: none; } .topbar { margin-bottom: 30px; font-size: 10px; } .content { padding-top: 20px; } .form-row { grid-template-columns: 1fr; gap: 0; } .stats { gap: 8px; } .stat { padding: 14px 10px; } .stat .muted { font-size: 11px; } .stat strong { font-size: 26px; } }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }

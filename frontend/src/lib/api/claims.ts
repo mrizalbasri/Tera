@@ -10,11 +10,6 @@ import type {
 	TimelineResponse
 } from '$lib/types/claim';
 
-/**
- * Identitas contoh untuk mode demo. Saat login aktif, backend memakai identitas sesi pengguna.
- */
-export const CURRENT_EMPLOYEE_ID = 'salesman-001';
-
 /** Harus sinkron dengan batas backend: settings.max_receipt_size_bytes. */
 export const MAX_RECEIPT_SIZE_BYTES = 10 * 1024 * 1024;
 

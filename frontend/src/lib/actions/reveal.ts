@@ -1,22 +1,17 @@
 export function reveal(node: HTMLElement) {
-	if (typeof window === 'undefined') return;
-	if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-
 	node.classList.add('awaiting-reveal');
+	const observer = new IntersectionObserver(
+		([entry]) => {
+			if (entry.isIntersecting) {
+				node.classList.remove('awaiting-reveal');
+			} else if (entry.boundingClientRect.top > window.innerHeight + 48) {
+				// Only reset once the section is completely below the viewport so it never flickers mid-scroll.
+				node.classList.add('awaiting-reveal');
+			}
+		},
+		{ threshold: 0.08, rootMargin: '0px 0px -6% 0px' }
+	);
+	observer.observe(node);
 
-	const observer = new IntersectionObserver(([entry]) => {
-		if (!entry.isIntersecting) return;
-		node.classList.remove('awaiting-reveal');
-		observer.disconnect();
-	}, { threshold: 0.05, rootMargin: '0px 0px -40px 0px' });
-
-	requestAnimationFrame(() => {
-		observer.observe(node);
-	});
-
-	return {
-		destroy() {
-			observer.disconnect();
-		}
-	};
+	return { destroy: () => observer.disconnect() };
 }

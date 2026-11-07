@@ -8,8 +8,6 @@ from app.api.auth import require_admin
 from app.api.claim_access import ClaimActor, get_claim_actor
 from app.api.deps import _backend
 from app.config import Settings, get_settings
-from app.errors import ApplicationError
-from app.repositories.query import ClaimFilter
 from app.schemas.core import SchemaBase
 from app.services.notifications import NotificationService
 from app.services.policy_versions import PolicyDraft, PolicyVersionService

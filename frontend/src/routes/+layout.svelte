@@ -35,12 +35,10 @@
 		{ href: '/admin/claims', label: 'Semua klaim' },
 		{ href: '/admin/checkpoints', label: 'Observabilitas Graph' },
 		{ href: '/reports', label: 'Laporan' },
-		{ href: '/admin/policies', label: 'Kebijakan' },
-		{ href: '/notifikasi', label: 'Notifikasi' }
+		{ href: '/admin/policies', label: 'Kebijakan' }
 	] : [
 		{ href: '/pengajuan', label: 'Pengajuan baru' },
 		{ href: '/riwayat', label: 'Klaim saya' },
-		{ href: '/notifikasi', label: 'Notifikasi' },
 		...(!data.user ? [{ href: '/login', label: 'Masuk' }] : [])
 	]);
 	const groups = $derived(data.financeWorkspace ? [
@@ -49,7 +47,7 @@
 	] : [
 		{ label: 'Pengajuan', items: menu.filter(item => ['/pengajuan', '/riwayat'].includes(item.href)) },
 		{ label: 'Akun', items: menu.filter(item => !['/pengajuan', '/riwayat'].includes(item.href)) }
-	]);
+	].filter((group) => group.items.length));
 	function isCurrent(href: string) { return page.url.pathname === href || page.url.pathname.startsWith(`${href}/`); }
 	function closeNavigation() {
 		menuOpen = false;
@@ -93,13 +91,12 @@
 			</nav>
 		</div>
 		<div class="workspace-return">
-			{#if data.user && !data.demoMode}<AdminAccount />{:else if !data.user}<a href="/login">Masuk ke akun</a>{/if}
-				<a href="/"><Icon name="home" size={18} />Tentang Tera</a>
+			{#if data.user && !data.demoMode}<AdminAccount />{:else}{#if !data.user}<a href="/login"><Icon name="user" size={18} />Masuk ke akun</a>{/if}<a href="/"><Icon name="home" size={18} />Tentang Tera</a>{/if}
 		</div>
 	</aside>
 	<main id="main-content" class="content" tabindex="-1">
-			<div class="topbar"><span>{data.financeWorkspace ? 'Panel admin' : 'Ruang karyawan'} <span aria-hidden="true">/</span> <strong>{currentPage}</strong></span><div class="topbar-actions"><a class="notification-link" href="/notifikasi" aria-label="Buka notifikasi"><Icon name="bell" /></a><div class="workspace-mobile-account">{#if data.user && !data.demoMode}<AdminAccount />{:else if !data.user}<a href="/login">Masuk</a>{/if}</div></div></div>
-		{@render children()}
+			<div class="topbar"><span>{data.financeWorkspace ? 'Panel admin' : 'Ruang karyawan'} <span aria-hidden="true">/</span> <strong>{currentPage}</strong></span><div class="topbar-actions"><a class="notification-link" href="/notifikasi" aria-label="Buka notifikasi"><Icon name="bell" /></a><div class="workspace-mobile-account">{#if data.user && !data.demoMode}<AdminAccount compact />{:else if !data.user}<a href="/login">Masuk</a>{/if}</div></div></div>
+		{#key page.url.pathname}<div class="page-stage">{@render children()}</div>{/key}
 	</main>
 </div>
 {/if}

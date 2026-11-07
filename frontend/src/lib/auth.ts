@@ -52,6 +52,9 @@ export async function login(username: string, password = '', role = 'member'): P
 	});
 	if (!response.ok) {
 		const err = await response.json().catch(() => ({}));
+		if (response.status >= 500) {
+			throw new Error('Layanan login sedang tidak tersedia. Coba lagi sebentar.');
+		}
 		throw new Error(err.message || 'Gagal login. Periksa kembali nama akun.');
 	}
 	const data = await response.json();

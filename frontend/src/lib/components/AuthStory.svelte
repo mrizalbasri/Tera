@@ -43,5 +43,19 @@
 	.auth-story-footer { display: flex; gap: 24px; flex-wrap: wrap; color: var(--color-auth-muted); font-size: 11px; }
 	.auth-story-footer > span { display: inline-flex; align-items: center; gap: 8px; }
 	@media (max-width: 900px) { .auth-story { padding: 32px; } .auth-brand > span { display: none; } .workflow { padding: 16px; } }
+	@media (min-width: 761px) and (max-height: 850px) {
+		.auth-story { padding: 28px clamp(24px, 3vw, 48px); }
+		.auth-narrative { padding-block: 24px; }
+		.auth-kicker { margin-bottom: 16px; }
+		h1 { font-size: clamp(34px, 3.5vw, 48px); }
+		.auth-description { margin: 16px 0 20px; }
+		.workflow { padding: 12px 20px; }
+		.workflow-step { padding: 12px 0; }
+	}
 	@media (max-width: 760px) { .auth-story { min-height: auto; padding: 24px; } .auth-narrative { padding: 20px 0 4px; } .auth-kicker { display: none; } h1 { font-size: 30px; } .auth-description { display: none; } .workflow, .auth-story-footer { display: none; } }
+	@media (max-width: 760px) and (max-height: 740px) {
+		.auth-story { padding: 16px 24px; }
+		.auth-narrative { padding: 12px 0 0; }
+		h1 { font-size: 26px; }
+	}
 </style>

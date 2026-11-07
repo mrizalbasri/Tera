@@ -1,5 +1,5 @@
 <script lang="ts">
-	export type IconName = 'grid' | 'receipt' | 'review' | 'chart' | 'shield' | 'bell' | 'plus' | 'search' | 'clock' | 'check' | 'alert' | 'eye' | 'edit' | 'home' | 'menu' | 'close' | 'upload' | 'refresh' | 'user' | 'chevron-down';
+	export type IconName = 'grid' | 'receipt' | 'review' | 'chart' | 'shield' | 'bell' | 'plus' | 'search' | 'clock' | 'check' | 'alert' | 'eye' | 'eye-off' | 'edit' | 'home' | 'menu' | 'close' | 'upload' | 'refresh' | 'user' | 'chevron-down' | 'logout';
 	let { name, size = 20 }: { name: IconName; size?: number } = $props();
 	const paths: Record<IconName, string> = {
 		'chevron-down': 'M6 9l6 6 6-6',
@@ -15,10 +15,12 @@
 		check: 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0 M7 12l3 3 7-7',
 		alert: 'M12 3L2 21h20z M12 9v4 M12 17h.01',
 		eye: 'M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12 M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+		'eye-off': 'M3 3l18 18 M10.6 5.1A12 12 0 0 1 12 5c7 0 10 7 10 7a18 18 0 0 1-3.1 4.1 M6.2 6.2A18 18 0 0 0 2 12s3 7 10 7a12 12 0 0 0 5.8-1.5 M10 10a3 3 0 0 0 4 4',
 		edit: 'M12 5H4v15h15v-8 M15 4l5 5 M10 14l1-5 7-7 4 4-7 7z',
 		home: 'M3 10l9-7 9 7 M5 9v12h5v-7h4v7h5V9',
 		menu: 'M4 6h16 M4 12h16 M4 18h16',
 		close: 'M6 6l12 12 M6 18L18 6',
+		logout: 'M10 4H5v16h5 M14 8l4 4-4 4 M18 12H9',
 		upload: 'M12 16V3 M7 8l5-5 5 5 M4 16v5h16v-5',
 		refresh: 'M20 7v5h-5 M4 17v-5h5 M6 6a8 8 0 0 1 14 6 M4 12a8 8 0 0 0 14 6',
 		user: 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 8 0 0 1 16 0v2'

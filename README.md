@@ -58,7 +58,7 @@ Persetujuan klaim juga tidak berarti pembayaran sudah dilakukan.
 Mode demo lokal menggunakan penyimpanan memory dan provider mock tanpa API key
 eksternal. Aktifkan `DEMO_MODE=true` dan `ENVIRONMENT=development` di
 `backend/.env`, lalu ikuti panduan lokal untuk menjalankan kedua server.
-Data demo bersifat sementara dan hilang saat backend direstart.
+Data demo bersifat sementara dan hi lang saat backend direstart.
 
 Setelah server berjalan, buka [aplikasi lokal](http://localhost:5173) dan
 [referensi API lokal](http://127.0.0.1:8000/docs). URL deployment publik belum

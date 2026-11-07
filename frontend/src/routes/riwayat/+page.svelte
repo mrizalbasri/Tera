@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import Toast from '$lib/components/Toast.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
-	import { listClaims, CURRENT_EMPLOYEE_ID } from '$lib/api/claims';
+	import { listClaims } from '$lib/api/claims';
 	import { ApiError } from '$lib/api/client';
 	import { showToast } from '$lib/stores/toast.svelte';
 	import { shortClaimRef } from '$lib/formatters/claim';
@@ -13,7 +13,7 @@
 	import type { Claim } from '$lib/types/claim';
 
 	let { data } = $props();
-	const employeeId = $derived(data.financeWorkspace ? undefined : data.demoMode ? CURRENT_EMPLOYEE_ID : data.user?.username);
+	const employeeId = $derived(data.financeWorkspace ? undefined : data.user?.username);
 	const historyPath = $derived(data.financeWorkspace ? '/admin/claims' : '/riwayat');
 	let claims = $state<Claim[]>([]);
 	let loading = $state(true);

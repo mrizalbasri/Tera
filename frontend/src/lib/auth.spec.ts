@@ -72,4 +72,22 @@ describe('Native Auth Client', () => {
 		await logout();
 		expect(getAuthToken()).toBeNull();
 	});
+
+	it('throws service unavailable message when login returns 500+', async () => {
+		const mockFetch = vi.fn().mockResolvedValue(new Response('Internal Error', { status: 503 }));
+		vi.stubGlobal('fetch', mockFetch);
+
+		await expect(login('finance@tera.id', 'password', 'admin')).rejects.toThrow(
+			'Layanan login sedang tidak tersedia. Coba lagi sebentar.'
+		);
+	});
+
+	it('throws server message or fallback when login returns 4xx', async () => {
+		const mockFetch = vi.fn().mockResolvedValue(
+			new Response(JSON.stringify({ message: 'Akun tidak ditemukan.' }), { status: 401 })
+		);
+		vi.stubGlobal('fetch', mockFetch);
+
+		await expect(login('unknown', 'password')).rejects.toThrow('Akun tidak ditemukan.');
+	});
 });

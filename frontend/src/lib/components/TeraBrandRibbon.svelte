@@ -38,8 +38,6 @@
 	/* The reference's curved halftone ribbon repeats the receipt fold at architectural scale. */
 	.brand-ribbon { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: -1; }
 	@keyframes ribbon-drift { from { transform: scale(1.08) translate(-1%, 1.5%) rotate(-1deg); } to { transform: scale(1.08) translate(1%, -1.5%) rotate(1deg); } }
-	@media (prefers-reduced-motion: no-preference) {
-		.brand-ribbon { animation: ribbon-drift 14s ease-in-out infinite alternate; animation-play-state: paused; transform-origin: 75% 50%; }
-		.brand-ribbon:global(.motion-active) { animation-play-state: running; }
-	}
+	.brand-ribbon { animation: ribbon-drift 14s ease-in-out infinite alternate; animation-play-state: paused; transform-origin: 75% 50%; }
+	.brand-ribbon:global(.motion-active) { animation-play-state: running; }
 </style>

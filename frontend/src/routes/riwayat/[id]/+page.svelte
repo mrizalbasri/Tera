@@ -1185,17 +1185,14 @@
 		padding: 0.75rem;
 		border-radius: var(--radius-sm);
 		background: rgba(245, 158, 11, 0.08);
-		border-left: 3px solid #d97706;
 	}
 
 	.evidence-row.passed {
 		background: rgba(34, 197, 94, 0.08);
-		border-left-color: #16a34a;
 	}
 
 	.evidence-row.blocking {
 		background: rgba(239, 68, 68, 0.08);
-		border-left-color: #dc2626;
 	}
 
 	.evidence-row strong,

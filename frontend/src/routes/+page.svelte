@@ -49,12 +49,12 @@
 			<button bind:this={productButton} type="button" class="product-trigger" class:selected={productMenu} aria-expanded={productMenu} aria-controls="product-panel" onclick={() => (productMenu = !productMenu)}>Produk <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
 			<div class="product-panel" class:shown={productMenu} id="product-panel" inert={!productMenu}>
 				<div class="product-panel-content">
-					<a class="product-spotlight" href="#cara-kerja" onclick={closeMenus}><span class="menu-eyebrow">KENALI TERA</span><strong>Dari nota<br />ke keputusan.</strong><span class="spotlight-description">Lihat bagaimana Tera memeriksa pengeluaran kerja.</span><img src="/brand/tera-receipt-curved.png" alt="" width="1280" height="1280" /><span class="spotlight-link">Jelajahi alurnya <span aria-hidden="true">↗</span></span></a>
+					<a class="product-spotlight" href="/produk" onclick={closeMenus}><span class="menu-eyebrow">KENALI TERA</span><strong>Dari nota<br />ke keputusan.</strong><span class="spotlight-description">Lihat bagaimana Tera memeriksa pengeluaran kerja.</span><img src="/brand/tera-receipt-curved.png" alt="" width="1280" height="1280" /><span class="spotlight-link">Jelajahi fitur lengkap <span aria-hidden="true">↗</span></span></a>
 					<div class="product-shortcuts">
-						<a href="/pengajuan" onclick={closeMenus}><span class="shortcut-symbol" aria-hidden="true">↥</span><span><strong>Ajukan klaim</strong><small>Unggah nota dan mulai pemeriksaan.</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></a>
-						<a href="/riwayat" onclick={closeMenus}><span class="shortcut-symbol" aria-hidden="true">≡</span><span><strong>Riwayat pengajuan</strong><small>Ikuti status dan jejak setiap klaim.</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></a>
-						<a href="/reviews" onclick={closeMenus}><span class="shortcut-symbol" aria-hidden="true">✓</span><span><strong>Review klaim</strong><small>Tinjau bukti dan tentukan tindak lanjut.</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></a>
-						<a href="/reports" onclick={closeMenus}><span class="shortcut-symbol" aria-hidden="true">↗</span><span><strong>Laporan pengeluaran</strong><small>Lihat ringkasan dan ekspor data klaim.</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></a>
+						<a href="/produk#pengajuan" onclick={closeMenus}><span class="shortcut-symbol" aria-hidden="true">↥</span><span><strong>Ajukan klaim</strong><small>Unggah nota dan mulai pemeriksaan.</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></a>
+						<a href="/produk#riwayat" onclick={closeMenus}><span class="shortcut-symbol" aria-hidden="true">≡</span><span><strong>Riwayat pengajuan</strong><small>Ikuti status dan jejak setiap klaim.</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></a>
+						<a href="/produk#review" onclick={closeMenus}><span class="shortcut-symbol" aria-hidden="true">✓</span><span><strong>Review klaim</strong><small>Tinjau bukti dan tentukan tindak lanjut.</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></a>
+						<a href="/produk#laporan" onclick={closeMenus}><span class="shortcut-symbol" aria-hidden="true">↗</span><span><strong>Laporan pengeluaran</strong><small>Lihat ringkasan dan ekspor data klaim.</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></a>
 					</div>
 					<div class="product-panel-footer"><span>Satu alur untuk karyawan dan finance.</span><a href="#untuk-tim" onclick={closeMenus}>Tera untuk tim <span aria-hidden="true">→</span></a></div>
 				</div>
@@ -161,6 +161,7 @@
 					</div>
 					<div class="footer-col">
 						<p class="footer-heading">Telusuri</p>
+						<a href="/produk"><span>Eksplorasi produk</span><span class="footer-link-arrow" aria-hidden="true">→</span></a>
 						<a href="#fitur"><span>Cakupan fitur</span><span class="footer-link-arrow" aria-hidden="true">→</span></a>
 						<a href="#cara-kerja"><span>Cara kerja</span><span class="footer-link-arrow" aria-hidden="true">→</span></a>
 						<a href="#untuk-tim"><span>Untuk tim</span><span class="footer-link-arrow" aria-hidden="true">→</span></a>

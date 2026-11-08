@@ -28,7 +28,10 @@
 			menuButton?.focus();
 		}
 	}
-	const isLanding = $derived(['/', '/login', '/register'].includes(page.url.pathname));
+	const isLanding = $derived(
+		['/', '/login', '/register', '/produk'].includes(page.url.pathname) ||
+		page.url.pathname.startsWith('/produk/')
+	);
 	const menu = $derived(data.financeWorkspace ? [
 		{ href: '/dashboard', label: 'Ringkasan' },
 		{ href: '/reviews', label: 'Antrean review' },

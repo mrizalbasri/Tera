@@ -147,7 +147,6 @@
 		<div class="hero-stage">
 			<TeraBrandRibbon />
 			<section class="hero-copy-centered">
-				<span class="eyebrow-tag">KEMAMPUAN TERA</span>
 				<h1>Alur pengeluaran kerja,<br /><span>dari awal sampai selesai.</span></h1>
 				<p>
 					Mulai dari mengunggah nota, memeriksa kesesuaian kebijakan, meninjau klaim bersama buktinya, hingga menyiapkan laporan pengeluaran tim.
@@ -739,16 +738,15 @@
 		width: min(860px, calc(100% - 48px));
 		margin: 0 auto;
 	}
-	.eyebrow-tag {
-		display: inline-block;
-		font-size: 11px;
-		font-weight: 700;
-		letter-spacing: .12em;
-		color: var(--color-primary);
-		background: var(--color-light);
-		padding: 6px 14px;
-		border-radius: 999px;
-		margin-bottom: 20px;
+	@keyframes hero-fade-up {
+		from {
+			opacity: 0;
+			transform: translate3d(0, 24px, 0);
+		}
+		to {
+			opacity: 1;
+			transform: translate3d(0, 0, 0);
+		}
 	}
 	.hero-copy-centered h1 {
 		font-size: clamp(36px, 5vw, 56px);
@@ -757,9 +755,7 @@
 		line-height: 1.1;
 		color: var(--color-ink);
 		margin-bottom: 18px;
-	}
-	.hero-copy-centered h1 span {
-		color: var(--color-primary);
+		animation: hero-fade-up 750ms cubic-bezier(.16, 1, .3, 1) both;
 	}
 	.hero-copy-centered p {
 		font-size: clamp(16px, 2vw, 19px);
@@ -767,7 +763,12 @@
 		color: var(--color-text-muted);
 		max-width: 640px;
 		margin: 0 auto;
+		animation: hero-fade-up 850ms 120ms cubic-bezier(.16, 1, .3, 1) both;
 	}
+	.hero-copy-centered h1 span {
+		color: var(--color-primary);
+	}
+	
 
 	/* Feature Blocks */
 	.feature-block {
@@ -1362,6 +1363,165 @@
 		color: var(--color-ink);
 		text-decoration: none;
 		font-weight: 600;
+	}
+
+	/* Scroll Reveal Transitions */
+	.feature-block .feature-text {
+		transition: opacity 800ms cubic-bezier(.16, 1, .3, 1), transform 800ms cubic-bezier(.16, 1, .3, 1);
+	}
+	.feature-block .feature-preview-card {
+		transition: opacity 900ms 120ms cubic-bezier(.16, 1, .3, 1), transform 900ms 120ms cubic-bezier(.16, 1, .3, 1), box-shadow 260ms ease, border-color 260ms ease;
+	}
+	.feature-block:global(.awaiting-reveal) .feature-text {
+		opacity: 0;
+		transform: translate3d(-32px, 16px, 0);
+	}
+	.feature-block:global(.awaiting-reveal) .feature-preview-card {
+		opacity: 0;
+		transform: translate3d(32px, 20px, 0) scale(0.96);
+	}
+	.feature-block:global(.awaiting-reveal) .feature-content.reverse .feature-text {
+		transform: translate3d(32px, 16px, 0);
+	}
+	.feature-block:global(.awaiting-reveal) .feature-content.reverse .feature-preview-card {
+		transform: translate3d(-32px, 20px, 0) scale(0.96);
+	}
+	.closing-stage .closing-box {
+		transition: opacity 850ms cubic-bezier(.16, 1, .3, 1), transform 850ms cubic-bezier(.16, 1, .3, 1);
+	}
+	.closing-stage:global(.awaiting-reveal) .closing-box {
+		opacity: 0;
+		transform: translate3d(0, 28px, 0) scale(0.96);
+	}
+
+	/* Hover Micro-interactions */
+	.feature-preview-card {
+		transition: transform 260ms cubic-bezier(.16, 1, .3, 1), box-shadow 260ms cubic-bezier(.16, 1, .3, 1), border-color 220ms ease;
+		will-change: transform;
+	}
+	.feature-preview-card:hover {
+		transform: translateY(-5px);
+		box-shadow: 0 24px 48px rgb(0 45 40 / .12);
+		border-color: rgba(15, 118, 110, 0.28);
+	}
+	.item-line {
+		padding: 6px 8px;
+		border-radius: 6px;
+		transition: background-color 180ms ease, transform 180ms ease;
+	}
+	.item-line:not(.total-line):hover {
+		background-color: rgba(15, 118, 110, 0.06);
+		transform: translateX(3px);
+	}
+	.timeline-row {
+		transition: transform 200ms cubic-bezier(.16, 1, .3, 1), background-color 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+		cursor: default;
+	}
+	.timeline-row:hover {
+		transform: translateX(6px);
+		background-color: white;
+		border-color: var(--color-primary);
+		box-shadow: 0 4px 12px rgb(0 45 40 / .06);
+	}
+	.timeline-row .step-badge {
+		transition: transform 200ms cubic-bezier(.16, 1, .3, 1);
+	}
+	.timeline-row:hover .step-badge {
+		transform: scale(1.12);
+	}
+	.detail-box {
+		transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+	}
+	.detail-box:hover {
+		transform: translateY(-2px);
+		border-color: rgba(15, 118, 110, 0.3);
+		box-shadow: 0 4px 12px rgb(0 45 40 / .05);
+	}
+	.sig-pill {
+		transition: transform 180ms ease;
+	}
+	.sig-pill:hover {
+		transform: translateX(3px);
+	}
+	.kpi-item {
+		transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+	}
+	.kpi-item:hover {
+		transform: translateY(-2px);
+		border-color: rgba(15, 118, 110, 0.3);
+		box-shadow: 0 4px 12px rgb(0 45 40 / .05);
+	}
+	.bar-item {
+		padding: 4px 6px;
+		border-radius: 6px;
+		transition: background-color 160ms ease;
+	}
+	.bar-item:hover {
+		background-color: rgba(15, 118, 110, 0.04);
+	}
+	.feature-keypoints li {
+		transition: transform 180ms ease;
+	}
+	.feature-keypoints li:hover {
+		transform: translateX(4px);
+	}
+	.cta-link {
+		transition: transform 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+	}
+	.cta-link:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 6px 16px rgb(15 118 110 / .28);
+	}
+	.cta-link:active {
+		transform: translateY(0) scale(0.98);
+	}
+	.cta-link span {
+		transition: transform 180ms ease;
+		display: inline-block;
+	}
+	.cta-link:hover span {
+		transform: translate(2px, -2px);
+	}
+	.main-button {
+		transition: transform 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+	}
+	.main-button:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 6px 18px rgb(0 0 0 / .2);
+	}
+	.main-button span {
+		transition: transform 180ms ease;
+		display: inline-block;
+	}
+	.main-button:hover span {
+		transform: translateX(3px);
+	}
+	.secondary-button {
+		transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease;
+	}
+	.secondary-button:hover {
+		transform: translateY(-2px);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.hero-copy-centered h1,
+		.hero-copy-centered p,
+		.feature-block .feature-text,
+		.feature-block .feature-preview-card,
+		.closing-stage .closing-box {
+			animation: none !important;
+			transition: none !important;
+			transform: none !important;
+			opacity: 1 !important;
+		}
+		.feature-preview-card:hover,
+		.timeline-row:hover,
+		.item-line:hover,
+		.cta-link:hover,
+		.main-button:hover,
+		.secondary-button:hover {
+			transform: none !important;
+		}
 	}
 
 	/* Responsive */

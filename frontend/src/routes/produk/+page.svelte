@@ -38,8 +38,8 @@
 </script>
 
 <svelte:head>
-	<title>Kemampuan Produk · Tera AI Expense Agent</title>
-	<meta name="description" content="Pelajari empat pilar kemampuan Tera: pembacaan nota multimodal, riwayat transparan dengan klarifikasi, antrean review finance berbasis anomali, dan laporan pengeluaran siap audit." />
+	<title>Fitur & Alur Kerja · Tera</title>
+	<meta name="description" content="Pelajari bagaimana Tera membaca nota, memeriksa ketentuan pengeluaran kerja, meninjau klaim, dan merapikan laporan keuangan tim." />
 </svelte:head>
 
 <svelte:window 
@@ -148,9 +148,9 @@
 			<TeraBrandRibbon />
 			<section class="hero-copy-centered">
 				<span class="eyebrow-tag">KEMAMPUAN TERA</span>
-				<h1>Empat pilar otomasi.<br /><span>Satu alur yang jelas.</span></h1>
+				<h1>Alur pengeluaran kerja,<br /><span>dari awal sampai selesai.</span></h1>
 				<p>
-					Tera menyatukan pembacaan nota, pengecekan kebijakan otomatis, tinjauan risiko, dan pelaporan keuangan dalam satu sistem yang mudah dipahami karyawan dan aman bagi tim finance.
+					Mulai dari mengunggah nota, memeriksa kesesuaian kebijakan, meninjau klaim bersama buktinya, hingga menyiapkan laporan pengeluaran tim.
 				</p>
 			</section>
 		</div>
@@ -160,39 +160,39 @@
 			<div class="feature-content">
 				<div class="feature-text">
 					<span class="feature-number">01</span>
-					<span class="feature-category">MODUL KARYAWAN</span>
-					<h2>Ajukan klaim pengeluaran tanpa formulir manual yang rumit.</h2>
+					<span class="feature-category">PENGAJUAN KLAIM</span>
+					<h2>Kirim nota, biarkan detailnya dirapikan.</h2>
 					<p>
-						Karyawan cukup mengambil foto nota fisik atau melampirkan berkas PDF. Agen AI Tera membaca data penting secara otomatis, mencocokkannya ke kebijakan perusahaan, dan langsung memberi tahu hasilnya.
+						Unggah foto nota fisik atau berkas PDF pengeluaran kerja. Tera membaca data penting dari nota, mencocokkannya dengan ketentuan pengeluaran, dan menampilkan hasil pemeriksaannya.
 					</p>
 					<ul class="feature-keypoints">
-						<li><strong>Pembacaan Multimodal Presisi:</strong> Ekstraksi nama vendor, tanggal transaksi, nominal total, dan rincian item dengan tingkat akurasi tinggi.</li>
-						<li><strong>Pengecekan Kebijakan Instan:</strong> Menilai apakah nominal dan kategori pengeluaran sesuai dengan ketentuan batas tunjangan kerja.</li>
-						<li><strong>Klarifikasi Terbuka:</strong> Jika foto buram atau informasi belum lengkap, agen meminta klarifikasi langsung tanpa menolak klaim secara sepihak.</li>
+						<li><strong>Pembacaan data penting:</strong> Nama tempat belanja, tanggal transaksi, nominal total, dan rincian pembelian langsung terangkum.</li>
+						<li><strong>Pemeriksaan ketentuan:</strong> Menilai apakah nominal dan kategori pengeluaran sesuai dengan aturan yang berlaku di tim.</li>
+						<li><strong>Bisa diklarifikasi:</strong> Jika nota buram atau informasi belum lengkap, kamu bisa melengkapinya tanpa harus membuat klaim baru dari awal.</li>
 					</ul>
-					<a class="button cta-link" href="/pengajuan">Coba pengajuan klaim <span aria-hidden="true">↗</span></a>
+					<a class="button cta-link" href="/pengajuan">Ajukan klaim baru <span aria-hidden="true">↗</span></a>
 				</div>
 				<div class="feature-preview-card">
-					<div class="card-caption">CONTOH EKSTRAKSI NOTA OLEH AI</div>
+					<div class="card-caption">CONTOH PEMBACAAN NOTA</div>
 					<div class="receipt-card-mockup">
 						<div class="receipt-header-row">
 							<div>
 								<strong class="receipt-vendor">Restoran Padang Sederhana</strong>
-								<span class="receipt-sub">14 Oktober 2026 · Jam 13:15 WIB</span>
+								<span class="receipt-sub">14 Oktober 2026 · 13:15 WIB</span>
 							</div>
-							<span class="status-chip success">Terbaca 99%</span>
+							<span class="status-chip success">Terbaca</span>
 						</div>
 						<div class="receipt-item-table">
-							<div class="item-line"><span>Paket Makan Siang Tim (4 Pax)</span><strong>Rp 340.000</strong></div>
+							<div class="item-line"><span>Paket Makan Siang Tim (4 Orang)</span><strong>Rp 340.000</strong></div>
 							<div class="item-line"><span>Minuman &amp; Aneka Jus</span><strong>Rp 80.000</strong></div>
 							<div class="item-line total-line"><span>Total Terbaca</span><strong class="total-amount">Rp 420.000</strong></div>
 						</div>
 						<div class="policy-eval-box">
 							<div class="policy-status-pill">
 								<span class="eval-dot"></span>
-								<span>Sesuai Kebijakan (Maks. Rp 500.000/pertemuan)</span>
+								<span>Sesuai Kebijakan (Maks. Rp 500.000 per pertemuan)</span>
 							</div>
-							<p>Hasil: Klaim memenuhi syarat dan siap diproses ke pencairan.</p>
+							<p>Klaim memenuhi syarat dan siap diproses ke langkah berikutnya.</p>
 						</div>
 					</div>
 				</div>
@@ -204,54 +204,54 @@
 			<div class="feature-content reverse">
 				<div class="feature-text">
 					<span class="feature-number">02</span>
-					<span class="feature-category">MODUL KARYAWAN</span>
-					<h2>Riwayat pengajuan dengan jejak audit yang sepenuhnya transparan.</h2>
+					<span class="feature-category">RIWAYAT KLAIM</span>
+					<h2>Pantau status dan jejak setiap pengajuan.</h2>
 					<p>
-						Setiap langkah pemeriksaan tercatat dengan rapi. Karyawan dapat memantau posisi pengajuan kapan saja tanpa perlu bertanya manual ke staf finance.
+						Setiap proses pemeriksaan tercatat dengan jelas. Karyawan bisa memantau perkembangan klaim kapan saja dan mengetahui alasan di balik setiap keputusan.
 					</p>
 					<ul class="feature-keypoints">
-						<li><strong>Pelacakan Status Berkelanjutan:</strong> Mengetahui apakah klaim sedang diperiksa, membutuhkan jawaban klarifikasi, atau sudah disetujui.</li>
-						<li><strong>Alasan Keputusan Tertulis:</strong> Setiap keputusan pencairan atau penolakan selalu disertai penjelasan aturan yang objektif.</li>
-						<li><strong>Arsip Terpusat:</strong> Seluruh foto nota dan rekaman transaksi tersimpan aman dan dapat ditinjau kembali sewaktu-waktu.</li>
+						<li><strong>Status yang jelas:</strong> Mengetahui apakah klaim sedang diperiksa, membutuhkan klarifikasi, atau sudah disetujui.</li>
+						<li><strong>Alasan keputusan terbuka:</strong> Setiap hasil pemeriksaan disertai keterangan aturan dan pertimbangan yang jelas.</li>
+						<li><strong>Bukti tersimpan rapi:</strong> Foto nota dan detail transaksi tersimpan di satu tempat agar mudah ditinjau kembali.</li>
 					</ul>
 					<a class="button cta-link" href="/riwayat">Buka riwayat klaim <span aria-hidden="true">↗</span></a>
 				</div>
 				<div class="feature-preview-card">
-					<div class="card-caption">LIMA TAHAP PEMERIKSAAN KLAIM TERA</div>
+					<div class="card-caption">TAHAPAN PEMERIKSAAN KLAIM</div>
 					<div class="timeline-visual">
 						<div class="timeline-row passed">
 							<span class="step-badge">1</span>
 							<div class="step-info">
-								<strong>Nota Diterima &amp; Hash Dihitung</strong>
-								<small>Mencegah klaim ganda dengan sidik jari digital nota.</small>
+								<strong>Nota diterima</strong>
+								<small>Bukti nota diunggah dan disimpan ke dalam klaim.</small>
 							</div>
 						</div>
 						<div class="timeline-row passed">
 							<span class="step-badge">2</span>
 							<div class="step-info">
-								<strong>Ekstraksi Data Vendor &amp; Nominal</strong>
-								<small>Membaca seluruh detail struk dengan model visi multimodal.</small>
+								<strong>Data dibaca</strong>
+								<small>Vendor, tanggal, dan nominal dirangkum secara terstruktur.</small>
 							</div>
 						</div>
 						<div class="timeline-row passed">
 							<span class="step-badge">3</span>
 							<div class="step-info">
-								<strong>Validasi Kebijakan Pengeluaran</strong>
-								<small>Mengevaluasi batas nominal dan syarat kategori biaya.</small>
+								<strong>Kebijakan dicocokkan</strong>
+								<small>Batas nominal dan kategori pengeluaran diperiksa.</small>
 							</div>
 						</div>
 						<div class="timeline-row passed">
 							<span class="step-badge">4</span>
 							<div class="step-info">
-								<strong>Pemeriksaan Anomali &amp; Duplikasi</strong>
-								<small>Memeriksa riwayat kesamaan data terhadap klaim rekan kerja lain.</small>
+								<strong>Risiko &amp; duplikasi ditinjau</strong>
+								<small>Memeriksa apakah nota serupa pernah diajukan sebelumnya.</small>
 							</div>
 						</div>
 						<div class="timeline-row active">
 							<span class="step-badge">5</span>
 							<div class="step-info">
-								<strong>Keputusan Final &amp; Notifikasi</strong>
-								<small>Hasil persetujuan tercatat permanen di riwayat karyawan.</small>
+								<strong>Keputusan &amp; tindak lanjut</strong>
+								<small>Hasil pemeriksaan diperbarui bersama catatan untuk karyawan.</small>
 							</div>
 						</div>
 					</div>
@@ -264,34 +264,34 @@
 			<div class="feature-content">
 				<div class="feature-text">
 					<span class="feature-number">03</span>
-					<span class="feature-category">MODUL FINANCE</span>
-					<h2>Review klaim berisiko tinggi dengan bukti dan skor anomali AI.</h2>
+					<span class="feature-category">REVIEW FINANCE</span>
+					<h2>Tinjau klaim bersama buktinya.</h2>
 					<p>
-						Pengeluaran wajar disetujui secara otomatis. Tim finance hanya perlu memeriksa klaim yang membutuhkan pertimbangan manusia—seperti nilai di atas plafon mandiri atau nota dengan indikasi kejanggalan.
+						Pengeluaran rutin yang sesuai aturan dapat diproses cepat. Tim finance cukup fokus meninjau klaim yang melebihi batas atau membutuhkan persetujuan khusus.
 					</p>
 					<ul class="feature-keypoints">
-						<li><strong>Deteksi Skor Anomali:</strong> Menggunakan machine learning untuk mengidentifikasi pola pengeluaran yang tidak biasa.</li>
-						<li><strong>Pemeriksaan Duplikasi Riwayat:</strong> Menemukan nota yang sama persis atau atribut pengeluaran ganda yang diajukan berulang.</li>
-						<li><strong>Tindakan Terverifikasi:</strong> Keputusan persetujuan atau penolakan oleh reviewer dilengkapi catatan resmi untuk kebutuhan audit.</li>
+						<li><strong>Tanda pengingat:</strong> Memperjelas klaim yang melebihi anggaran atau memiliki detail yang perlu dipastikan.</li>
+						<li><strong>Pemeriksaan duplikat:</strong> Membantu melihat jika ada nota atau nominal serupa yang diajukan berulang.</li>
+						<li><strong>Catatan reviewer:</strong> Keputusan setuju atau tolak dapat dilengkapi pesan penjelasan yang ikut tercatat.</li>
 					</ul>
 					<a class="button cta-link" href="/reviews">Buka antrean review <span aria-hidden="true">↗</span></a>
 				</div>
 				<div class="feature-preview-card">
-					<div class="card-caption">PANEL ANTREAN REVIEW TIM FINANCE</div>
+					<div class="card-caption">CONTOH ANTREAN REVIEW</div>
 					<div class="reviewer-card-mockup">
 						<div class="claim-topbar">
 							<div>
 								<span class="claim-tag">Klaim #CLM-2026-089</span>
-								<h4>Pembelian Aksesoris Monitor Kerja</h4>
+								<h4>Perlengkapan Monitor Kerja</h4>
 							</div>
 							<div class="anomaly-pill high">
-								<span>Skor Anomali: <strong>0.84 (Tinggi)</strong></span>
+								<span>Perlu tinjauan finance</span>
 							</div>
 						</div>
 						<div class="review-details-grid">
 							<div class="detail-box">
 								<small>Pengaju</small>
-								<span>Ahmad Fauzi (Product)</span>
+								<span>Ahmad Fauzi (Produk)</span>
 							</div>
 							<div class="detail-box">
 								<small>Total Klaim</small>
@@ -300,15 +300,15 @@
 						</div>
 						<div class="signals-summary">
 							<div class="sig-pill warning">
-								<span>⚠️ Plafon mandiri terlampaui (Maks. Rp 1.000.000 tanpa PO)</span>
+								<span>⚠️ Melebihi plafon mandiri (Maks. Rp 1.000.000 tanpa PO)</span>
 							</div>
 							<div class="sig-pill clean">
-								<span>✓ Sinyal duplikasi: Tidak ditemukan kesamaan arsip</span>
+								<span>✓ Tidak ditemukan duplikasi dengan nota lain</span>
 							</div>
 						</div>
 						<div class="review-action-hint">
-							<span>Tindakan Reviewer:</span>
-							<strong>Menunggu Keputusan Setujui / Tolak</strong>
+							<span>Tindakan:</span>
+							<strong>Menunggu Keputusan Reviewer</strong>
 						</div>
 					</div>
 				</div>
@@ -320,20 +320,20 @@
 			<div class="feature-content reverse">
 				<div class="feature-text">
 					<span class="feature-number">04</span>
-					<span class="feature-category">MODUL FINANCE</span>
-					<h2>Laporan pengeluaran real-time dan ekspor data siap rekonsiliasi.</h2>
+					<span class="feature-category">LAPORAN PENGELUARAN</span>
+					<h2>Ringkasan pengeluaran dan ekspor data untuk pembukuan.</h2>
 					<p>
-						Tutup buku bulanan lebih cepat tanpa memilah tumpukan kertas fisik. Tera merangkum seluruh pengeluaran tim ke dalam visualisasi analitik dan format CSV yang siap diimpor ke sistem akuntansi.
+						Pantau total pengeluaran tim secara menyeluruh tanpa harus menghitung nota satu per satu. Data klaim dapat disaring dan diekspor ke file CSV untuk kebutuhan rekap dan pembukuan.
 					</p>
 					<ul class="feature-keypoints">
-						<li><strong>Ringkasan Arus Kas Otomatis:</strong> Pantau total klaim yang diajukan, disetujui, dan ditolak secara transparan.</li>
-						<li><strong>Metrik Otomatisasi AI:</strong> Mengetahui persentase klaim yang selesai otomatis vs yang memerlukan intervensi reviewer.</li>
-						<li><strong>Ekspor CSV Standar:</strong> Mengunduh seluruh rincian transaksi lengkap dengan tanggal, nama vendor, divisi, dan status keputusan.</li>
+						<li><strong>Ringkasan per periode:</strong> Pantau total klaim yang diajukan dan disetujui dalam rentang waktu tertentu.</li>
+						<li><strong>Distribusi kategori:</strong> Lihat porsi pengeluaran untuk makan tim, transportasi dinas, hingga perlengkapan kerja.</li>
+						<li><strong>Ekspor CSV rapi:</strong> Unduh seluruh data transaksi lengkap untuk diolah di spreadsheet atau software akuntansi.</li>
 					</ul>
 					<a class="button cta-link" href="/reports">Buka laporan pengeluaran <span aria-hidden="true">↗</span></a>
 				</div>
 				<div class="feature-preview-card">
-					<div class="card-caption">RINGKASAN ANALITIK KEUANGAN BULANAN</div>
+					<div class="card-caption">CONTOH RINGKASAN PENGELUARAN</div>
 					<div class="analytics-mockup">
 						<div class="kpi-banner">
 							<div class="kpi-item">
@@ -341,8 +341,8 @@
 								<strong>Rp 38.650.000</strong>
 							</div>
 							<div class="kpi-item">
-								<small>Tingkat Otomatisasi AI</small>
-								<strong class="highlight-teal">88.5%</strong>
+								<small>Total Klaim Selesai</small>
+								<strong class="highlight-teal">32 Klaim</strong>
 							</div>
 						</div>
 						<div class="distribution-preview">
@@ -356,12 +356,12 @@
 								<div class="progress-bg"><div class="progress-fill" style="width: 30%;"></div></div>
 							</div>
 							<div class="bar-item">
-								<div class="bar-labels"><span>Perlengkapan Kerja</span><span>15%</span></div>
-								<div class="progress-bg"><div class="progress-fill" style="width: 15%;"></div></div>
+								<div class="bar-labels"><span>Perlengkapan Kerja</span><span>25%</span></div>
+								<div class="progress-bg"><div class="progress-fill" style="width: 25%;"></div></div>
 							</div>
 						</div>
 						<div class="export-chip-row">
-							<span>Format Ekspor: <strong>CSV Terstruktur (IDR, UTF-8)</strong></span>
+							<span>Format Ekspor: <strong>File CSV (IDR, UTF-8)</strong></span>
 						</div>
 					</div>
 				</div>
@@ -372,8 +372,8 @@
 		<section use:reveal class="closing-stage scroll-reveal">
 			<TeraBrandRibbon dark />
 			<div class="closing-box">
-				<h2>Mulai gunakan Tera dengan tim Anda.</h2>
-				<p>Unggah nota pertamamu atau masuk ke ruang kerja untuk mulai meninjau pengeluaran.</p>
+				<h2>Mulai rapikan pengeluaran kerja.</h2>
+				<p>Coba ajukan nota pertamamu atau masuk ke ruang kerja untuk melihat alur pemeriksaannya.</p>
 				<div class="closing-btn-row">
 					<a class="button main-button" href="/pengajuan">Mulai pengajuan klaim <span aria-hidden="true">→</span></a>
 					<a class="button secondary-button" href="/login">Masuk ke akun</a>

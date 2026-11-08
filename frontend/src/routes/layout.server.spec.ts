@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { load } from './+layout.server';
 
 const session = { username: 'reviewer', role: 'admin' };
-const layout = load as (input: { locals: { user: object; admin: object | null; demoMode: boolean }; url: URL }) => { financeWorkspace: boolean; admin: object | null };
+const layout = load as (input: { locals: { user: object | null; admin: object | null; demoMode: boolean }; url: URL }) => { financeWorkspace: boolean; admin: object | null };
 
 describe('workspace presentation', () => {
 	it.each(['/reviews', '/reviews/example', '/reports', '/dashboard', '/admin/claims', '/admin/claims/example', '/admin/policies', '/notifikasi'])('retains finance context at %s for verified admins', (path) => {

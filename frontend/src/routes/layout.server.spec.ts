@@ -18,4 +18,10 @@ describe('workspace presentation', () => {
 		expect(result.financeWorkspace).toBe(false);
 		expect(result.admin).toBeNull();
 	});
+
+	it('keeps public product showcase accessible outside finance workspace', () => {
+		const result = layout({ locals: { user: null, admin: null, demoMode: false }, url: new URL('http://localhost/produk') });
+		expect(result.financeWorkspace).toBe(false);
+		expect(result.admin).toBeNull();
+	});
 });

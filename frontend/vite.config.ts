@@ -1,5 +1,5 @@
-import adapterAuto from '@sveltejs/adapter-auto';
 import adapterNode from '@sveltejs/adapter-node';
+import adapterVercel from '@sveltejs/adapter-vercel';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
@@ -14,7 +14,7 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 
-			adapter: process.env.VERCEL ? adapterAuto() : adapterNode()
+			adapter: process.env.VERCEL ? adapterVercel() : adapterNode()
 		})
 	]
 });

@@ -6,7 +6,31 @@
 	let productMenu = $state(false);
 	let productButton = $state<HTMLButtonElement>();
 	let headerElement = $state<HTMLElement>();
-	function closeMenus() { mobileMenu = false; productMenu = false; }
+	let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+	let lastMouseEnterTime = 0;
+	function openProductMenu() {
+		if (hoverTimer) clearTimeout(hoverTimer);
+		lastMouseEnterTime = Date.now();
+		productMenu = true;
+	}
+	function scheduleCloseProductMenu() {
+		if (hoverTimer) clearTimeout(hoverTimer);
+		hoverTimer = setTimeout(() => {
+			productMenu = false;
+		}, 200);
+	}
+	function toggleProductMenu() {
+		if (hoverTimer) clearTimeout(hoverTimer);
+		if (productMenu && Date.now() - lastMouseEnterTime < 400) {
+			return;
+		}
+		productMenu = !productMenu;
+	}
+	function closeMenus() {
+		if (hoverTimer) clearTimeout(hoverTimer);
+		mobileMenu = false;
+		productMenu = false;
+	}
 	let menuButton = $state<HTMLButtonElement>();
 	let activeStep = $state(0);
 	let scrolled = $state(false);
@@ -46,8 +70,8 @@
 		<a class="wordmark" href="/" aria-label="Tera, beranda"><img src="/logo.webp" alt="" width="36" height="36" /><span>Tera</span></a>
 		<nav class:expanded={mobileMenu} id="landing-nav" aria-label="Navigasi beranda">
 			<div class="nav-links">
-			<button bind:this={productButton} type="button" class="product-trigger" class:selected={productMenu} aria-expanded={productMenu} aria-controls="product-panel" onclick={() => (productMenu = !productMenu)}>Produk <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
-			<div class="product-panel" class:shown={productMenu} id="product-panel" inert={!productMenu}>
+			<button bind:this={productButton} type="button" class="product-trigger" class:selected={productMenu} aria-expanded={productMenu} aria-controls="product-panel" onmouseenter={openProductMenu} onmouseleave={scheduleCloseProductMenu} onclick={toggleProductMenu}>Produk <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
+			<div class="product-panel" class:shown={productMenu} id="product-panel" role="region" aria-label="Menu produk" inert={!productMenu} onmouseenter={openProductMenu} onmouseleave={scheduleCloseProductMenu}>
 				<div class="product-panel-content">
 					<a class="product-spotlight" href="/produk" onclick={closeMenus}><span class="menu-eyebrow">KENALI TERA</span><strong>Dari nota<br />ke keputusan.</strong><span class="spotlight-description">Lihat bagaimana Tera memeriksa pengeluaran kerja.</span><img src="/brand/tera-receipt-curved.png" alt="" width="1280" height="1280" /><span class="spotlight-link">Jelajahi fitur lengkap <span aria-hidden="true">↗</span></span></a>
 					<div class="product-shortcuts">
@@ -210,6 +234,7 @@
 	.product-trigger.selected svg { transform: rotate(180deg); }
 	.product-panel { position: absolute; top: calc(100% + 12px); left: 50%; width: min(760px, calc(100vw - 64px)); transform: translate(-50%, -8px); opacity: 0; visibility: hidden; transition: opacity 180ms ease, transform 220ms ease, visibility 220ms; }
 	.product-panel.shown { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+	.product-panel::before { content: ''; position: absolute; top: -20px; left: 0; right: 0; height: 20px; }
 	.product-panel-content { display: grid; grid-template-columns: .85fr 1.15fr; padding: 8px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 16px; box-shadow: 0 20px 48px rgb(0 45 40 / .14); }
 	.landing-header nav .product-spotlight { position: relative; display: flex; flex-direction: column; align-items: flex-start; min-height: 300px; overflow: hidden; padding: 24px; background: var(--color-light); border-radius: 10px; white-space: normal; }
 	.landing-header nav .product-spotlight:hover { background: #d8eee6; }

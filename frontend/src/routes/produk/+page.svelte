@@ -10,7 +10,28 @@
 	let headerElement = $state<HTMLElement>();
 	let scrolled = $state(false);
 
+	let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+	let lastMouseEnterTime = 0;
+	function openProductMenu() {
+		if (hoverTimer) clearTimeout(hoverTimer);
+		lastMouseEnterTime = Date.now();
+		productMenu = true;
+	}
+	function scheduleCloseProductMenu() {
+		if (hoverTimer) clearTimeout(hoverTimer);
+		hoverTimer = setTimeout(() => {
+			productMenu = false;
+		}, 200);
+	}
+	function toggleProductMenu() {
+		if (hoverTimer) clearTimeout(hoverTimer);
+		if (productMenu && Date.now() - lastMouseEnterTime < 400) {
+			return;
+		}
+		productMenu = !productMenu;
+	}
 	function closeMenus() {
+		if (hoverTimer) clearTimeout(hoverTimer);
 		mobileMenu = false;
 		productMenu = false;
 	}
@@ -49,13 +70,15 @@
 						class:selected={productMenu} 
 						aria-expanded={productMenu} 
 						aria-controls="product-panel" 
-						onclick={() => (productMenu = !productMenu)}>
+						onmouseenter={openProductMenu}
+						onmouseleave={scheduleCloseProductMenu}
+						onclick={toggleProductMenu}>
 						Produk 
 						<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
 							<path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
 						</svg>
 					</button>
-					<div class="product-panel" class:shown={productMenu} id="product-panel" inert={!productMenu}>
+					<div class="product-panel" class:shown={productMenu} id="product-panel" role="region" aria-label="Menu produk" inert={!productMenu} onmouseenter={openProductMenu} onmouseleave={scheduleCloseProductMenu}>
 						<div class="product-panel-content">
 							<a class="product-spotlight" href="/produk" onclick={closeMenus}>
 								<span class="menu-eyebrow">KENALI TERA</span>
@@ -526,6 +549,14 @@
 		opacity: 1;
 		visibility: visible;
 		transform: translate(-50%, 0);
+	}
+	.product-panel::before {
+		content: '';
+		position: absolute;
+		top: -20px;
+		left: 0;
+		right: 0;
+		height: 20px;
 	}
 	.product-panel-content {
 		display: grid;
@@ -1334,17 +1365,26 @@
 	}
 
 	/* Responsive */
-	@media (max-width: 900px) {
+	@media (max-width: 960px) {
+		.landing { --nav-offset: 106px; }
+		.landing-header { min-height: 72px; flex-wrap: wrap; gap: var(--space-3); position: relative; z-index: 10; }
+		.landing-header nav { position: absolute; top: calc(100% - 4px); left: 0; display: grid; grid-template-rows: 0fr; align-items: stretch; width: 100%; padding: 0 var(--space-5); gap: 0; background: var(--color-surface); border-radius: var(--radius-md); box-shadow: 0 14px 28px rgb(0 45 40 / .1); visibility: hidden; transition: grid-template-rows 240ms ease, visibility 240ms; }
+		.landing-header nav.expanded { grid-template-rows: 1fr; visibility: visible; }
+		.nav-links { min-height: 0; width: 100%; overflow: hidden; display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+		.landing-header nav a { justify-content: flex-start; padding-block: var(--space-3); border-top: 1px solid var(--color-border); }
+		.product-trigger { width: 100%; flex: 0 0 auto; border-top: 1px solid var(--color-border); border-radius: 0; padding: 12px 0; }
+		.product-panel { position: static; width: 100%; max-height: 0; transform: none; overflow: hidden; flex: 0 0 auto; }
+		.product-panel.shown { max-height: 540px; transform: none; }
+		.product-panel-content { display: block; border: 0; box-shadow: none; padding: 0 0 12px; }
+		.landing-header nav .product-spotlight, .product-panel-footer { display: none; }
+		.product-shortcuts { padding: 0; border-left: 2px solid var(--color-mint); }
+		.landing-header nav .product-shortcuts a { border-top: 0; padding: 12px; }
+		.landing-header nav { max-height: calc(100dvh - 112px); overflow-y: auto; }
+		.menu-toggle { display: inline-flex; }
 		.feature-content, .feature-content.reverse {
 			grid-template-columns: 1fr;
 			gap: 36px;
 			direction: ltr;
-		}
-		.nav-links {
-			display: none;
-		}
-		.menu-toggle {
-			display: flex;
 		}
 		.footer-grid {
 			grid-template-columns: 1fr;

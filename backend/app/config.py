@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     admin_users: str = "admin,reviewer,finance,finance@tera.id"
     storage_backend: Literal["memory", "sql"] = "memory"
     database_url: str = "postgresql+psycopg://postgres:change_me@127.0.0.1:5432/tera"
+    database_url_unpooled: str | None = None
+    neon_branch: str | None = None
+    neon_branch_id: str | None = None
+    neon_function_host_suffix: str | None = None
     graph_checkpoint_path: str = "./expense_agent_checkpoints.db"
     graph_checkpoint_schema: str = "langgraph"
     provider_mode: Literal["mock", "live"] = "mock"
@@ -65,7 +69,12 @@ class Settings(BaseSettings):
     # pass); "block" fails closed and routes images to the local mock instead.
     llm_image_privacy_mode: Literal["send", "block"] = "send"
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", hide_input_in_errors=True)
+    model_config = SettingsConfigDict(
+        env_file=(".env", "backend/.env", ".env.local", "backend/.env.local"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
+    )
 
     @model_validator(mode="after")
     def validate_policy_retrieval(self) -> "Settings":

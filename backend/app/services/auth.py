@@ -62,4 +62,5 @@ def is_admin(user_id: str, settings: Settings) -> bool:
     admin_spec = getattr(settings, "admin_users", "")
     allowed = {value.strip().lower() for value in admin_spec.split(",") if value.strip()}
     norm_user = user_id.strip().lower()
-    return norm_user in allowed
+    user_prefix = norm_user.split("@")[0]
+    return norm_user in allowed or user_prefix in allowed

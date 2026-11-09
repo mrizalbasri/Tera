@@ -28,7 +28,11 @@ from app.schemas.core import (
 class DecisionEngine:
     version = "decision-v1"
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
+        if not isinstance(settings, Settings):
+            from app.config import get_settings
+
+            settings = get_settings()
         self._settings = settings
 
     def decide(

@@ -285,3 +285,11 @@ def test_successful_replay_includes_validation_and_policy_results() -> None:
     assert first.status_code == second.status_code == 200
     assert second.json() == first.json()
     assert first.json()["policy_evaluations"]
+
+
+def test_validation_service_default_settings_resolution() -> None:
+    svc = ValidationService()
+    claim = _claim()
+    extraction = _extraction()
+    findings = svc.validate(claim=claim, extraction=extraction, processing_run_id=uuid4())
+    assert any(f.rule_id == "receipt_within_claim_window" for f in findings)

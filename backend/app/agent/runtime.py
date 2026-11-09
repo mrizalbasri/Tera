@@ -74,6 +74,8 @@ class GraphResources:
         held = getattr(self._held, "keys", set())
         connection = None
         outer = key not in held
+        acquired = False
+        number = None
         try:
             if outer and self.database_url:
                 url = make_url(self.database_url).set(drivername="postgresql")
@@ -84,15 +86,22 @@ class GraphResources:
                     if time.monotonic() >= deadline:
                         raise ApplicationError("claim_busy", "Claim is being updated; retry shortly.", 409)
                     time.sleep(0.025)
+                acquired = True
             self._held.keys = held | {key}
             yield
         finally:
             if outer:
                 self._held.keys = held
             if connection is not None:
-                # A dedicated connection releases its session lock on close,
-                # including when the owner process exits unexpectedly.
-                connection.close()
+                if acquired and number is not None:
+                    try:
+                        connection.execute("SELECT pg_advisory_unlock(%s)", (number,))
+                    except Exception:
+                        pass
+                try:
+                    connection.close()
+                except Exception:
+                    pass
             lock.release()
 
     def run_step(self, name, state, action):

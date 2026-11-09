@@ -118,7 +118,7 @@ async def request_context(request: Request, call_next):
     try:
         response = await call_next(request)
     except Exception:
-        logger.error("http request failed method=%s path=%s status=500 request_id=%s duration_ms=%s",
+        logger.exception("http request failed method=%s path=%s status=500 request_id=%s duration_ms=%s",
                      request.method, request.url.path, request_id, round((time.monotonic() - started) * 1000))
         raise
     response.headers["X-Request-ID"] = request_id

@@ -37,14 +37,17 @@ async def lifespan(_app: FastAPI):
     try:
         configured = _app.dependency_overrides.get(get_settings, get_settings)()
         if configured.environment == "production":
-            from app.api.deps import _backend, get_policy_retriever, get_anomaly_scorer
-            from app.agent.runtime import graph_resources
+            try:
+                from app.api.deps import _backend, get_policy_retriever, get_anomaly_scorer
+                from app.agent.runtime import graph_resources
 
-            backend = _backend(configured)
-            backend.ready()
-            graph_resources(backend, configured).ready()
-            get_policy_retriever(configured)
-            get_anomaly_scorer(configured)
+                backend = _backend(configured)
+                backend.ready()
+                graph_resources(backend, configured).ready()
+                get_policy_retriever(configured)
+                get_anomaly_scorer(configured)
+            except Exception as exc:
+                logger.warning("warmup during lifespan encountered: %s; deferring to readiness probe", exc)
         if configured.storage_backend == "sql":
             from app.services.recovery import RecoveryWorker
 

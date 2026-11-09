@@ -177,3 +177,21 @@ def test_login_production_credentials_check(auth_client):
     assert res_unknown.status_code == 401
     assert res_unknown.json()["code"] == "invalid_credentials"
 
+
+
+@pytest.mark.parametrize("email,expected_role", [
+    ("admin@tera.id", "admin"),
+    ("finance@tera.id", "admin"),
+    ("reviewer@tera.id", "admin"),
+    ("karyawan@tera.id", "member"),
+    ("salesman-001@tera.id", "member"),
+])
+def test_tera_id_emails_auth(auth_client, email, expected_role):
+    client, settings, _ = auth_client
+    settings.environment = "production"
+    settings.admin_users = "admin,reviewer,finance"
+    res = client.post("/auth/login", json={"username": email, "password": "demo123"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["role"] == expected_role
+    assert data["username"] == email

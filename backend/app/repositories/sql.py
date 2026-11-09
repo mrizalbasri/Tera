@@ -173,6 +173,16 @@ class RateLimitRow(Base):
     count: Mapped[int] = mapped_column()
 
 
+class UserRow(Base):
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    username: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[str] = mapped_column(String(40))
+
+
 _KINDS = {
     "extraction": ExtractionResult,
     "attempt": ExtractionAttempt,
@@ -292,6 +302,24 @@ class SqlRepositories:
                       "count": case((RateLimitRow.window >= window, RateLimitRow.count + 1), else_=1)},
             ).returning(RateLimitRow.count)
             return connection.scalar(statement) <= limit
+
+    def get_user_by_login(self, identifier: str) -> dict | None:
+        norm = identifier.strip().lower()
+        with self._session_factory() as session:
+            stmt = select(UserRow).where(
+                (func.lower(UserRow.username) == norm) | (func.lower(UserRow.email) == norm)
+            ).limit(1)
+            row = session.execute(stmt).scalar_one_or_none()
+            if not row:
+                return None
+            return {
+                "id": row.id,
+                "username": row.username,
+                "email": row.email,
+                "password_hash": row.password_hash,
+                "role": row.role,
+                "created_at": row.created_at,
+            }
 
 
 

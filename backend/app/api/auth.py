@@ -29,10 +29,26 @@ def login(
     username = body.username.strip()
     if not body.password:
         raise ApplicationError("invalid_credentials", "Username atau password salah.", 401)
-    # ponytail: password checked against hardcoded demo credentials only;
-    # upgrade to hashed-password store when real user management is added.
-    _verify_credentials(username, body.password, settings)
-    role = "admin" if is_admin(username, settings) else "member"
+
+    from app.api.deps import _backend
+    from app.repositories.migrations import verify_password
+
+    backend = _backend(settings)
+    user = None
+    if hasattr(backend, "get_user_by_login"):
+        try:
+            user = backend.get_user_by_login(username)
+        except Exception:
+            user = None
+
+    if user:
+        if not verify_password(body.password, user["password_hash"]):
+            raise ApplicationError("invalid_credentials", "Username atau password salah.", 401)
+        role = user["role"]
+    else:
+        _verify_credentials(username, body.password, settings)
+        role = "admin" if is_admin(username, settings) else "member"
+
     token = create_session_token(username, role, settings)
     response.set_cookie(
         key="__session",
@@ -46,22 +62,29 @@ def login(
     return LoginResponse(username=username, role=role, token=token)
 
 
-# ponytail: replace with DB-backed credential store when needed.
+# ponytail: demo credentials fallback when database is not used or uninitialized
 _DEMO_CREDENTIALS: dict[str, str] = {
     "admin": "demo123",
     "reviewer": "demo123",
     "finance": "demo123",
     "salesman-001": "demo123",
+    "karyawan": "demo123",
+    "admin@tera.id": "demo123",
+    "reviewer@tera.id": "demo123",
     "finance@tera.id": "demo123",
     "karyawan@tera.id": "demo123",
+    "salesman-001@tera.id": "demo123",
 }
 
 
 def _verify_credentials(username: str, password: str, settings: Settings) -> None:
+    norm = username.strip().lower()
+    prefix = norm.split("@")[0]
+    expected = _DEMO_CREDENTIALS.get(norm) or _DEMO_CREDENTIALS.get(prefix)
     if settings.environment != "production":
-        if password in ("demo123", "any") or _DEMO_CREDENTIALS.get(username) == password:
+        if password in ("demo123", "any") or expected == password:
             return
-    elif _DEMO_CREDENTIALS.get(username) == password:
+    elif expected == password:
         return
     raise ApplicationError("invalid_credentials", "Username atau password salah.", 401)
 

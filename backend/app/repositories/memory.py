@@ -414,6 +414,29 @@ class InMemoryRepositories:
         self.context = InMemoryConversationContextRepository()
         self.file_storage = InMemoryFileStorage()
 
+    def get_user_by_login(self, identifier: str) -> dict | None:
+        from app.repositories.migrations import hash_password
+        norm = identifier.strip().lower()
+        prefix = norm.split("@")[0]
+        defaults = {
+            "admin": ("admin@tera.id", "admin"),
+            "finance": ("finance@tera.id", "admin"),
+            "reviewer": ("reviewer@tera.id", "admin"),
+            "karyawan": ("karyawan@tera.id", "member"),
+            "salesman-001": ("salesman-001@tera.id", "member"),
+        }
+        for key, (email, role) in defaults.items():
+            if norm in (key, email.lower()) or prefix == key:
+                return {
+                    "id": f"usr_{key}",
+                    "username": norm if "@" in norm else email,
+                    "email": email,
+                    "password_hash": hash_password("demo123"),
+                    "role": role,
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+        return None
+
     @property
     def history(self) -> InMemoryClaimHistoryRepository:
         return InMemoryClaimHistoryRepository(self.claims, self.receipts, self.extractions)

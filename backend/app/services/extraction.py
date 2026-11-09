@@ -356,7 +356,15 @@ class ExtractionService:
                     )
                     policy = selection.require_policy()
             except ApplicationError as exc:
-                if exc.code == "policy_date_gap":
+                # Handle dates outside effective range as a date gap warning rather than fatal run failure
+                is_date_gap = (
+                    exc.code == "policy_date_gap"
+                    or (
+                        exc.code == ErrorCode.POLICY_UNAVAILABLE
+                        and "No policy version is effective for the receipt date" in str(exc.message)
+                    )
+                )
+                if is_date_gap:
                     evaluation = PolicyEvaluation(
                         claim_id=claim.id, processing_run_id=run.id, policy_id="expense-policy",
                         policy_version=None, rule_id="effective_policy_missing", rule_type="effective_policy_missing",

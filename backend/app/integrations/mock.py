@@ -89,6 +89,8 @@ class MockReceiptExtractor:
             receipt_date = date.today() - timedelta(days=20)
         elif b"FUTURE_DATE" in content:
             receipt_date = date.today() + timedelta(days=1)
+        elif b"HISTORICAL_DATE" in content:
+            receipt_date = date(2015, 12, 5)
 
         is_spbu = (
             b"SPBU" in content

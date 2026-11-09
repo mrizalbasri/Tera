@@ -125,6 +125,24 @@ def test_import_after_custom_policy_cannot_override_stricter_rules(bundle):
     assert effective.rules[0].limit == Decimal("30000")
 
 
+def test_historical_receipt_date_before_baseline_policy_reaches_review_queue():
+    from io import BytesIO
+
+    client = TestClient(app)
+    created = client.post(
+        "/claims",
+        data={"employee_id": "historical-date-emp", "declared_amount": "60000"},
+        files={"files": ("synthetic.pdf", BytesIO(b"%PDF-1.7\nCATEGORY:MEALS HISTORICAL_DATE\n%%EOF"), "application/pdf")},
+    ).json()
+    claim_id = created["claim"]["id"]
+    response = client.post(f"/claims/{claim_id}/process")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["claim"]["status"] in ("escalated", "needs_clarification")
+    detail = client.get(f"/claims/{claim_id}").json()
+    assert any(e.get("reason_code") == "policy_date_gap" for e in detail["policy_evaluations"])
+
+
 def test_policy_date_gap_reaches_review_queue_instead_of_failed_run():
     from io import BytesIO
 

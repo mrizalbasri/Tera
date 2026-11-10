@@ -154,6 +154,24 @@ def get_sensitive_data_masker() -> SensitiveDataMasker:
     return SensitiveDataMasker()
 
 
+_ocr_adapter_lock = RLock()
+
+
+@lru_cache(maxsize=1)
+def _local_ocr_reader(threads: int):
+    from app.integrations.local_ocr import RapidOcrReader
+
+    reader = RapidOcrReader(threads)
+    reader.ready()
+    return reader
+
+
+def warm_receipt_ocr(settings: Settings) -> None:
+    if settings.provider_mode == "live" and settings.receipt_extraction_mode == "ocr_first":
+        with _ocr_adapter_lock:
+            _local_ocr_reader(settings.ocr_cpu_threads)
+
+
 def get_receipt_extractor(
     settings: Settings = Depends(get_settings),
     masker: SensitiveDataMasker = Depends(get_sensitive_data_masker),
@@ -162,6 +180,14 @@ def get_receipt_extractor(
         if not settings.llm_api_key:
             raise RuntimeError(
                 "PROVIDER_MODE=live requires LLM_API_KEY in the environment."
+            )
+        if settings.receipt_extraction_mode == "ocr_first":
+            from app.integrations.local_ocr import OcrFirstReceiptExtractor
+
+            with _ocr_adapter_lock:
+                reader = _local_ocr_reader(settings.ocr_cpu_threads)
+            return OcrFirstReceiptExtractor(
+                settings, reader, lambda: LlmReceiptExtractor(settings, masker),
             )
         return LlmReceiptExtractor(settings, masker)
     return MockReceiptExtractor()

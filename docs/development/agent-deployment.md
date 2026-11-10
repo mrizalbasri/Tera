@@ -11,7 +11,74 @@ Paket ini mempertahankan SvelteKit 2 dengan adapter-node 5.5.7, FastAPI dan Post
 5. Reverse proxy HTTPS mengarah ke frontend pada loopback port 3000. Backend loopback port 8000 dapat dipakai untuk monitor internal; jangan mengekspos database ke publik. Origin frontend dan proxy harus sesuai.
 6. Verifikasi `/api/health/ready`, login pengguna, hak karyawan/admin, unggah, klarifikasi, review, notifikasi, pengelolaan kebijakan dan CSV. HTTP/build berhasil belum membuktikan login akun nyata atau seluruh alur production.
 
-Image backend default memasang `requirements-runtime.txt` untuk mode kebijakan local dan anomali rules. Instalasi pengembangan `pip install -r requirements.txt` tetap menyertakan pytest dan model lokal seperti sebelumnya. Untuk RAG/ML lokal pada image, build dengan `--build-arg LOCAL_MODELS=true`, siapkan model/indeks secara eksplisit, lalu konfigurasikan mode dan cache. Volume `/app/data/local` menyimpan artefak lokal. Mengaktifkan RAG/ML tanpa model/index tidak dianggap deployment siap. Image default tidak mengunduh model saat request.
+Image backend memasang `requirements-runtime.txt`. Build argument `LOCAL_MODELS=true` memasang dependensi RAG/ML lokal; siapkan indeks kebijakan secara eksplisit sebelum mengaktifkan RAG. Instalasi pengembangan `pip install -r requirements.txt` menyertakan pytest dan dependensi model tersebut. Volume `/app/data/local` menyimpan artefak lokal. Mengaktifkan RAG/ML tanpa model/index tidak dianggap deployment siap. Image default tidak mengunduh model saat request.
+
+## OCR lokal sebelum model AI
+
+Mode ini bersifat opt-in untuk backend live. Default aplikasi tetap `vision` agar
+deployment yang sudah berjalan tidak berubah tanpa pemasangan dependensi.
+Contoh environment Docker mengaktifkan `ocr_first` untuk deployment baru.
+
+Untuk instalasi tanpa Docker, dari `backend/` dengan venv aktif:
+
+```powershell
+python -m pip install -r requirements-local-ocr.txt
+python -m scripts.verify_local_ocr
+```
+
+Kemudian atur environment lokal/deployment dan restart backend:
+
+```dotenv
+PROVIDER_MODE=live
+RECEIPT_EXTRACTION_MODE=ocr_first
+OCR_CPU_THREADS=2
+OCR_MIN_CONFIDENCE=0.9
+PROVIDER_FALLBACK=none
+```
+
+Tetap isi `LLM_BASE_URL`, `LLM_MODEL`, dan `LLM_API_KEY` melalui pengelolaan secret
+deployment untuk fallback. Implementasi tidak mengganti provider menjadi Gemini
+secara otomatis; provider harus mendukung kontrak Chat Completions yang sudah ada.
+Jangan menaruh key di repo.
+
+- Docker memasang `requirements-local-ocr.txt` dengan `LOCAL_OCR=true` (default).
+  RapidOCR 3.10.0 menyertakan model ONNX dalam paket; build memeriksa model dan
+  mencoba inferensi. Startup menghangatkan ulang engine di proses service;
+  bobot tidak diunduh saat upload. Setiap proses memiliki engine sendiri.
+- `/health/ready` memeriksa kesiapan OCR jika mode ini aktif. Dependensi/model
+  yang hilang membuat startup/readiness gagal, bukan diam-diam memakai AI.
+- Foto JPG/PNG dibatasi dimensinya, dikoreksi orientasinya, lalu dibaca lokal.
+  Satu engine memproses secara serial dengan thread CPU terbatas.
+- Jalur tanpa AI sengaja sempit: vendor dan tanggal jelas, total IDR eksplisit,
+  baris barang berbentuk `nama 2 x 25.000 50.000`, kategori dikenali, serta
+  subtotal/pajak/diskon dan seluruh nominal cocok. Baris yang tidak dikenal
+  tidak boleh diabaikan, terutama bukti barang yang dilarang.
+- Teks yang jelas tetapi layout-nya belum didukung dikirim ke AI sebagai teks
+  yang telah dimasking. Bacaan lemah/kosong memakai jalur vision lama.
+  `LLM_IMAGE_PRIVACY_MODE=block` tetap melarang fallback eksternal.
+- Cache maksimal 32 hasil OCR berupa baris teks berada hanya di memori proses,
+  dengan TTL 120 detik yang diperiksa saat akses. Tidak ada cache gambar atau
+  teks mentah di database, checkpoint, maupun log.
+- PDF belum dirasterisasi oleh OCR lokal; perilaku live sebelumnya tetap berlaku.
+  Skor OCR bukan angka akurasi yang sudah dikalibrasi. Validasi barang, kebijakan,
+  nominal, dan keputusan backend tetap dijalankan.
+
+`verify_local_ocr` membuat tiga varian nota sintetis, menguji inferensi CPU
+sungguhan sampai hasil nominal/rincian, dan melaporkan waktu pemuatan awal,
+pembacaan hangat, cache, serta nol panggilan model eksternal. Ini bukan pengukuran
+akurasi nota nyata atau SLA produksi. Uji staging dengan fixture aman yang mewakili
+nota pengguna dan CPU/RAM target sebelum rollout.
+
+Image juga menyertakan `scripts.verify_local_ocr`: jalankan
+`python -m scripts.verify_local_ocr` di container yang sudah dirilis untuk
+memverifikasi inferensi pada CPU target tanpa menulis klaim/database atau
+memanggil provider AI. Workflow Azure mengaktifkan `ocr_first` dan memeriksa
+`/health/ready` setelah memperbarui image.
+
+Rollback: set `RECEIPT_EXTRACTION_MODE=vision` dan restart backend. Library OCR
+boleh tetap terpasang. Proses HTTP masih sinkron: nota yang membutuhkan fallback
+AI tetap dapat mengalami timeout. Background queue/worker dan polling status
+adalah pekerjaan terpisah, bukan bagian perubahan ini.
 
 ## Evaluasi offline dan live
 

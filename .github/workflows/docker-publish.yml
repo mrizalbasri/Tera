@@ -63,4 +63,13 @@ jobs:
             az containerapp update \
               --name tera-backend \
               --resource-group rg-group \
-              --image "mrizal23/tera-backend:${SHORT_SHA}"
+              --image "mrizal23/tera-backend:${SHORT_SHA}" \
+              --set-env-vars RECEIPT_EXTRACTION_MODE=ocr_first OCR_CPU_THREADS=2 OCR_MIN_CONFIDENCE=0.9 \
+              --output none
+
+      - name: Verify deployed backend readiness
+        shell: bash
+        run: |
+          HOST=$(az containerapp show --name tera-backend --resource-group rg-group --query properties.configuration.ingress.fqdn -o tsv)
+          curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 10 \
+            --connect-timeout 10 --max-time 30 "https://${HOST}/health/ready"

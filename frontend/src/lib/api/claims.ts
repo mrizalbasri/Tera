@@ -1,4 +1,5 @@
 import { apiRequest } from './client';
+import { compressImageIfLarge } from '$lib/image';
 import type {
 	ClaimDetailResponse,
 	Claim,
@@ -21,13 +22,14 @@ export async function createClaim(input: {
 	declaredAmount?: number | null;
 	idempotencyKey?: string;
 }): Promise<CreateClaimResponse> {
+	const file = await compressImageIfLarge(input.file);
 	const form = new FormData();
 	if (input.employeeId) {
 		form.append('employee_id', input.employeeId);
 	}
 	form.append('currency', 'IDR');
 	if (input.declaredAmount != null) form.append('declared_amount', String(input.declaredAmount));
-	form.append('files', input.file, input.file.name);
+	form.append('files', file, file.name);
 
 	const headers: Record<string, string> = {};
 	if (input.idempotencyKey) headers['Idempotency-Key'] = input.idempotencyKey;
@@ -86,8 +88,9 @@ export async function replaceClaimReceipt(input: {
 	claimId: string;
 	file: File;
 }): Promise<ReplacementReceiptResponse> {
+	const file = await compressImageIfLarge(input.file);
 	const form = new FormData();
-	form.append('file', input.file, input.file.name);
+	form.append('file', file, file.name);
 	return apiRequest<ReplacementReceiptResponse>(
 		`/claims/${encodeURIComponent(input.claimId)}/receipts`,
 		{

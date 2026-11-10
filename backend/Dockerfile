@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements-runtime.txt && \
     if [ "$LOCAL_OCR" = "true" ]; then pip install --no-cache-dir -r requirements-local-ocr.txt; fi
 RUN useradd --create-home --uid 10001 tera && mkdir -p /app/data/local/anomaly && chown -R tera:tera /app/data
 COPY --chown=tera:tera app ./app
+COPY --chown=tera:tera scripts/verify_local_ocr.py ./scripts/verify_local_ocr.py
 RUN if [ "$LOCAL_OCR" = "true" ]; then python -c "from app.integrations.local_ocr import RapidOcrReader; RapidOcrReader().ready()"; fi
 RUN python -m app.train_anomaly --verify --output /app/data/local/anomaly/model.joblib && chown -R tera:tera /app/data
 USER tera

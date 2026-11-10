@@ -69,6 +69,12 @@ pembacaan hangat, cache, serta nol panggilan model eksternal. Ini bukan pengukur
 akurasi nota nyata atau SLA produksi. Uji staging dengan fixture aman yang mewakili
 nota pengguna dan CPU/RAM target sebelum rollout.
 
+Image juga menyertakan `scripts.verify_local_ocr`: jalankan
+`python -m scripts.verify_local_ocr` di container yang sudah dirilis untuk
+memverifikasi inferensi pada CPU target tanpa menulis klaim/database atau
+memanggil provider AI. Workflow Azure mengaktifkan `ocr_first` dan memeriksa
+`/health/ready` setelah memperbarui image.
+
 Rollback: set `RECEIPT_EXTRACTION_MODE=vision` dan restart backend. Library OCR
 boleh tetap terpasang. Proses HTTP masih sinkron: nota yang membutuhkan fallback
 AI tetap dapat mengalami timeout. Background queue/worker dan polling status

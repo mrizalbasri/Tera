@@ -5,6 +5,7 @@
 	import Toast from '$lib/components/Toast.svelte';
 	import { modalFocus } from '$lib/actions/modalFocus';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import ClaimAmount from '$lib/components/ClaimAmount.svelte';
 	import { listReviews, decideReview } from '$lib/api/reviews';
 	import { ApiError } from '$lib/api/client';
 	import { showToast } from '$lib/stores/toast.svelte';
@@ -27,6 +28,7 @@
 	let decisionTarget = $state<ReviewQueueItem | null>(null);
 	let decisionAction = $state<'approve' | 'reject'>('approve');
 	let decisionReason = $state('');
+	let finalAmount = $state('');
 	let submittingDecision = $state(false);
 	let decisionError = $state<string | null>(null);
 
@@ -86,6 +88,7 @@
 		decisionTarget = item;
 		decisionAction = action;
 		decisionReason = '';
+		finalAmount = item.claim.amount?.complete ? String(item.claim.amount.value ?? '') : '';
 		decisionError = null;
 	}
 
@@ -108,7 +111,8 @@
 			const response = await decideReview({
 				claimId: decisionTarget.claim.id,
 				action: decisionAction,
-				reason
+				reason,
+				finalAmount
 			});
 			showToast(
 				`Klaim ${shortClaimRef(response.claim.id)} ${
@@ -261,7 +265,7 @@
 								<div class="user-sub">{item.claim.employee_id}</div>
 							</td>
 							<td>{formatDateTime(item.claim.submitted_at)}</td>
-							<td class="amount">{formatCurrency(item.claim.declared_amount, item.claim.currency)}</td>
+							<td class="amount"><ClaimAmount claim={item.claim} /></td>
 							<td>
 								{#if item.decision?.anomaly_score != null || getAnomalySignal(item)}
 									<AnomalyBadge score={item.decision?.anomaly_score} signal={getAnomalySignal(item)} size="sm" />
@@ -323,7 +327,7 @@
 							<p class="receipt-dash">--------------------------------</p>
 						</div>
 						<div class="receipt-items">
-							<div class="receipt-row"><span>Nominal</span><span>{formatCurrency(activeSignals.claim.declared_amount, activeSignals.claim.currency)}</span></div>
+							<div class="receipt-row"><span>Nominal</span><ClaimAmount claim={activeSignals.claim} /></div>
 							<div class="receipt-row"><span>Status klaim</span><span>{activeSignals.claim.status}</span></div>
 							<div class="receipt-row"><span>Status review</span><span>{activeSignals.review.status}</span></div>
 						</div>
@@ -436,6 +440,11 @@
 					<strong>{page.data.admin?.username}</strong> dan tidak dapat diubah dari UI.
 				</p>
 				<label class="reason-label" for="decision-reason">Alasan keputusan (wajib)</label>
+				{#if decisionAction === 'approve'}
+					<label for="decision-amount">Nominal final ({decisionTarget.claim.currency}) sesuai bukti</label>
+					<input id="decision-amount" inputmode="decimal" bind:value={finalAmount} disabled={submittingDecision} placeholder="Contoh: 75000" />
+					<p class="ai-reason">Wajib diisi tanpa pemisah ribuan. Koreksi nominal harus dijelaskan pada alasan keputusan.</p>
+				{/if}
 				<textarea
 					id="decision-reason"
 					required
@@ -455,7 +464,7 @@
 						class="{decisionAction === 'approve' ? 'btn-approve' : 'btn-reject'} full"
 						type="button"
 						onclick={submitDecision}
-						disabled={submittingDecision || !decisionReason.trim()}
+						disabled={submittingDecision || !decisionReason.trim() || (decisionAction === 'approve' && !(Number(finalAmount) > 0))}
 					>
 						{submittingDecision ? 'Mengirim...' : decisionAction === 'approve' ? 'Konfirmasi persetujuan' : 'Konfirmasi penolakan'}
 					</button>

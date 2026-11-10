@@ -97,6 +97,15 @@ def get_extraction_repository(settings: Settings = Depends(get_settings)) -> Ext
     return _backend(settings).extractions
 
 
+def get_claim_amount_service(
+    receipts: ReceiptRepository = Depends(get_receipt_repository),
+    extractions: ExtractionRepository = Depends(get_extraction_repository),
+):
+    from app.services.claim_amounts import ClaimAmountService
+
+    return ClaimAmountService(receipts, extractions)
+
+
 def get_extraction_attempt_repository(settings: Settings = Depends(get_settings)) -> ExtractionAttemptRepository:
     return _backend(settings).attempts
 

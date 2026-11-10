@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.api.claim_access import ClaimActor, get_claim_actor, require_claim_access
 
 from app.api.deps import (
+    get_claim_amount_service,
     get_claim_repository,
     get_clarification_service,
     get_decision_repository,
@@ -54,6 +55,7 @@ from app.services.timeline import TimelineService
 from app.services.claim_visibility import employee_decision, employee_signal, employee_timeline
 from app.services.processing import ClaimProcessingService
 from app.services.uploads import ReceiptUploadService
+from app.services.claim_amounts import ClaimAmountService
 
 router = APIRouter(prefix="/claims", tags=["claims"], dependencies=[Depends(get_claim_actor)])
 
@@ -108,7 +110,8 @@ class TimelineResponse(BaseModel):
 
 
 class AnswerRequest(BaseModel):
-    answer: str = Field(min_length=1, max_length=2000)
+    answer: str = Field(default="", max_length=2000)
+    confirmed_fields: dict[str, str] | None = None
     answered_by: str | None = Field(default=None, min_length=1, max_length=100)
 
 
@@ -158,10 +161,11 @@ def list_claims(
     offset: int = Query(0, ge=0, le=10_000_000),
     actor: ClaimActor = Depends(get_claim_actor),
     claims: ClaimRepository = Depends(get_claim_repository),
+    amounts: ClaimAmountService = Depends(get_claim_amount_service),
 ) -> ClaimListResponse:
     filters = ClaimFilter(employee_id if actor.admin else actor.user_id, status, period_from, period_to)
     items = list(claims.page(filters, limit=limit, offset=offset))
-    return ClaimListResponse(items=items, total=claims.count(filters), limit=limit, offset=offset)
+    return ClaimListResponse(items=amounts.present_many(items), total=claims.count(filters), limit=limit, offset=offset)
 
 
 @router.get("/{claim_id}", response_model=ClaimDetailResponse, dependencies=[Depends(require_claim_access)])
@@ -176,6 +180,7 @@ def get_claim(
     evaluations: PolicyEvaluationRepository = Depends(get_policy_evaluation_repository),
     signals: SignalRepository = Depends(get_signal_repository),
     decisions: DecisionRepository = Depends(get_decision_repository),
+    amounts: ClaimAmountService = Depends(get_claim_amount_service),
 ) -> ClaimDetailResponse:
     claim = claims.get(claim_id)
     if claim is None:
@@ -183,7 +188,7 @@ def get_claim(
     claim_receipts = list(receipts.list_for_claim(claim_id))
     receipt_ids = [receipt.id for receipt in claim_receipts]
     return ClaimDetailResponse(
-        claim=claim,
+        claim=amounts.present(claim),
         receipts=claim_receipts,
         extractions=list(extractions.list_for_receipts(receipt_ids)),
         attempts=list(attempts.list_for_claim(claim_id)),
@@ -288,6 +293,7 @@ def answer_clarification(
         clarification_id,
         answer=request.answer,
         answered_by=(request.answered_by or actor.user_id) if actor.demo else actor.user_id,
+        confirmed_fields=request.confirmed_fields,
     )
     return ProcessClaimResponse(
         claim=outcome.claim,

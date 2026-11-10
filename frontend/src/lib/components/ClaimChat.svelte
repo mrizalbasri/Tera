@@ -342,6 +342,15 @@
 			const list = await listClarifications(claimId);
 			const open = list.items.find((item) => item.status === 'open');
 			if (open) {
+				if (open.fields.some((field) => ['vendor', 'receipt_date', 'total', 'currency', 'category'].includes(field))) {
+					messages.push({
+						id: nextId++, from: 'agent',
+						text: 'Lengkapi isian sesuai nota agar format jawaban jelas. Klaim tetap tersimpan saat kamu berpindah halaman.',
+						actions: [{ label: 'Lengkapi data nota', kind: 'detail', href: `/claims/${claimId}/clarification` }],
+						timestamp: formatClock()
+					});
+					return;
+				}
 				awaitingClarification = {
 					claimId,
 					clarificationId: open.id,

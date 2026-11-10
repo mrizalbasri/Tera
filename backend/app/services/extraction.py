@@ -56,6 +56,7 @@ from app.schemas.core import (
     ValidationFinding,
 )
 from app.services.decision import DecisionEngine
+from app.services.claim_amounts import ClaimAmountService, resolve_amount
 from app.services.validation import SUPPORTED_CATEGORIES, ValidationService
 
 _DECISION_CLAIM_STATUS = {
@@ -133,6 +134,7 @@ class ExtractionService:
         self._policy_evaluator = policy_evaluator
         self._decider = decider
         self._settings = settings
+        self.amounts = ClaimAmountService(receipts, extractions)
 
     def extract_receipts(self, claim: Claim, run: ProcessingRun) -> None:
         started_at = datetime.now(UTC)
@@ -140,6 +142,24 @@ class ExtractionService:
             update={"status": ProcessingRunStatus.RUNNING, "started_at": started_at}
         )
         self._runs.save(run)
+
+        answered_extraction = any(
+            question.status == ClarificationStatus.ANSWERED
+            and question.code == ErrorCode.EXTRACTION_CONFIDENCE_LOW
+            and question.receipt_revision == claim.receipt_revision
+            for question in self._clarifications.list_for_claim(claim.id)
+        )
+        if answered_extraction:
+            # Human input is evidence for finance, not higher model confidence.
+            # Preserve the prior reading; do not re-read the same image and
+            # ask the employee the same questions with different wording.
+            receipts = self.active_receipts(claim.id)
+            previous = {}
+            for result in self._extractions.list_for_receipts([receipt.id for receipt in receipts]):
+                previous[result.receipt_id] = result
+            for result in previous.values():
+                self._extractions.save(result.model_copy(update={"id": uuid4(), "processing_run_id": run.id}))
+            return self._request_clarification(claim, run, [], {})
 
         receipts = self.active_receipts(claim.id)
         if not receipts:
@@ -231,26 +251,19 @@ class ExtractionService:
                     claim, run, attempts, {field: confidence[field] for field in missing_fields},
                 )
             threshold = Decimal(str(self._settings.extraction_confidence_threshold))
-            clarified = (
-                ErrorCode.EXTRACTION_CONFIDENCE_LOW in self._answered_codes(claim.id)
-                and any(
-                    any(k in (r.original_filename or "").lower() for k in ("klarifikasi", "clarification", "buram", "ambigu"))
-                    for r in self.active_receipts(claim.id)
-                )
-            )
-            if clarified or all(value >= threshold for value in confidence.values()):
+            if all(value >= threshold for value in confidence.values()):
                 for result in attempt_results:
-                    if clarified:
-                        result = result.model_copy(update={
-                            field: getattr(result, field).model_copy(update={"confidence": Decimal("0.95")})
-                            for field in _CONFIDENCE_FIELDS
-                        })
                     self._extractions.save(
                         result.model_copy(update={"processing_run_id": run.id})
                     )
                 return
 
-        self._request_clarification(claim, run, attempts, confidence)
+        for result in attempt_results:
+            self._extractions.save(result.model_copy(update={"processing_run_id": run.id}))
+        self._request_clarification(
+            claim, run, attempts,
+            {field: value for field, value in confidence.items() if value < threshold},
+        )
 
     def decide_claim(self, claim: Claim, run: ProcessingRun) -> None:
         outcome = self.replay(claim.id, run)
@@ -277,9 +290,15 @@ class ExtractionService:
                 "reason_codes": ["clarification_limit_reached", *decision.reason_codes],
                 "explanation": "Karyawan telah menjawab klarifikasi. Finance perlu memeriksa bukti dan jawaban karyawan.",
             })
+        updates = {"current_decision_id": decision.id}
+        if decision.outcome == DecisionOutcome.APPROVED:
+            amount = resolve_amount(claim, self.active_receipts(claim.id), saved)
+            if amount.source != "extraction" or not amount.complete:
+                raise ApplicationError(ErrorCode.INVALID_CLAIM, "Nominal nota belum valid untuk persetujuan.", 422)
+            updates["final_amount"] = amount.value
         self._decisions.save(decision)
         claim = self.transition_claim(claim, _DECISION_CLAIM_STATUS[decision.outcome])
-        claim = self._claims.save(claim.model_copy(update={"current_decision_id": decision.id}))
+        claim = self._claims.save(claim.model_copy(update=updates))
         if decision.outcome == DecisionOutcome.NEEDS_CLARIFICATION:
             self._record_data_clarification(claim, decision, run)
         elif decision.outcome == DecisionOutcome.ESCALATED:
@@ -741,7 +760,7 @@ class ExtractionService:
             if item.processing_run_id == run.id
         ]
         return ProcessingOutcome(
-            claim=self._claims.get(claim_id),
+            claim=self.amounts.present(self._claims.get(claim_id)),
             extractions=extractions,
             attempts=attempts,
             clarification=clarification,

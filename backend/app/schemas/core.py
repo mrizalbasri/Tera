@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,6 +28,13 @@ class ClaimCreate(SchemaBase):
     declared_amount: Decimal | None = Field(default=None, gt=0)
 
 
+class ClaimAmount(SchemaBase):
+    value: Decimal | None = None
+    source: Literal["final", "extraction", "declared", "unavailable"] = "unavailable"
+    complete: bool = False
+    conflict: bool = False
+
+
 class Claim(SchemaBase):
     id: UUID
     employee_id: str
@@ -38,6 +46,9 @@ class Claim(SchemaBase):
     receipt_revision: int = Field(default=0, ge=0)
     created_at: datetime
     updated_at: datetime
+    final_amount: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
+    # Response projection; repositories need not persist calculated amounts.
+    amount: ClaimAmount | None = None
 
 
 class Receipt(SchemaBase):
@@ -148,6 +159,8 @@ class Clarification(SchemaBase):
     status: ClarificationStatus
     created_at: datetime
     answered_at: datetime | None = None
+    confirmed_fields: dict[str, str] = Field(default_factory=dict)
+    receipt_revision: int = Field(default=0, ge=0)
 
 
 class Review(SchemaBase):

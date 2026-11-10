@@ -6,6 +6,7 @@ the reviewer — the agent's escalated decision is preserved for audit.
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from decimal import Decimal
 from hashlib import sha256
 from typing import Literal
 from uuid import UUID, uuid4
@@ -23,6 +24,7 @@ from app.repositories.protocols import (
 )
 from app.schemas.core import Claim, Decision, Review
 from app.services.processing import ClaimProcessingService
+from app.services.claim_amounts import positive_amount
 
 _DECISION_CLAIM_STATUS = {
     DecisionOutcome.APPROVED: ClaimStatus.APPROVED,
@@ -88,16 +90,26 @@ class ReviewService:
         return items
 
     def decide(self, claim_id: UUID, *, action: Literal["approve", "reject"],
-               reason: str, reviewer_reference: str) -> tuple[Claim, Decision, Review]:
+               reason: str, reviewer_reference: str,
+               final_amount: Decimal | None = None) -> tuple[Claim, Decision, Review]:
         if not reason.strip() or not reviewer_reference.strip():
             raise ApplicationError(ErrorCode.INVALID_CLAIM, "Review reason and identity must not be blank.", 422)
         with self._processing.claim_lock(claim_id):
             self._processing.recover_claim(claim_id)
-            self._pending_review(claim_id)
+            claim, _ = self._pending_review(claim_id)
+            if action == "approve":
+                amount = self._processing.present_claims([claim])[0].amount
+                # A declared value alone is not receipt evidence. Finance can
+                # explicitly confirm it by supplying final_amount and a reason.
+                if final_amount is None and amount.complete:
+                    final_amount = amount.value
+                if positive_amount(final_amount) is None:
+                    raise ApplicationError(ErrorCode.INVALID_CLAIM, "Isi nominal final yang valid berdasarkan bukti sebelum menyetujui klaim.", 422)
             return self._processing.resume_review(
                 claim_id, lambda run_id: self._apply_decision(
                     claim_id, action=action, reason=reason,
                     reviewer_reference=reviewer_reference, processing_run_id=run_id,
+                    final_amount=final_amount if action == "approve" else None,
                 ),
             )
 
@@ -132,7 +144,7 @@ class ReviewService:
 
     def _apply_decision(self, claim_id: UUID, *, action: Literal["approve", "reject"],
                         reason: str, reviewer_reference: str,
-                        processing_run_id: UUID) -> tuple[Claim, Decision, Review]:
+                        processing_run_id: UUID, final_amount: Decimal | None = None) -> tuple[Claim, Decision, Review]:
         claim, review = self._pending_review(claim_id)
         current_status = ClaimStatus(claim.status)
         outcome = (
@@ -165,6 +177,7 @@ class ReviewService:
                     "status": _DECISION_CLAIM_STATUS[outcome],
                     "current_decision_id": decision.id,
                     "updated_at": now,
+                    "final_amount": final_amount,
                 }
             )
         )
@@ -190,10 +203,12 @@ class ReviewService:
                 "action": action,
                 "reviewer_reference": reviewer_reference.strip(),
                 "decision_id": str(decision.id),
+                "final_amount": str(final_amount) if final_amount is not None else None,
+                "previous_final_amount": str(claim.final_amount) if claim.final_amount is not None else None,
             },
             processing_run_id=decision.processing_run_id,
         )
-        return updated_claim, decision, decided_review
+        return self._processing.present_claims([updated_claim])[0], decision, decided_review
 
     def _latest_decision(self, claim_id: UUID) -> Decision | None:
         decisions = self._decisions.list_for_claim(claim_id)

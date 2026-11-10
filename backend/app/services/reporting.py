@@ -4,6 +4,7 @@ import csv
 import io
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
+from decimal import Decimal
 from uuid import UUID
 
 from app.repositories.protocols import ClaimRepository, DecisionRepository, ProcessingRunRepository, SignalRepository
@@ -19,13 +20,15 @@ class ReportingService:
     def __init__(
         self, claims: ClaimRepository, decisions: DecisionRepository | None = None,
         runs: ProcessingRunRepository | None = None, signals: SignalRepository | None = None,
+        amounts=None,
     ) -> None:
         self.claims, self.decisions, self.runs, self.signals = claims, decisions, runs, signals
+        self.amounts = amounts
 
     def batches(self, filters: ClaimFilter) -> Iterator[Sequence[Claim]]:
         offset = 0
         while batch := self.claims.page(filters, limit=self.BATCH_SIZE, offset=offset):
-            yield batch
+            yield self.amounts.present_many(batch) if self.amounts else batch
             offset += len(batch)
 
     def summary(self, filters: ClaimFilter) -> dict[str, object]:
@@ -37,6 +40,8 @@ class ReportingService:
         active_total = employee_wait = reviewer_wait = measured = 0
         usage_runs = input_tokens = output_tokens = 0
         models: set[str] = set()
+        approved_totals: dict[str, Decimal] = {}
+        approved_amount_missing = 0
         for batch in self.batches(filters):
             ids = [claim.id for claim in batch]
             decisions: defaultdict[UUID, list[Decision]] = defaultdict(list)
@@ -71,6 +76,12 @@ class ReportingService:
                 counts["total_claims"] += 1
                 if claim.status in ("approved", "rejected"):
                     counts[f"{claim.status}_claims"] += 1
+                    if claim.status == "approved":
+                        amount = claim.amount
+                        if amount is not None and amount.complete and amount.value is not None:
+                            approved_totals[claim.currency] = approved_totals.get(claim.currency, Decimal("0")) + amount.value
+                        else:
+                            approved_amount_missing += 1
                     current = next((d for d in decisions[claim.id] if d.id == claim.current_decision_id), None)
                     if current is None and decisions[claim.id]:
                         current = decisions[claim.id][-1]
@@ -89,19 +100,25 @@ class ReportingService:
                     provider_cost=None, provider_cost_basis="unavailable",
                     provider_input_tokens=input_tokens if usage_runs else None,
                     provider_output_tokens=output_tokens if usage_runs else None,
-                    provider_measured_calls=usage_runs, provider_models=sorted(models))
+                    provider_measured_calls=usage_runs, provider_models=sorted(models),
+                    approved_totals=approved_totals, approved_amount_missing=approved_amount_missing)
 
     def csv_rows(self, filters: ClaimFilter) -> Iterator[str]:
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(["claim_id", "employee_id", "submitted_at", "currency", "declared_amount", "status"])
+        writer.writerow(["claim_id", "employee_id", "submitted_at", "currency", "declared_amount", "status",
+                         "amount", "amount_source", "amount_complete", "final_amount"])
         yield buffer.getvalue()
         for batch in self.batches(filters):
             buffer.seek(0)
             buffer.truncate()
             for claim in batch:
                 writer.writerow([claim.id, self._csv_cell(claim.employee_id), claim.submitted_at.isoformat(),
-                                 self._csv_cell(claim.currency), str(claim.declared_amount) if claim.declared_amount is not None else "", claim.status])
+                                 self._csv_cell(claim.currency), str(claim.declared_amount) if claim.declared_amount is not None else "", claim.status,
+                                 str(claim.amount.value) if claim.amount and claim.amount.value is not None else "",
+                                 claim.amount.source if claim.amount else "unavailable",
+                                 claim.amount.complete if claim.amount else False,
+                                 str(claim.final_amount) if claim.final_amount is not None else ""])
             yield buffer.getvalue()
 
     @staticmethod

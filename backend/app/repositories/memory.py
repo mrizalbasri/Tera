@@ -80,6 +80,10 @@ class InMemoryReceiptRepository:
         with self._lock:
             return tuple(self._receipts.get(claim_id, ()))
 
+    def list_for_claims(self, claim_ids: Sequence[UUID]) -> Sequence[Receipt]:
+        with self._lock:
+            return tuple(receipt for claim_id in claim_ids for receipt in self._receipts.get(claim_id, ()))
+
     def find_claim_id_by_content_hash(self, content_hash: str) -> UUID | None:
         with self._lock:
             return self._content_hashes.get(content_hash)

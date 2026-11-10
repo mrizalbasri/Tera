@@ -50,6 +50,9 @@ class ClaimProcessingService:
     def claim_lock(self, claim_id: UUID) -> AbstractContextManager[None]:
         return self.resources.claim_lock(claim_id)
 
+    def present_claims(self, claims: Sequence[Claim]) -> list[Claim]:
+        return self._extraction.amounts.present_many(claims)
+
     @staticmethod
     def _config(claim_id: UUID) -> dict[str, Any]:
         return {"configurable": {"thread_id": str(claim_id)}}

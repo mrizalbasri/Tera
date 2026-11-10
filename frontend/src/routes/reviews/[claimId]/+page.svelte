@@ -1,22 +1,25 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import ClaimAmount from '$lib/components/ClaimAmount.svelte';
 	import AnomalyBadge from '$lib/components/AnomalyBadge.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
-	import { getClaim } from '$lib/api/claims';
+	import { getClaim, listClarifications } from '$lib/api/claims';
 	import { listReviews, decideReview } from '$lib/api/reviews';
 	import { ApiError } from '$lib/api/client';
 	import { formatCurrency } from '$lib/formatters/currency';
 	import { formatDateTime } from '$lib/formatters/date';
-	import type { ClaimDetailResponse, ReviewQueueItem } from '$lib/types/claim';
+	import type { ClaimDetailResponse, ReviewQueueItem, Clarification } from '$lib/types/claim';
 
 	let detail = $state<ClaimDetailResponse | null>(null);
+	let clarifications = $state<Clarification[]>([]);
 	let review = $state<ReviewQueueItem | null>(null);
 	let loading = $state(true);
 	let error = $state('');
 	let decisionError = $state('');
 	let action = $state<'approve' | 'reject' | null>(null);
 	let reason = $state('');
+	let finalAmount = $state('');
 	let submitting = $state(false);
 	let selectedReceiptId = $state('');
 	let generation = 0;
@@ -28,6 +31,7 @@
 		const request = ++generation;
 		loading = true;
 		detail = null;
+		clarifications = [];
 		review = null;
 		action = null;
 		reason = '';
@@ -36,9 +40,11 @@
 		error = '';
 		decisionError = '';
 		try {
-			const [claimResponse, reviewResponse] = await Promise.all([getClaim(claimId), listReviews()]);
+			const [claimResponse, reviewResponse, questions] = await Promise.all([getClaim(claimId), listReviews(), listClarifications(claimId)]);
 			if (request !== generation) return;
 			detail = claimResponse;
+			clarifications = questions.items;
+			finalAmount = claimResponse.claim.amount?.complete ? String(claimResponse.claim.amount.value ?? '') : '';
 			review = reviewResponse.items.find((item) => item.claim.id === claimId) ?? null;
 		} catch (cause) {
 			if (request === generation) error = cause instanceof ApiError ? cause.message : 'Detail review tidak dapat dimuat.';
@@ -62,7 +68,8 @@
 			const saved = await decideReview({
 				claimId: review.claim.id,
 				action,
-				reason: reason.trim()
+				reason: reason.trim(),
+				finalAmount
 			});
 			if (request !== generation) return;
 			review = { ...review, claim: saved.claim, review: saved.review, decision: saved.decision };
@@ -138,7 +145,7 @@
 			<section class="grid">
 			<div class="panel">
 				<h2>Ringkasan klaim</h2>
-				<div class="row"><span>Nominal</span><strong>{formatCurrency(detail.claim.declared_amount, detail.claim.currency)}</strong></div>
+				<div class="row"><span>Nominal</span><ClaimAmount claim={detail.claim} /></div>
 				<div class="row"><span>Review</span><strong>{review?.review.status ?? (detail.claim.status === 'escalated' ? 'Tidak tersedia di antrean' : 'Tidak ada review terbuka')}</strong></div>
 				<div class="row">
 					<span>Skor anomali ML</span>
@@ -197,6 +204,13 @@
 			</div>
 		</section>
 
+		{#if clarifications.length}
+			<section class="panel"><h2>Konfirmasi karyawan</h2><p class="muted">Jawaban karyawan, bukan hasil OCR atau keputusan verifikasi.</p>
+				{#each clarifications as question (question.id)}
+					<div class="evidence"><strong>{question.question}</strong><p>{question.answer ?? 'Belum dijawab'}</p></div>
+				{/each}
+			</section>
+		{/if}
 		{#if decisionError}<div class="state error" role="alert"><p>{decisionError}</p><button type="button" class="secondary" onclick={() => load()} disabled={submitting}>Muat ulang status</button></div>{/if}
 		{#if review?.review.status === 'open'}
 			<section class="panel decision-panel">
@@ -209,9 +223,14 @@
 				{:else}
 					<div class="confirm-box">
 						<p>Konfirmasi: <strong>{action === 'approve' ? 'Setujui klaim' : 'Tolak klaim'}</strong></p>
+						{#if action === 'approve'}
+							<label for="final-amount">Nominal final ({detail.claim.currency}) sesuai bukti</label>
+							<input id="final-amount" inputmode="decimal" bind:value={finalAmount} disabled={submitting} required />
+							<p class="muted">Angka tanpa pemisah ribuan. Jelaskan koreksi nominal pada alasan keputusan.</p>
+						{/if}
 						<textarea bind:value={reason} aria-label="Alasan keputusan" required maxlength="2000" disabled={submitting} placeholder="Alasan keputusan wajib diisi berdasarkan bukti klaim..."></textarea>
 						<div class="actions">
-							<button type="button" class={action === 'approve' ? 'approve' : 'reject'} onclick={submitDecision} disabled={submitting || !reason.trim()}>
+							<button type="button" class={action === 'approve' ? 'approve' : 'reject'} onclick={submitDecision} disabled={submitting || !reason.trim() || (action === 'approve' && !(Number(finalAmount) > 0))}>
 								{submitting ? 'Menyimpan...' : `Ya, simpan ${action === 'approve' ? 'persetujuan' : 'penolakan'}`}
 							</button>
 							<button type="button" class="secondary" onclick={() => { action = null; reason = ''; }} disabled={submitting}>

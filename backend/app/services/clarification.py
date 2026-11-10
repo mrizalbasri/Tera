@@ -24,6 +24,7 @@ from app.repositories.protocols import (
 )
 from app.schemas.core import Clarification, ConversationEntry, ProcessingOutcome
 from app.services.processing import ClaimProcessingService
+from app.services.clarification_fields import FIELD_LABELS, validate_confirmations
 
 
 class ClarificationService:
@@ -49,10 +50,11 @@ class ClarificationService:
         return list(self._clarifications.list_for_claim(claim_id))
 
     def submit_answer(self, claim_id: UUID, clarification_id: UUID, *,
-                      answer: str, answered_by: str) -> tuple[Clarification, ProcessingOutcome, bool]:
+                      answer: str, answered_by: str,
+                      confirmed_fields: dict[str, str] | None = None) -> tuple[Clarification, ProcessingOutcome, bool]:
         with self._processing.claim_lock(claim_id):
             return self._submit_answer(claim_id, clarification_id,
-                                       answer=answer, answered_by=answered_by)
+                                       answer=answer, answered_by=answered_by, confirmed_fields=confirmed_fields)
 
     def _submit_answer(
         self,
@@ -61,6 +63,7 @@ class ClarificationService:
         *,
         answer: str,
         answered_by: str,
+        confirmed_fields: dict[str, str] | None = None,
     ) -> tuple[Clarification, ProcessingOutcome, bool]:
         """Store the answer and resume, or replay when already answered.
 
@@ -90,14 +93,18 @@ class ClarificationService:
         if claim.status not in (ClaimStatus.NEEDS_CLARIFICATION, ClaimStatus.PROCESSING) or latest is None or latest.id != clarification.id:
             raise ApplicationError(ErrorCode.INVALID_CLAIM, "Claim is not waiting for this clarification.", 409)
         self._processing.ensure_clarification_waiting(claim_id)
+        if confirmed_fields is not None:
+            confirmed_fields = validate_confirmations(clarification.fields, confirmed_fields)
+            answer = "\n".join(f"{FIELD_LABELS[key]}: {value}" for key, value in confirmed_fields.items())
         with self._processing.resources.transaction():
-            answered = self._record_answer(claim_id, clarification, answer, answered_by)
+            answered = self._record_answer(claim_id, clarification, answer, answered_by, confirmed_fields)
             self._processing.queue_clarification(claim_id)
         outcome = self._processing.resume_clarification(claim_id)
         return answered, outcome, False
 
     def _record_answer(self, claim_id: UUID, clarification: Clarification,
-                       answer: str, answered_by: str) -> Clarification:
+                       answer: str, answered_by: str,
+                       confirmed_fields: dict[str, str] | None = None) -> Clarification:
         clean_answer = answer.strip()
         if not clean_answer:
             raise ApplicationError(ErrorCode.INVALID_CLAIM, "Answer must not be blank.", 422)
@@ -107,6 +114,8 @@ class ClarificationService:
                 "answer": clean_answer,
                 "status": ClarificationStatus.ANSWERED,
                 "answered_at": now,
+                "confirmed_fields": confirmed_fields or {},
+                "receipt_revision": self._claims.get(claim_id).receipt_revision,
             }
         )
         self._clarifications.save(answered)

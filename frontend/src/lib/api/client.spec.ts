@@ -49,11 +49,11 @@ describe('apiRequest', () => {
 		const apiError = error as ApiError;
 		expect(apiError.status).toBe(413);
 		expect(apiError.code).toBe('file_too_large');
-		expect(apiError.message).toBe('Ukuran file melebihi batas maksimal 10 MB.');
+		expect(apiError.message).toBe('Ukuran file melebihi batas maksimal 10 MB. Gunakan foto yang lebih ringkas.');
 		expect(apiError.details).toEqual({ max_bytes: 10485760 });
 	});
 
-	it('menormalkan respons error non-JSON (mis. 404 bawaan framework)', async () => {
+	it('menormalkan respons error non-JSON (mis. 500 bawaan server) dengan pesan ramah', async () => {
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => new Response('Internal Server Error', { status: 500 }))
@@ -62,7 +62,35 @@ describe('apiRequest', () => {
 		expect(error).toBeInstanceOf(ApiError);
 		const apiError = error as ApiError;
 		expect(apiError.code).toBe('http_500');
-		expect(apiError.message).toContain('500');
+		expect(apiError.status).toBe(500);
+		expect(apiError.message).toBe('Terjadi kendala pada server saat memproses data. Silakan coba beberapa saat lagi.');
+	});
+
+	it('menormalkan error 403 menjadi pesan izin akses tanpa angka teknis', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response('Forbidden', { status: 403 }))
+		);
+		const error = await apiRequest('/admin/policies').catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(ApiError);
+		const apiError = error as ApiError;
+		expect(apiError.status).toBe(403);
+		expect(apiError.message).toBe('Akses ditolak. Anda tidak memiliki izin untuk melakukan tindakan ini.');
+	});
+
+	it('menormalkan error 413 dan request_too_large menjadi pesan panduan ukuran file', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response(JSON.stringify({
+				code: 'request_too_large',
+				message: 'Request exceeds the maximum allowed size.'
+			}), { status: 413 }))
+		);
+		const error = await apiRequest('/claims').catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(ApiError);
+		const apiError = error as ApiError;
+		expect(apiError.status).toBe(413);
+		expect(apiError.message).toBe('Ukuran file melebihi batas pengiriman server (maks 4.5 MB). Gunakan foto yang lebih ringkas.');
 	});
 
 	it('kegagalan jaringan menjadi ApiError network_error, bukan sukses palsu', async () => {
@@ -77,6 +105,7 @@ describe('apiRequest', () => {
 		const apiError = error as ApiError;
 		expect(apiError.code).toBe('network_error');
 		expect(apiError.status).toBe(0);
+		expect(apiError.message).toContain('Tidak dapat menghubungi server');
 	});
 
 	it('pesan upstream yang tidak dikenal tidak ditampilkan mentah ke workspace', async () => {
@@ -85,6 +114,6 @@ describe('apiRequest', () => {
 		}), { status: 502 })));
 		const error = await api('/claims').catch((e: unknown) => e);
 		expect(error).toBeInstanceOf(ApiError);
-		expect((error as ApiError).message).toBe('Permintaan gagal (HTTP 502).');
+		expect((error as ApiError).message).toBe('Server Tera sementara tidak dapat dihubungi. Silakan tunggu beberapa detik dan coba lagi.');
 	});
 });

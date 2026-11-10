@@ -1,4 +1,4 @@
-import { apiRequest, BASE_URL } from './client';
+import { apiRequest, BASE_URL, HTTP_STATUS_MESSAGES } from './client';
 import { authFetch } from '$lib/auth';
 
 export interface ReportSummary {
@@ -46,6 +46,9 @@ export function getReportSummary(filters: ReportFilters = {}): Promise<ReportSum
 export async function downloadReport(filters: ReportFilters = {}): Promise<Blob> {
 	const response = await authFetch(`${BASE_URL}/reports/claims.csv${query(filters)}`);
 	if (response.status === 401) window.location.assign('/login');
-	if (!response.ok) throw new Error(`Export gagal (HTTP ${response.status}).`);
+	if (!response.ok) {
+		const friendly = HTTP_STATUS_MESSAGES[response.status] ?? 'Gagal mengunduh laporan. Silakan coba lagi nanti.';
+		throw new Error(friendly);
+	}
 	return response.blob();
 }

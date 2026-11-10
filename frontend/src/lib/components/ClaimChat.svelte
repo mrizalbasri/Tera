@@ -381,7 +381,7 @@
 			messages.push({
 				id: nextId++,
 				from: 'agent',
-				text: `Pembacaan belum selesai. ${message}`,
+				text: `Pembacaan belum selesai: ${message}`,
 				claimId,
 				isError: true,
 				actions: [{ label: 'Coba proses lagi', kind: 'retry-process' }],

@@ -157,3 +157,26 @@ def test_review_decision_requires_reason() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_answered_confidence_clarification_escalates_to_review_without_loop() -> None:
+    payload = _process(b"%PDF-1.7\nLOW_CONFIDENCE unreadable\n%%EOF", "60000")
+    claim_id = payload["claim"]["id"]
+    assert payload["claim"]["status"] == "needs_clarification"
+
+    listing = client.get(f"/claims/{claim_id}/clarifications").json()
+    assert listing["total"] == 1
+    clarification = listing["items"][0]
+
+    answer = client.post(
+        f"/claims/{claim_id}/clarifications/{clarification['id']}/answer",
+        json={"answer": "Kopi Kenangan, 10 Nov 2026", "answered_by": "employee-m5"},
+    )
+    assert answer.status_code == 200, answer.text
+    resumed = answer.json()
+    assert resumed["claim"]["status"] == "escalated"
+    assert resumed["decision"]["outcome"] == "escalated"
+
+    reviews = client.get("/reviews").json()
+    assert any(item["claim"]["id"] == claim_id for item in reviews["items"])
+

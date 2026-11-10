@@ -8,6 +8,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.gzip import GZipMiddleware
 
 from app.api.claims import router as claims_router
 from app.api.auth import router as auth_router
@@ -107,6 +108,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 app.add_middleware(BodyLimitMiddleware, settings_provider=lambda: app.dependency_overrides.get(get_settings, get_settings)())

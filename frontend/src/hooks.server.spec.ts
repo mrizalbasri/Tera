@@ -42,4 +42,18 @@ describe('workspace access', () => {
 	it('fails closed when session verification is unavailable', async () => {
 		await expect(handle({ event: request('/riwayat', {}, 503), resolve })).rejects.toMatchObject({ status: 503 });
 	});
+	it.each(['/', '/produk'])('skips session verification for anonymous visitors on %s', async (path) => {
+		const event = request(path, null);
+		const response = await handle({ event, resolve });
+		expect(event.fetch).not.toHaveBeenCalled();
+		expect(event.locals.user).toBeNull();
+		expect(response.status).toBe(200);
+	});
+	it('gracefully renders login page when backend session check is unavailable', async () => {
+		const event = request('/login', null, 503);
+		const response = await handle({ event, resolve });
+		expect(event.locals.user).toBeNull();
+		expect(event.locals.demoMode).toBe(false);
+		expect(response.status).toBe(200);
+	});
 });

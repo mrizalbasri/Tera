@@ -4,7 +4,7 @@ Paket ini mempertahankan SvelteKit 2 dengan adapter-node 5.5.7, FastAPI dan Post
 
 ## Build dan staging
 
-1. Siapkan PostgreSQL terpisah serta host/domain HTTPS. Tujuan hosting publik belum diberikan pada pekerjaan ini.
+1. Untuk staging Compose, siapkan PostgreSQL terpisah serta host/domain HTTPS. Deployment publik yang sudah ada memakai Azure Container Apps untuk backend dan Vercel untuk frontend.
 2. Salin `docker/backend.production.env.example` menjadi `docker/backend.production.env`, lalu isi konfigurasi sendiri. File hasil salinan diabaikan Git. Jangan menaruh secret di perintah shell atau commit.
 3. Tentukan `FRONTEND_ORIGIN` dan variabel backend di environment proses Compose.
 4. Jalankan `docker compose -f docker/compose.app.yaml build`, lalu `docker compose -f docker/compose.app.yaml up -d`. Job migrate menyelesaikan migrasi sebelum backend berjalan. Frontend menunggu backend sehat.
@@ -12,6 +12,28 @@ Paket ini mempertahankan SvelteKit 2 dengan adapter-node 5.5.7, FastAPI dan Post
 6. Verifikasi `/api/health/ready`, login pengguna, hak karyawan/admin, unggah, klarifikasi, review, notifikasi, pengelolaan kebijakan dan CSV. HTTP/build berhasil belum membuktikan login akun nyata atau seluruh alur production.
 
 Image backend memasang `requirements-runtime.txt`. Build argument `LOCAL_MODELS=true` memasang dependensi RAG/ML lokal; siapkan indeks kebijakan secara eksplisit sebelum mengaktifkan RAG. Instalasi pengembangan `pip install -r requirements.txt` menyertakan pytest dan dependensi model tersebut. Volume `/app/data/local` menyimpan artefak lokal. Mengaktifkan RAG/ML tanpa model/index tidak dianggap deployment siap. Image default tidak mengunduh model saat request.
+
+## Pipeline produksi GitHub Actions
+
+Satu workflow `.github/workflows/ci-cd.yml` menghubungkan seluruh pemeriksaan:
+
+```text
+backend tests ──────┐
+frontend checks ────┼─ semua lulus → push Docker Hub → deploy Azure → readiness
+container OCR smoke┘
+```
+
+PR hanya menjalankan validasi, tanpa publish/deploy. Setelah merge ke `main`
+(atau workflow manual pada `main`), ketiga job wajib berhasil sebelum image
+didorong. Kegagalan tes membatalkan publish; kegagalan publish membatalkan deploy.
+Azure memakai digest image hasil publish, bukan tag `latest` yang dapat berubah.
+Readiness memeriksa revision baru dan endpoint publik. Secret tetap memakai
+`DOCKERHUB_TOKEN` dan `AZURE_CREDENTIALS` yang sudah dikonfigurasi di GitHub.
+
+Frontend tetap dirilis melalui integrasi Git Vercel yang sudah ada; pemeriksaan
+frontend dalam workflow ini menjadi gerbang untuk rilis backend Azure, bukan
+pengganti mekanisme deployment Vercel. Jangan menganggap status Vercel hijau
+sebagai bukti backend sudah dirilis.
 
 ## OCR lokal sebelum model AI
 

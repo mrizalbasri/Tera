@@ -5,6 +5,7 @@ data/local
 __pycache__
 .pytest_cache
 tests
-scripts
+scripts/*
+!scripts/verify_local_ocr.py
 *.db
 *.sqlite*

@@ -267,11 +267,15 @@ class ExtractionService:
                             if outcome.policy_evaluations else None),
             processing_run_id=run.id, answered_codes=self._answered_codes(claim.id),
         )
-        if decision.outcome == DecisionOutcome.NEEDS_CLARIFICATION and self._clarification_limit_reached(claim.id):
+        answered_codes = self._answered_codes(claim.id)
+        if decision.outcome == DecisionOutcome.NEEDS_CLARIFICATION and (
+            self._clarification_limit_reached(claim.id)
+            or any(code in answered_codes for code in decision.reason_codes)
+        ):
             decision = decision.model_copy(update={
                 "outcome": DecisionOutcome.ESCALATED,
                 "reason_codes": ["clarification_limit_reached", *decision.reason_codes],
-                "explanation": "Batas klarifikasi tercapai. Finance perlu memeriksa bukti yang masih belum cukup.",
+                "explanation": "Karyawan telah menjawab klarifikasi. Finance perlu memeriksa bukti dan jawaban karyawan.",
             })
         self._decisions.save(decision)
         claim = self.transition_claim(claim, _DECISION_CLAIM_STATUS[decision.outcome])
@@ -556,11 +560,11 @@ class ExtractionService:
         attempts: list[ExtractionAttempt],
         confidence: dict[str, Decimal],
     ) -> ProcessingOutcome:
-        if self._clarification_limit_reached(claim.id):
+        if self._clarification_limit_reached(claim.id) or ErrorCode.EXTRACTION_CONFIDENCE_LOW in self._answered_codes(claim.id):
             decision = Decision(
                 id=uuid4(), claim_id=claim.id, processing_run_id=run.id,
                 outcome=DecisionOutcome.ESCALATED, reason_codes=["clarification_limit_reached"],
-                explanation="Bukti belum cukup setelah batas klarifikasi. Finance perlu memeriksa nota.",
+                explanation="Karyawan telah melengkapi informasi nota melalui klarifikasi. Finance perlu memverifikasi bukti di antrean review.",
                 created_by=ActorType.AGENT, created_at=datetime.now(UTC),
             )
             self._decisions.save(decision)

@@ -206,7 +206,11 @@ class SqlRepositories:
             url = url.set(drivername="postgresql+psycopg")
         engine_kwargs = {
             "future": True,
-            "connect_args": {"check_same_thread": False} if not is_postgres else {"connect_timeout": 5},
+            "connect_args": (
+                {"check_same_thread": False}
+                if not is_postgres
+                else {"connect_timeout": 5, "options": "-c search_path=public"}
+            ),
             "pool_pre_ping": True,
         }
         if is_postgres:

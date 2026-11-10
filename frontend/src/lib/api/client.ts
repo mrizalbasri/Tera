@@ -47,7 +47,8 @@ const USER_MESSAGES: Record<string, string> = {
 	policy_unavailable: 'Kebijakan belum tersedia. Coba lagi setelah layanan pulih.',
 	provider_unavailable: 'Layanan pembaca nota belum tersedia. Coba lagi nanti.',
 	provider_timeout: 'Pembacaan nota melewati batas waktu. Coba lagi.',
-	upstream_unavailable: 'Backend belum dapat dihubungi. Pastikan layanan API berjalan.'
+	upstream_unavailable: 'Backend belum dapat dihubungi. Pastikan layanan API berjalan.',
+	http_413: 'Ukuran file melebihi batas pengiriman server (maks 4.5 MB). Gunakan foto yang lebih ringkas.'
 };
 
 function shortMessage(code: string, fallback: string): string {

@@ -20,6 +20,7 @@
 	import { formatCurrency, formatConfidence } from '$lib/formatters/currency';
 	import { describeReasonCode } from '$lib/formatters/reasonCodes';
 	import { createSubmissionKeyManager } from '$lib/claimSubmission';
+	import { compressImageIfLarge } from '$lib/image';
 	import type { AgentStepView } from '$lib/types/ui';
 	import type { ClaimStatus, Decision, ProcessClaimResponse } from '$lib/types/claim';
 
@@ -96,7 +97,7 @@
 
 	let isDragging = $state(false);
 
-	function handleFileSelection(file: File) {
+	async function handleFileSelection(file: File) {
 		if (isProcessing || submittingAnswer) return;
 		if (!(ALLOWED_RECEIPT_TYPES as readonly string[]).includes(file.type)) {
 			showToast('Format file tidak didukung! Harap upload JPG, PNG, atau PDF.');
@@ -112,18 +113,20 @@
 		}
 		if (submitPhase !== 'idle') return;
 
-		selectedFile = file;
-		submissionKeyManager.selectFile(file);
+		const processedFile = await compressImageIfLarge(file);
+
+		selectedFile = processedFile;
+		submissionKeyManager.selectFile(processedFile);
 		pendingSubmissionKey = submissionKeyManager.getKey();
 		if (pendingFileMessageId != null) {
-			updateMessage(pendingFileMessageId, { file: { name: file.name, size: file.size } });
+			updateMessage(pendingFileMessageId, { file: { name: processedFile.name, size: processedFile.size } });
 		} else {
 			const messageId = nextId++;
 			pendingFileMessageId = messageId;
 			messages.push({
 				id: messageId,
 				from: 'user',
-				file: { name: file.name, size: file.size },
+				file: { name: processedFile.name, size: processedFile.size },
 				removable: true,
 				timestamp: formatClock()
 			});

@@ -589,9 +589,9 @@ def test_production_readiness_does_not_create_missing_checkpoint_schema(postgres
     engine = create_engine(url)
     try:
         assert "langgraph" not in inspect(engine).get_schema_names()
-        with pytest.raises(Exception):
-            with TestClient(app):
-                pass
+        with TestClient(app) as client:
+            assert client.get("/health/ready").status_code == 503
+        assert "langgraph" not in inspect(engine).get_schema_names()
     finally:
         engine.dispose()
 

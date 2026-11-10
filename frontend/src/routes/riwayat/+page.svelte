@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import Toast from '$lib/components/Toast.svelte';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import ClaimAmount from '$lib/components/ClaimAmount.svelte';
 	import { listClaims } from '$lib/api/claims';
 	import { ApiError } from '$lib/api/client';
 	import { showToast } from '$lib/stores/toast.svelte';
@@ -41,9 +42,16 @@
 	const waiting = $derived(
 		claims.filter((c) => c.status !== 'approved' && c.status !== 'rejected')
 	);
-	const approvedTotal = $derived(
-		approved.reduce((sum, c) => sum + (Number(c.declared_amount) || 0), 0)
-	);
+	const approvedTotals = $derived.by(() => {
+		const totals: Record<string, number> = {};
+		for (const claim of approved) {
+			if (claim.amount?.complete && claim.amount.value != null) {
+				totals[claim.currency] = (totals[claim.currency] ?? 0) + Number(claim.amount.value);
+			}
+		}
+		return Object.entries(totals);
+	});
+	const missingApprovedAmounts = $derived(approved.filter((c) => !c.amount?.complete || c.amount.value == null).length);
 
 	let searchQuery = $state('');
 	let statusFilter = $state<'all' | 'approved' | 'waiting' | 'rejected'>('all');
@@ -54,7 +62,7 @@
 			const matchesSearch = !q || (
 				(data.financeWorkspace && c.employee_id.toLowerCase().includes(q)) ||
 				shortClaimRef(c.id).toLowerCase().includes(q) ||
-				String(c.declared_amount || '').includes(q)
+				String(c.amount?.value ?? '').includes(q)
 			);
 			const matchesStatus =
 				statusFilter === 'all' ||
@@ -167,8 +175,9 @@
 					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
 				</span>
 				<div>
-					<strong>{formatCurrency(approvedTotal)}</strong>
+					{#each approvedTotals as [currency, total]}<strong>{formatCurrency(total, currency)}</strong>{:else}<strong>{approved.length ? 'Belum tersedia' : formatCurrency(0)}</strong>{/each}
 					<span>Total disetujui</span>
+					{#if missingApprovedAmounts}<small>{missingApprovedAmounts} klaim belum memiliki nominal terverifikasi</small>{/if}
 				</div>
 			</div>
 		</div>
@@ -248,7 +257,7 @@
 								<tr>
 									<td class="claim-id-cell">{shortClaimRef(claim.id)}{#if data.financeWorkspace}<small class="claim-owner">{claim.employee_id}</small>{/if}</td>
 									<td>{formatDate(claim.submitted_at)}</td>
-									<td>{formatCurrency(claim.declared_amount, claim.currency)}</td>
+									<td><ClaimAmount {claim} /></td>
 									<td><StatusBadge status={claim.status} size="sm" /></td>
 									<td><a href="{historyPath}/{claim.id}" class="detail-link">Lihat klaim</a></td>
 								</tr>

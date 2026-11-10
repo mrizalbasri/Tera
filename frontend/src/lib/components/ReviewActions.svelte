@@ -4,6 +4,7 @@
 	import { post, message } from '$lib/api';
 	let { claimId, ondecided }: { claimId: string; ondecided: (id: string) => Promise<void> } = $props();
 	let reason = $state('');
+	let finalAmount = $state('');
 	let action = $state<'approve' | 'reject'>('approve');
 	let confirming = $state(false);
 	let busy = $state(false);
@@ -28,7 +29,7 @@
 		const id = claimId;
 		busy = true; error = '';
 		try {
-			await post(`/reviews/${id}/decision`, { action, reason: reason.trim() });
+			await post(`/reviews/${id}/decision`, { action, reason: reason.trim(), ...(action === 'approve' ? { final_amount: finalAmount } : {}) });
 			completed = true; confirming = false;
 			await ondecided(id);
 		} catch (err) { error = message(err); confirming = false; }
@@ -46,6 +47,7 @@
 			<fieldset disabled={busy || confirming} style="border:0;padding:0;margin:0;min-width:0">
 				<p>Reviewer: <strong>{page.data.admin.username}</strong></p>
 				<div class="field"><label for="review-action">Keputusan</label><select id="review-action" bind:value={action}><option value="approve">Setujui klaim</option><option value="reject">Tolak klaim</option></select></div>
+				{#if action === 'approve'}<div class="field"><label for="final-amount">Nominal final sesuai bukti</label><input id="final-amount" inputmode="decimal" pattern={'[0-9]+([.][0-9]{1,2})?'} bind:value={finalAmount} required /><small>Isi angka tanpa pemisah ribuan. Nominal dan alasan akan dicatat dalam audit.</small></div>{/if}
 				<div class="field"><label for="reason">Alasan keputusan</label><textarea id="reason" bind:value={reason} maxlength="2000" required placeholder="Jelaskan pertimbangan berdasarkan bukti klaim."></textarea></div>
 				<button bind:this={reviewButton} type="submit" disabled={!reason.trim()}>Periksa keputusan</button>
 			</fieldset>

@@ -189,8 +189,9 @@ def test_reporting_batches_and_pending_is_not_automated(persistent):
     assert summary.status_code == 200
     assert summary.json()["automated_claims"] == 0
     assert summary.json()["estimated_time_saved_minutes"] == 0
-    # Count is independent of the number of claims in one batch.
-    assert len(calls) <= 5
+    # Count is independent of the number of claims in one batch, including
+    # the two bulk reads for receipt-backed amount presentation.
+    assert len(calls) <= 7
     assert client.get("/reports/claims.csv?period_from=2026-12-01&period_to=2026-01-01").status_code == 422
 
 

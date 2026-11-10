@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { modalFocus } from '$lib/actions/modalFocus';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import ClaimAmount from '$lib/components/ClaimAmount.svelte';
 	import DecisionBanner from '$lib/components/DecisionBanner.svelte';
 	import { getClaim, getClaimTimeline, listClaims, listClarifications } from '$lib/api/claims';
 	import { ApiError } from '$lib/api/client';
@@ -278,7 +279,7 @@
 					</div>
 					<div class="info-row total-row">
 						<span class="info-label">Nominal</span>
-						<span class="info-val amount">{formatCurrency(claim.declared_amount, claim.currency)}</span>
+						<span class="info-val amount"><ClaimAmount {claim} /></span>
 					</div>
 				</div>
 

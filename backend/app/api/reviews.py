@@ -1,12 +1,14 @@
 """Human review endpoints (FR-10)."""
 
 from typing import Literal
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.api.deps import get_review_service
+from app.api.deps import get_review_service, get_claim_amount_service
+from app.services.claim_amounts import ClaimAmountService
 from app.api.auth import require_admin
 from app.schemas.core import Claim, Decision, Review, Signal
 from app.services.review import ReviewService
@@ -18,6 +20,7 @@ class ReviewDecisionRequest(BaseModel):
     action: Literal["approve", "reject"]
     reason: str = Field(min_length=1, max_length=2000)
     reviewer_reference: str | None = Field(default=None, max_length=100)
+    final_amount: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
 
 
 class ReviewQueueItem(BaseModel):
@@ -47,12 +50,14 @@ def list_open_reviews(
     offset: int = Query(0, ge=0, le=10_000_000),
     snapshot: str | None = Query(None, pattern=r"^[a-f0-9]{64}$"),
     service: ReviewService = Depends(get_review_service),
+    amounts: ClaimAmountService = Depends(get_claim_amount_service),
 ) -> ReviewQueueResponse:
     page, total, version = service.open_queue_page(limit=limit, offset=offset, snapshot=snapshot)
+    presented = {claim.id: claim for claim in amounts.present_many([item["claim"] for item in page])}
     items = [
         ReviewQueueItem(
             review=item["review"],
-            claim=item["claim"],
+            claim=presented[item["claim"].id],
             decision=item["decision"],
             signals=item["signals"],
         )
@@ -73,5 +78,6 @@ def decide_review(
         action=request.action,
         reason=request.reason,
         reviewer_reference=username,
+        final_amount=request.final_amount,
     )
     return ReviewDecisionResponse(claim=claim, decision=decision, review=review)

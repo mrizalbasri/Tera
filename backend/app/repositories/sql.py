@@ -448,6 +448,15 @@ class SqlReceiptRepository:
                 Receipt.model_validate(row.payload) for row in session.scalars(statement)
             )
 
+    def list_for_claims(self, claim_ids: Sequence[UUID]) -> Sequence[Receipt]:
+        if not claim_ids:
+            return ()
+        with self._sessions() as session:
+            statement = select(ReceiptRow).where(
+                ReceiptRow.claim_id.in_([str(claim_id) for claim_id in claim_ids])
+            ).order_by(_record_order(session, ReceiptRow))
+            return tuple(Receipt.model_validate(row.payload) for row in session.scalars(statement))
+
     def find_claim_id_by_content_hash(self, content_hash: str) -> UUID | None:
         with self._sessions() as session:
             statement = (

@@ -180,3 +180,69 @@ def test_answered_confidence_clarification_escalates_to_review_without_loop() ->
     reviews = client.get("/reviews").json()
     assert any(item["claim"]["id"] == claim_id for item in reviews["items"])
 
+
+def test_reviewer_confirms_final_amount_without_rewriting_declared_evidence() -> None:
+    payload = _process(b"%PDF-1.7\namount-correction\n%%EOF", "700000")
+    claim_id = payload["claim"]["id"]
+    result = client.post(
+        f"/reviews/{claim_id}/decision",
+        json={"action": "approve", "reason": "Nominal pada nota diverifikasi finance.", "final_amount": "650000"},
+    )
+    assert result.status_code == 200, result.text
+    claim = result.json()["claim"]
+    assert claim["declared_amount"] == "700000"
+    assert claim["final_amount"] == "650000"
+    assert claim["amount"]["source"] == "final"
+    assert claim["amount"]["value"] == "650000"
+    listing = client.get("/claims").json()
+    assert next(item for item in listing["items"] if item["id"] == claim_id)["amount"] == claim["amount"]
+
+
+def test_structured_answer_preserves_low_confidence_evidence_and_escalates() -> None:
+    payload = _process(b"%PDF-1.7\nLOW_CONFIDENCE structured-confirmation\n%%EOF", "60000")
+    claim_id = payload["claim"]["id"]
+    question = client.get(f"/claims/{claim_id}/clarifications").json()["items"][0]
+    sample = {"vendor": "Toko Sinar Jaya", "receipt_date": "2026-01-01", "total": "60000", "currency": "IDR", "category": "meals"}
+    fields = {key: sample[key] for key in question["fields"]}
+    before = client.get(f"/claims/{claim_id}").json()["extractions"]
+    result = client.post(
+        f"/claims/{claim_id}/clarifications/{question['id']}/answer",
+        json={"confirmed_fields": fields},
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["claim"]["status"] == "escalated"
+    answered = client.get(f"/claims/{claim_id}/clarifications").json()["items"]
+    assert len(answered) == 1
+    assert answered[0]["confirmed_fields"] == fields
+    after = client.get(f"/claims/{claim_id}").json()["extractions"]
+    assert before and after
+    assert after[-1]["vendor"] == before[-1]["vendor"]
+
+
+def test_missing_amount_blocks_approval_but_allows_rejection() -> None:
+    from uuid import UUID
+    from app.api.deps import _memory_repositories
+
+    payload = _process(b"%PDF-1.7\nmissing-review-amount\n%%EOF", "700000")
+    claim_id = payload["claim"]["id"]
+    repositories = _memory_repositories()
+    claim = repositories.claims.get(UUID(claim_id))
+    repositories.claims.save(claim.model_copy(update={"declared_amount": None}))
+    receipts = repositories.receipts.list_for_claim(UUID(claim_id))
+    for extraction in repositories.extractions.list_for_receipts([r.id for r in receipts]):
+        repositories.extractions.save(extraction.model_copy(update={
+            "total": extraction.total.model_copy(update={"value": None}),
+        }))
+    rejected_approval = client.post(
+        f"/reviews/{claim_id}/decision",
+        json={"action": "approve", "reason": "Belum ada nominal pada bukti."},
+    )
+    assert rejected_approval.status_code == 422
+    assert client.get(f"/claims/{claim_id}").json()["claim"]["status"] == "escalated"
+    rejected = client.post(
+        f"/reviews/{claim_id}/decision",
+        json={"action": "reject", "reason": "Bukti tidak mencantumkan nominal."},
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["claim"]["final_amount"] is None
+

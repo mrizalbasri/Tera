@@ -6,6 +6,7 @@
 	import { formatDate } from '$lib/formatters/date';
 	import { shortClaimRef } from '$lib/formatters/claim';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import ClaimAmount from '$lib/components/ClaimAmount.svelte';
 	import type { Claim, ClaimStatus } from '$lib/types/claim';
 
 	let { data } = $props();
@@ -27,7 +28,7 @@
 	]);
 	const processing = $derived(claims.filter((claim) => ['received', 'processing', 'escalated'].includes(claim.status)).length);
 	const needsAction = $derived(ordered.filter((claim) => data.admin ? claim.status === 'escalated' : claim.status === 'needs_clarification'));
-	const matches = $derived(ordered.filter((claim) => `${claim.id} ${shortClaimRef(claim.id)} ${claim.employee_id} ${claim.status} ${labels[claim.status]} ${claim.declared_amount ?? ''}`.toLowerCase().includes(search.trim().toLowerCase())));
+	const matches = $derived(ordered.filter((claim) => `${claim.id} ${shortClaimRef(claim.id)} ${claim.employee_id} ${claim.status} ${labels[claim.status]} ${claim.amount?.value ?? ''}`.toLowerCase().includes(search.trim().toLowerCase())));
 	const recent = $derived(matches.slice(0, 8));
 	const reviewCount = $derived(claims.filter((claim) => claim.status === 'escalated').length);
 	const clarificationCount = $derived(claims.filter((claim) => claim.status === 'needs_clarification').length);
@@ -84,7 +85,7 @@
 							<table><thead><tr><th>Klaim</th><th>Nominal</th><th>Status</th><th><span class="sr-only">Tindakan</span></th></tr></thead>
 								<tbody>{#each recent as claim (claim.id)}<tr>
 									<td><strong>{shortClaimRef(claim.id)}</strong><small>{formatDate(claim.submitted_at)}{#if data.admin} · {claim.employee_id}{/if}</small></td>
-									<td class="amount">{formatCurrency(claim.declared_amount, claim.currency)}</td>
+									<td class="amount"><ClaimAmount {claim} /></td>
 									<td><StatusBadge status={claim.status} size="sm" /></td>
 									<td><a class="detail-link" href={destination(claim)}><Icon name={claim.status === 'escalated' && data.admin ? 'review' : claim.status === 'needs_clarification' && !data.admin ? 'edit' : 'eye'} size={18} />{claim.status === 'escalated' && data.admin ? 'Tinjau' : claim.status === 'needs_clarification' && !data.admin ? 'Lengkapi' : 'Lihat detail'}<span class="sr-only"> klaim {shortClaimRef(claim.id)}</span></a></td>
 								</tr>{/each}</tbody>

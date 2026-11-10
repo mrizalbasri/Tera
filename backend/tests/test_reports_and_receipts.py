@@ -85,7 +85,7 @@ def test_report_summary_and_csv_reflect_claims_and_zero_amount() -> None:
     export = client.get("/reports/claims.csv", params={"employee_id": "report-employee"})
     assert export.status_code == 200
     lines = export.text.splitlines()
-    assert lines[0] == "claim_id,employee_id,submitted_at,currency,declared_amount,status"
+    assert lines[0] == "claim_id,employee_id,submitted_at,currency,declared_amount,status,amount,amount_source,amount_complete,final_amount"
     assert claim_id in lines[1]
     assert ",0.00,received" in lines[1] or ",0,received" in lines[1]
 

@@ -41,6 +41,7 @@ export async function decideReview(input: {
 	claimId: string;
 	action: 'approve' | 'reject';
 	reason: string;
+	finalAmount?: string;
 }): Promise<ReviewDecisionResponse> {
 	return apiRequest<ReviewDecisionResponse>(
 		`/reviews/${encodeURIComponent(input.claimId)}/decision`,
@@ -49,7 +50,8 @@ export async function decideReview(input: {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				action: input.action,
-				reason: input.reason
+				reason: input.reason,
+				...(input.action === 'approve' && input.finalAmount ? { final_amount: input.finalAmount } : {})
 			})
 		}
 	);

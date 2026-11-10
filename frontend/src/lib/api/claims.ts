@@ -120,10 +120,12 @@ export async function answerClarification(input: {
 	clarificationId: string;
 	answer: string;
 	answeredBy?: string;
+	confirmedFields?: Record<string, string>;
 }): Promise<ProcessClaimResponse> {
-	const body: { answer: string; answered_by?: string } = {
+	const body: { answer: string; answered_by?: string; confirmed_fields?: Record<string, string> } = {
 		answer: input.answer
 	};
+	if (input.confirmedFields) body.confirmed_fields = input.confirmedFields;
 	if (input.answeredBy) {
 		body.answered_by = input.answeredBy;
 	}

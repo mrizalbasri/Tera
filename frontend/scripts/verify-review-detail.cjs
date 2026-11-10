@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
 function detail(id) {
-  const claim = { id, employee_id: 'synthetic-user', status: 'escalated', currency: 'IDR', declared_amount: '120000', current_decision_id: null, submitted_at: '2026-10-26T00:00:00Z' };
+  const claim = { id, employee_id: 'synthetic-user', status: 'escalated', currency: 'IDR', declared_amount: null, amount: { value: '120000', source: 'extraction', complete: true, conflict: false }, current_decision_id: null, submitted_at: '2026-10-26T00:00:00Z' };
   const receipts = [1, 2].map(n => ({ id: `${id}-${n}`, claim_id: id, original_filename: `synthetic-${n}.png`, media_type: 'image/png', quality_findings: [], quality_score: 1 }));
   const extractions = receipts.map((r, i) => ({ id: `ex-${r.id}`, receipt_id: r.id, processing_run_id: 'run', vendor: { value: `Vendor ${id === A ? 'A' : 'B'}${i+1}`, confidence: 1 }, receipt_date: { value: '2026-10-26', confidence: 1 }, total: { value: '60000', confidence: 1 }, currency: { value: 'IDR', confidence: 1 }, category: { value: 'meal', confidence: 1 }, line_items: [], warnings: [], provider: 'mock', provider_degraded: false }));
   return { claim, receipts, extractions, attempts: [], validation_findings: [], policy_evaluations: [], signals: [], decisions: [] };
@@ -19,7 +19,7 @@ const backend = createServer((req, res) => {
   }
   res.setHeader('content-type', 'application/json');
   if (req.url.startsWith('/auth/session')) return res.end(JSON.stringify({ username: 'synthetic', role: 'admin', demo_mode: true }));
-  if (req.url.startsWith('/reviews')) return res.end(JSON.stringify({ items: fixtures.map(d => ({ claim: d.claim, review: { id: `review-${d.claim.id}`, status: 'open' }, signals: [], decision: null })), total: 2, snapshot: 'a'.repeat(64) }));
+  if (req.url.startsWith('/reviews')) return res.end(JSON.stringify({ items: fixtures.map(d => ({ claim: d.claim, review: { id: `review-${d.claim.id}`, status: 'open', created_at: '2026-10-26T00:00:00Z' }, signals: [], decision: null })), total: 2, snapshot: 'a'.repeat(64) }));
   if (req.url.startsWith('/claims?')) return res.end(JSON.stringify({ items: fixtures.map(d => d.claim), total: fixtures.length }));
   if (/^\/claims\/[^/]+\/(timeline|clarifications)$/.test(req.url)) return res.end(JSON.stringify({ items: [] }));
   const d = fixtures.find(d => req.url === `/claims/${d.claim.id}`);
@@ -37,7 +37,7 @@ const backend = createServer((req, res) => {
     await page.goto(`http://127.0.0.1:13001/reviews/${A}`);
     await page.getByRole('heading', { name: `Klaim ${A}`, exact: true }).waitFor();
     const results = [];
-    async function check(name, fn) { try { await fn(); results.push({ name, passed: true }); } catch (e) { results.push({ name, passed: false, error: e.message.slice(0, 300) }); } }
+    async function check(name, fn) { try { await fn(); results.push({ name, passed: true }); } catch (e) { results.push({ name, passed: false, error: e.message }); } }
     await check('all receipt evidence can be selected and matches extraction', async () => {
       const selector = page.getByLabel('Pilih nota yang diperiksa');
       await selector.waitFor({ timeout: 2000 });
@@ -137,6 +137,63 @@ const backend = createServer((req, res) => {
       assert.equal((await retried).status(), 200);
       await page.getByText('Jejak pemeriksaan gagal dimuat.').waitFor({ state: 'hidden' });
     });
+    await check('clarification uses explicit vendor and date fields', async () => {
+      const question = { id: 'synthetic-question', claim_id: A, status: 'open', fields: ['vendor', 'receipt_date'], question: 'Lengkapi nama toko dan tanggal nota.' };
+      const endpoint = `**/api/claims/${A}/clarifications`;
+      await page.route(endpoint, route => route.fulfill({ json: { items: [question], total: 1 } }));
+      await page.goto(`http://127.0.0.1:13001/claims/${A}/clarification`);
+      await page.getByLabel('Nama toko', { exact: true }).fill('Toko Sinar Jaya');
+      const date = page.getByLabel('Tanggal nota', { exact: true });
+      assert.equal(await date.getAttribute('type'), 'date');
+      await date.fill('2026-01-01');
+      let submitted;
+      await page.route(`**/api/claims/${A}/clarifications/synthetic-question/answer`, async route => {
+        submitted = route.request().postDataJSON();
+        await route.fulfill({ json: {} });
+      });
+      await page.getByRole('button', { name: 'Kirim jawaban', exact: true }).click();
+      await page.waitForURL(`**/claims/${A}`);
+      assert.deepEqual(submitted.confirmed_fields, { vendor: 'Toko Sinar Jaya', receipt_date: '2026-01-01' });
+      await page.unroute(endpoint);
+    });
+    await check('client navigation clears clarification values and loads the new question', async () => {
+      const endpoints = [A, B].map(id => `**/api/claims/${id}/clarifications`);
+      for (const id of [A, B]) {
+        await page.route(`**/api/claims/${id}/clarifications`, route => route.fulfill({ json: {
+          items: [{ id: `question-${id}`, claim_id: id, status: 'open', fields: ['vendor'], question: `Nama toko untuk ${id}` }], total: 1
+        } }));
+      }
+      for (const path of [id => `/claims/${id}/clarification`, id => `/claims/${id}`]) {
+        await page.goto(`http://127.0.0.1:13001${path(A)}`);
+        const vendor = page.getByLabel('Nama toko', { exact: true });
+        await vendor.fill('Draft untuk klaim A');
+        await page.evaluate(href => {
+          const link = document.createElement('a'); link.href = href;
+          document.body.append(link); link.click();
+        }, path(B));
+        await page.waitForURL(`**${path(B)}`);
+        await page.getByText(`Nama toko untuk ${B}`, { exact: true }).waitFor();
+        assert.equal(await vendor.inputValue(), '');
+      }
+      for (const endpoint of endpoints) await page.unroute(endpoint);
+    });
+    for (const width of [320, 375, 414, 768, 1440]) {
+      await check(`claim pages fit viewport ${width}px`, async () => {
+        await page.setViewportSize({ width, height: 900 });
+        for (const route of ['/reviews', `/reviews/${A}`, '/admin/claims', `/claims/${A}`]) {
+          await page.goto(`http://127.0.0.1:13001${route}`);
+          await page.locator('.claim-value').first().waitFor({ state: 'attached', timeout: 4000 }).catch(async () => {
+            throw new Error(`${route}: ${await page.locator('body').innerText()}`);
+          });
+          const overflow = await page.evaluate(() => {
+            const width = document.documentElement.clientWidth;
+            return [...document.querySelectorAll('main, .panel, .table-card, .table-container, .table-wrap')]
+              .some(element => element.getBoundingClientRect().right > width + 1);
+          });
+          assert.equal(overflow, false, `${route} overflows ${width}px`);
+        }
+      });
+    }
     console.log(JSON.stringify(results, null, 2));
     process.exitCode = results.every(r => r.passed) ? 0 : 1;
   } finally { if (browser) await browser.close(); frontend.kill(); backend.close(); }

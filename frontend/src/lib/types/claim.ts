@@ -6,6 +6,13 @@
 
 export type Numeric = number | string;
 
+export interface ClaimAmount {
+	value: Numeric | null;
+	source: 'final' | 'extraction' | 'declared' | 'unavailable';
+	complete: boolean;
+	conflict: boolean;
+}
+
 export type ClaimStatus =
 	| 'received'
 	| 'processing'
@@ -35,6 +42,8 @@ export interface Claim {
 	submitted_at: string;
 	currency: string;
 	declared_amount: Numeric | null;
+	final_amount?: Numeric | null;
+	amount?: ClaimAmount | null;
 	current_decision_id: string | null;
 	created_at: string;
 	updated_at: string;

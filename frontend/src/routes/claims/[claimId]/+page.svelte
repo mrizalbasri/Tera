@@ -39,6 +39,7 @@
 	$effect(() => {
 		const id = page.params.claimId;
 		success = ''; answer = ''; busy = false;
+		confirmedFields = {};
 		if (id) void load(id);
 	});
 	async function process() {

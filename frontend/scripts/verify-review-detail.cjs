@@ -156,6 +156,27 @@ const backend = createServer((req, res) => {
       assert.deepEqual(submitted.confirmed_fields, { vendor: 'Toko Sinar Jaya', receipt_date: '2026-01-01' });
       await page.unroute(endpoint);
     });
+    await check('client navigation clears clarification values and loads the new question', async () => {
+      const endpoints = [A, B].map(id => `**/api/claims/${id}/clarifications`);
+      for (const id of [A, B]) {
+        await page.route(`**/api/claims/${id}/clarifications`, route => route.fulfill({ json: {
+          items: [{ id: `question-${id}`, claim_id: id, status: 'open', fields: ['vendor'], question: `Nama toko untuk ${id}` }], total: 1
+        } }));
+      }
+      for (const path of [id => `/claims/${id}/clarification`, id => `/claims/${id}`]) {
+        await page.goto(`http://127.0.0.1:13001${path(A)}`);
+        const vendor = page.getByLabel('Nama toko', { exact: true });
+        await vendor.fill('Draft untuk klaim A');
+        await page.evaluate(href => {
+          const link = document.createElement('a'); link.href = href;
+          document.body.append(link); link.click();
+        }, path(B));
+        await page.waitForURL(`**${path(B)}`);
+        await page.getByText(`Nama toko untuk ${B}`, { exact: true }).waitFor();
+        assert.equal(await vendor.inputValue(), '');
+      }
+      for (const endpoint of endpoints) await page.unroute(endpoint);
+    });
     for (const width of [320, 375, 414, 768, 1440]) {
       await check(`claim pages fit viewport ${width}px`, async () => {
         await page.setViewportSize({ width, height: 900 });

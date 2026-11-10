@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { answerClarification, listClarifications } from '$lib/api/claims';
@@ -13,33 +12,48 @@
 	let loading = $state(true);
 	let submitting = $state(false);
 	let error = $state('');
+	let generation = 0;
 
-	onMount(async () => {
-		const claimId = page.params.claimId;
+	async function load(claimId: string | undefined) {
 		if (!claimId) return;
+		const request = ++generation;
+		clarification = null;
+		confirmedFields = {};
+		answer = '';
+		error = '';
+		loading = true;
+		submitting = false;
 		try {
 			const response = await listClarifications(claimId);
+			if (request !== generation) return;
 			clarification = response.items.find((item) => item.status === 'open') ?? null;
 			if (!clarification) error = 'Tidak ada klarifikasi terbuka untuk klaim ini.';
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Klarifikasi tidak dapat dimuat.';
+			if (request === generation) error = cause instanceof Error ? cause.message : 'Klarifikasi tidak dapat dimuat.';
 		} finally {
-			loading = false;
+			if (request === generation) loading = false;
 		}
+	}
+
+	$effect(() => {
+		void load(page.params.claimId);
+		return () => { generation++; };
 	});
 
 	async function submit() {
 		const claimId = page.params.claimId;
 		if (!claimId || !clarification || (!structured && !answer.trim()) || submitting) return;
+		const request = generation;
 		submitting = true;
 		error = '';
 		try {
 			await answerClarification({ claimId, clarificationId: clarification.id, answer: answer.trim(), confirmedFields: structured ? confirmedFields : undefined });
+			if (request !== generation) return;
 			await goto(`/claims/${encodeURIComponent(claimId)}`);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Jawaban tidak dapat disimpan.';
+			if (request === generation) error = cause instanceof Error ? cause.message : 'Jawaban tidak dapat disimpan.';
 		} finally {
-			submitting = false;
+			if (request === generation) submitting = false;
 		}
 	}
 </script>

@@ -7,10 +7,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.user = null;
 	const protectedPage = isAdminPath(event.url.pathname) || isEmployeePath(event.url.pathname);
 	event.locals.demoMode = false;
-	if (!event.url.pathname.startsWith('/api/')) {
+	const shouldCheckSession = Boolean(token || protectedPage || event.url.pathname === '/login');
+	if (!event.url.pathname.startsWith('/api/') && shouldCheckSession) {
 		let response: Response;
 		try {
-			response = await event.fetch(`${backendUrl()}/auth/session`, { headers: token ? { cookie: `${adminCookie}=${token}` } : {} });
+			response = await event.fetch(`${backendUrl()}/auth/session`, {
+				headers: token ? { cookie: `${adminCookie}=${token}` } : {},
+				signal: AbortSignal.timeout(protectedPage ? 4000 : 1500)
+			});
 		} catch {
 			if (protectedPage) error(503, 'Layanan login belum dapat dihubungi. Coba lagi nanti.');
 			response = new Response(null, { status: 503 });

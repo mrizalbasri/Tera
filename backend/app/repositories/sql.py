@@ -201,14 +201,22 @@ class SqlRepositories:
 
     def __init__(self, database_url: str, *, initialize_schema: bool = True) -> None:
         url = make_url(database_url)
-        if url.get_backend_name() == "postgresql":
+        is_postgres = url.get_backend_name() == "postgresql"
+        if is_postgres:
             url = url.set(drivername="postgresql+psycopg")
-        self._engine = create_engine(
-            url,
-            future=True,
-            connect_args={"check_same_thread": False} if url.get_backend_name() == "sqlite" else {"connect_timeout": 5},
-            pool_pre_ping=True,
-        )
+        engine_kwargs = {
+            "future": True,
+            "connect_args": {"check_same_thread": False} if not is_postgres else {"connect_timeout": 5},
+            "pool_pre_ping": True,
+        }
+        if is_postgres:
+            # ponytail: recycle connections every 5m to avoid stale sockets on serverless proxies (Neon)
+            engine_kwargs.update({
+                "pool_size": 10,
+                "max_overflow": 20,
+                "pool_recycle": 300,
+            })
+        self._engine = create_engine(url, **engine_kwargs)
         from app.repositories.migrations import require_current, upgrade
 
         try:

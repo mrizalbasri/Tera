@@ -68,6 +68,7 @@ export const USER_MESSAGES: Record<string, string> = {
 	review_queue_changed: 'Antrean review berubah saat dimuat. Silakan muat ulang.',
 	policy_unavailable: 'Kebijakan klaim belum tersedia. Coba lagi setelah layanan pulih.',
 	provider_unavailable: 'Layanan pembaca nota (OCR) sedang tidak tersedia. Coba lagi nanti.',
+	local_ocr_unavailable: 'Pembaca nota lokal belum siap. Notamu tetap tersimpan. Hubungi pengelola Tera jika masalah berulang.',
 	provider_timeout: 'Waktu pembacaan nota habis. Notamu tetap aman, silakan coba proses lagi.',
 	provider_rate_limited: 'Layanan pembaca AI sedang menerima banyak antrean. Mohon tunggu sejenak lalu coba lagi.',
 	provider_authentication_failed: 'Autentikasi layanan OCR internal gagal. Tim teknis sedang menangani.',

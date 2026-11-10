@@ -73,8 +73,6 @@
 	let submittingAnswer = $state(false);
 	let composerError = $state<string | null>(null);
 
-	// FR-03: retry proses hanya lewat tombol (bounded, tidak otomatis)
-	let retryableClaimId = $state<string | null>(null);
 	let pendingSubmissionKey = $state<string | null>(null);
 	const submissionKeyManager = createSubmissionKeyManager();
 
@@ -180,7 +178,6 @@
 		if (!selectedFile || submitPhase !== 'idle') return;
 		composerError = null;
 		awaitingClarification = null;
-		retryableClaimId = null;
 
 		const file = selectedFile;
 		const isRetake = retakeClaimId !== null;
@@ -366,6 +363,8 @@
 	async function runProcessing(stepsId: number, claimId: string, resume = false) {
 		submitPhase = 'processing';
 		updateMessage(stepsId, {
+			stepsTitle: 'Memproses nota...',
+			actions: [],
 			steps: [
 				{ label: 'Mengunggah nota ke server', status: 'done' },
 				{ label: 'Membaca nota (OCR)', status: 'active' }
@@ -377,24 +376,19 @@
 			result = await processClaim(claimId, crypto.randomUUID(), resume);
 		} catch (error) {
 			submitPhase = 'idle';
-			retryableClaimId = claimId;
 			const message = error instanceof Error ? error.message : 'Terjadi kesalahan tak terduga.';
 			updateMessage(stepsId, {
+				claimId,
 				stepsTitle: 'Pembacaan belum selesai',
+				actions: [
+					{ label: 'Coba proses lagi', kind: 'retry-process' },
+					{ label: 'Buka detail klaim', kind: 'detail', href: `/riwayat/${claimId}` }
+				],
 				steps: [
 					{ label: 'Mengunggah nota ke server', status: 'done' },
 					{ label: 'Membaca nota (OCR)', detail: message, status: 'failed' },
 					{ label: 'Keputusan agent', status: 'skipped', detail: 'Tidak dijalankan karena pembacaan gagal.' }
 				]
-			});
-			messages.push({
-				id: nextId++,
-				from: 'agent',
-				text: `Pembacaan belum selesai: ${message}`,
-				claimId,
-				isError: true,
-				actions: [{ label: 'Coba proses lagi', kind: 'retry-process' }],
-				timestamp: formatClock()
 			});
 			scrollToBottom();
 			return;
@@ -481,20 +475,8 @@
 
 	async function retryProcess(claimId: string, actionMessageId: number) {
 		if (submitPhase !== 'idle') return;
-		submitPhase = 'processing';
-		retryableClaimId = null;
-		messages = messages.filter((m) => m.id !== actionMessageId);
-
-		const stepsId = nextId++;
-		messages.push({
-			id: stepsId,
-			from: 'agent',
-			claimRef: shortClaimRef(claimId),
-			claimId,
-			stepsTitle: 'Memproses ulang nota...',
-			steps: [{ label: 'Membaca nota (OCR)', status: 'active' }],
-			timestamp: formatClock()
-		});
+		// Retry the same card and claim; never accumulate stale failure cards.
+		const stepsId = actionMessageId;
 		scrollToBottom();
 		await runProcessing(stepsId, claimId);
 	}
@@ -605,6 +587,22 @@
 	<meta name="description" content="Upload nota dan ajukan klaim reimbursement dengan mudah menggunakan Tera." />
 </svelte:head>
 
+{#snippet messageActions(message: Message)}
+	{#if message.actions?.length}
+		<div class="message-actions">
+			{#each message.actions as action (action.label)}
+				{#if action.kind === 'detail' && action.href}
+					<a class="action-btn primary" href={action.href}>{action.label}</a>
+				{:else}
+					<button type="button" class="action-btn {action.kind === 'retry-process' ? '' : 'primary'}" onclick={() => handleAction(message, action)} disabled={isProcessing}>
+						{action.label}
+					</button>
+				{/if}
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
 <section class="chat-page">
 	<Toast />
 
@@ -668,6 +666,7 @@
 						<div class="bubble agent steps-host">
 							<AgentSteps steps={message.steps} title={message.stepsTitle ?? 'Memproses nota...'} />
 							{#if message.claimRef}<span class="claim-id">{message.claimRef}</span>{/if}
+							{@render messageActions(message)}
 							{#if message.decision}
 								<DecisionBanner decision={message.decision} />
 							{:else if message.decisionPending}
@@ -688,19 +687,7 @@
 								<p>{message.text}</p>
 							{/if}
 							{#if message.decision}<DecisionBanner decision={message.decision} />{/if}
-							{#if message.actions?.length}
-								<div class="message-actions">
-									{#each message.actions as action (action.label)}
-										{#if action.kind === 'detail' && action.href}
-											<a class="action-btn primary" href={action.href}>{action.label}</a>
-										{:else}
-											<button type="button" class="action-btn {action.kind === 'retry-process' ? '' : 'primary'}" onclick={() => handleAction(message, action)} disabled={isProcessing}>
-												{action.label}
-											</button>
-										{/if}
-									{/each}
-								</div>
-							{/if}
+							{@render messageActions(message)}
 							{#if message.claimStatus}
 								<div class="status-line">
 									<StatusBadge status={message.claimStatus} size="sm" />

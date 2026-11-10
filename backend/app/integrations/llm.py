@@ -36,7 +36,7 @@ from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_valid
 from app.config import Settings
 from app.domain.enums import ErrorClassification
 from app.errors import ApplicationError, ErrorCode, classified_error
-from app.integrations.llm_prompt import build_extraction_message
+from app.integrations.llm_prompt import build_extraction_message, build_text_extraction_message
 from app.integrations.masking import SensitiveDataMasker
 from app.integrations.mock import MockReceiptExtractor
 from app.schemas.core import (
@@ -224,6 +224,20 @@ class LlmReceiptExtractor:
             raise
         return self._to_extraction_result(receipt, output, attempt)
 
+    def extract_text(
+        self, *, receipt: Receipt, text: str,
+        declared_amount: Decimal | None, attempt: int,
+    ) -> ExtractionResult:
+        """Interpret readable OCR evidence without paying for a vision request."""
+        if self._settings.llm_image_privacy_mode == "block":
+            raise classified_error(
+                ErrorCode.IMAGE_PRIVACY_BLOCKED, ErrorClassification.NON_RETRYABLE,
+                "External receipt fallback is disabled by privacy policy.", 422,
+            )
+        message = build_text_extraction_message(self._masker, text, declared_amount)
+        output = self._invoke_message(message)
+        return self._to_extraction_result(receipt, output, attempt, provider_name="ocr-text")
+
     def fallback_extract(
         self,
         *,
@@ -265,6 +279,9 @@ class LlmReceiptExtractor:
         message = build_extraction_message(
             self._settings, self._masker, receipt, content, declared_amount
         )
+        return self._invoke_message(message)
+
+    def _invoke_message(self, message) -> LlmExtractionOutput:
         last_error: ApplicationError | None = None
         for retry in range(self._settings.llm_max_retries + 1):
             try:
@@ -325,6 +342,8 @@ class LlmReceiptExtractor:
         receipt: Receipt,
         output: LlmExtractionOutput,
         attempt: int,
+        *,
+        provider_name: str | None = None,
     ) -> ExtractionResult:
         warnings = list(output.warnings)
         uncertain_fields = _uncertain_fields(warnings)
@@ -405,7 +424,7 @@ class LlmReceiptExtractor:
                 line_items_complete=bool(output.line_items) and output.line_items_complete,
                 provider_usage=output._provider_usage,
                 provider=(
-                    f"{self.provider_name}:{self._settings.llm_model}:attempt-{attempt}"
+                    f"{provider_name or self.provider_name}:{self._settings.llm_model}:attempt-{attempt}"
                 ),
                 created_at=datetime.now(UTC),
             )

@@ -20,7 +20,10 @@ from app.api.body_limit import BodyLimitMiddleware, RequestTooLarge
 from app.config import get_settings
 from app.errors import ApplicationError
 from app.agent.runtime import close_graph_resources
-from app.api.deps import close_sql_repositories, _rag_policy_retriever, _ml_anomaly_scorer
+from app.api.deps import (
+    close_sql_repositories, _rag_policy_retriever, _ml_anomaly_scorer,
+    _local_ocr_reader, warm_receipt_ocr,
+)
 from app.integrations.rag.pgvector import close_policy_indexes
 
 logging.basicConfig(
@@ -37,6 +40,9 @@ async def lifespan(_app: FastAPI):
     worker = None
     try:
         configured = _app.dependency_overrides.get(get_settings, get_settings)()
+
+        # Local OCR is an explicit deployment dependency, never downloaded on upload.
+        warm_receipt_ocr(configured)
         if configured.environment == "production":
             try:
                 from app.api.deps import _backend, get_policy_retriever, get_anomaly_scorer
@@ -86,6 +92,7 @@ async def lifespan(_app: FastAPI):
         close_policy_indexes()
         _rag_policy_retriever.cache_clear()
         _ml_anomaly_scorer.cache_clear()
+        _local_ocr_reader.cache_clear()
 
 
 app = FastAPI(
@@ -185,6 +192,7 @@ def readiness(response: Response, configured=Depends(get_settings)):
         graph_resources(backend, configured).ready()
         get_policy_retriever(configured)
         get_anomaly_scorer(configured)
+        warm_receipt_ocr(configured)
     except Exception as exc:
         logger.warning("readiness check failed error_type=%s", type(exc).__name__)
         response.status_code = 503

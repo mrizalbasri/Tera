@@ -1,0 +1,4 @@
+# Production CPU OCR, separate from PaddleOCR benchmark dependencies.
+# RapidOCR bundles the exact ONNX models used by app.integrations.local_ocr.
+rapidocr==3.10.0
+onnxruntime==1.30.0

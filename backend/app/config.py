@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
     llm_max_retries: int = Field(default=2, ge=0, le=5)
+    receipt_extraction_mode: Literal["vision", "ocr_first"] = "vision"
+    ocr_cpu_threads: int = Field(default=2, ge=1, le=8)
+    ocr_min_confidence: float = Field(default=0.9, ge=0.8, le=1)
     provider_fallback: Literal["none", "mock"] = "none"
     # Pixel-level redaction is not attempted (unreliable without a local OCR
     # pass); "block" fails closed and routes images to the local mock instead.

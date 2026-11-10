@@ -186,6 +186,14 @@ class ExtractionService:
                     )
                     errors.append(ErrorCode.MALFORMED_EXTRACTION)
                     continue
+                except Exception as exc:
+                    logger.exception(
+                        "unexpected error during extraction for receipt %s: %s",
+                        receipt.id,
+                        type(exc).__name__,
+                    )
+                    errors.append(ErrorCode.MALFORMED_EXTRACTION)
+                    continue
                 attempt_results.append(result)
 
             if errors:

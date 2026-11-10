@@ -13,6 +13,28 @@ on:
       - ".github/workflows/backend-tests.yml"
 
 jobs:
+  container-smoke:
+    name: Container OCR smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the production image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          load: true
+          push: false
+          tags: tera-backend:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Verify container OCR without network access
+        run: docker run --rm --network none --entrypoint python tera-backend:smoke -m scripts.verify_local_ocr
+
   pytest:
     runs-on: ubuntu-latest
     permissions:

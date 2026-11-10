@@ -1,0 +1,191 @@
+name: Tera CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tera-ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg18
+        env:
+          POSTGRES_USER: tera_test
+          POSTGRES_PASSWORD: test_only
+          POSTGRES_DB: postgres
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U tera_test -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_URL: postgresql+psycopg://tera_test:test_only@127.0.0.1:5432/postgres
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install -r requirements-local-ocr.txt
+      - name: Verify bundled local OCR inference
+        run: python -m scripts.verify_local_ocr
+      - name: Run test suite
+        run: python -m pytest -q --cov=app --cov-branch --cov-report=term-missing --cov-report=xml:coverage.xml
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() && hashFiles('backend/coverage.xml') != '' }}
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        with:
+          use_oidc: true
+          files: backend/coverage.xml
+          disable_search: true
+          flags: backend
+          fail_ci_if_error: true
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:coverage
+      - name: Upload frontend coverage to Codecov
+        if: ${{ !cancelled() && hashFiles('frontend/coverage/lcov.info') != '' }}
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        with:
+          use_oidc: true
+          files: frontend/coverage/lcov.info
+          disable_search: true
+          flags: frontend
+          fail_ci_if_error: true
+      - run: pnpm check
+      - run: pnpm build
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Run browser verification test
+        run: pnpm run test:browser
+
+  container-smoke:
+    name: Container OCR smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the production image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          load: true
+          push: false
+          tags: tera-backend:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Verify container OCR without network access
+        run: docker run --rm --network none --entrypoint python tera-backend:smoke -m scripts.verify_local_ocr
+
+  publish:
+    name: Push Docker image
+    needs: [backend, frontend, container-smoke]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      image: mrizal23/tera-backend@${{ steps.image.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: mrizal23
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: mrizal23/tera-backend
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=,format=short
+      - name: Build and push the validated source revision
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy Azure and verify readiness
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_IMAGE: ${{ needs.publish.outputs.image }}
+    steps:
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Deploy the exact published image
+        shell: bash
+        run: |
+          az containerapp update \
+            --name tera-backend \
+            --resource-group rg-group \
+            --image "$APP_IMAGE" \
+            --revision-suffix "sha-${GITHUB_SHA:0:7}" \
+            --set-env-vars RECEIPT_EXTRACTION_MODE=ocr_first OCR_CPU_THREADS=2 OCR_MIN_CONFIDENCE=0.9 \
+            --output none
+      - name: Verify new revision and public backend readiness
+        shell: bash
+        run: |
+          REVISION="tera-backend--sha-${GITHUB_SHA:0:7}"
+          REVISION_HOST=$(az containerapp revision show --name tera-backend --resource-group rg-group \
+            --revision "$REVISION" --query properties.fqdn -o tsv)
+          HOST=$(az containerapp show --name tera-backend --resource-group rg-group \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          test -n "$REVISION_HOST"
+          for TARGET in "$REVISION_HOST" "$HOST"; do
+            curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 10 \
+              --connect-timeout 10 --max-time 30 "https://${TARGET}/health/ready"
+          done
